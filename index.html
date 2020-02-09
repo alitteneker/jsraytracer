@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+    <link rel="icon" href="assets/fav.ico">
+    <head>
+        <meta charset="UTF-8"/>
+        
+        <title>Ray Tracer</title>
+
+        <script src= "src/raytrace_launcher.js" ></script>
+    </head>
+    <body>
+        
+        <label for="test-select">Select a test:</label>
+        <select id="test-select">
+            <option value="">--Select--</option>
+        </select>
+        <button id="render-button" type="button">Start Render</button>
+        <button id="stop-button" type="button">Stop Render</button>
+        <img id="loading-img" src="assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
+
+        <hr>
+
+        <div class="canvas-widget">
+            <p>Rendered:</p>
+            <canvas id="main-canvas"></canvas>
+        </div>
+
+        <hr>
+        <div>
+            <p>Expected:</p>
+            <img id="expected-img"></img>
+        </div>
+    </body>
+</html>
