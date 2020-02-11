@@ -1,5 +1,8 @@
-// Much of this file was adapted from code written by Garett Ridge for the library tiny-graphics.js
+Number.prototype.clamp = function(min, max) {
+  return Math.min(Math.max(this, min), max);
+};
 
+// Much of this file was adapted from code written by Garett Ridge for the library tiny-graphics.js
 class Vec extends Float32Array {
     copy() {
         return Vec.from(this)

@@ -38,6 +38,20 @@ function quickSelectStep(arr, k, left=0, right=arr.length-1, compare=defaultComp
     }
 }
 
+function quickSelect(arr, k) {
+    quickSelectStep(arr, k);
+    return arr[k];
+}
+
+function median(arr) {
+    if (arr.length == 0)
+        return NaN;
+    const len2 = Math.floor(arr.length / 2);
+    if (arr.length % 2 == 1)
+        return quickSelect(arr, len2);
+    return (quickSelect(arr, len2) + quickSelect(arr, len2 + 1)) / 2;
+}
+
 function swap(arr, i, j) {
     var tmp = arr[i];
     arr[i] = arr[j];
@@ -60,37 +74,26 @@ class BSPScene extends Scene {
     }
 }
 
-function quickSelect(arr, k) {
-    quickSelectStep(arr, k);
-    return arr[k];
-}
-
 class BSPSceneTreeNode {
     constructor(objects, depth=0) {
         this.depth = depth;
         
         const split = BSPSceneTreeNode.split_objects(objects);
-        this.sep_axis = split.sep_axis;
-        this.sep_value = split.sep_value;
-        this.spanning_objects = split.spanning_objs;
-        if (this.sep_axis >= 0) {
+        if (split) {
+            this.sep_axis = split.sep_axis;
+            this.sep_value = split.sep_value;
+            this.spanning_objects = split.spanning_objs;
             this.greater_node = new BSPSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1);
             this.lesser_node = new BSPSceneTreeNode(split.lesser_objs.concat(split.spanning_objs), depth+1);
         }
+        else {
+            this.sep_axis = -1;
+            this.spanning_objects = objects;
+        }
     }
     static split_objects(objects) {
-        const ret = {
-            sep_axis: -1,
-            sep_value: Infinity,
-            greater_objs: [],
-            lesser_objs: [],
-            spanning_objs: []
-        }
-
-        if (objects.length < 2) {
-            ret.spanning_objs = objects;
-            return ret;
-        }
+        if (objects.length < 2)
+            return null;
 
         let best_axis = -1,
             best_sep_value = Infinity,
@@ -98,10 +101,8 @@ class BSPSceneTreeNode {
             best_greater_objs = [],
             best_spanning_objects = new Array(objects.length + 1);
         for (let i = 0; i < 3; ++i) {
-            const bounds = objects.map(o => [o.getBoundingBox().min[i],
-                o.getBoundingBox().max[i]]).flat();
-            const axis_median = (quickSelect(bounds, objects.length - 1)
-                + quickSelect(bounds, objects.length)) / 2;
+            const axis_median = median(objects.map(o => [o.getBoundingBox().min[i], o.getBoundingBox().max[i]]).flat());
+            
             let lesser_objs = [], greater_objs = [], spanning_objects = [];
             for (let o of objects) {
                 const obb = o.getBoundingBox();
@@ -122,17 +123,16 @@ class BSPSceneTreeNode {
         }
 
         if (best_spanning_objects.length + best_lesser_objs.length == objects.length
-            || best_spanning_objects.length + best_greater_objs.length == objects.length) {
-                ret.spanning_objs = objects;
-                return ret;
-            }
+            || best_spanning_objects.length + best_greater_objs.length == objects.length)
+                return null;
 
-        ret.sep_axis = best_axis;
-        ret.sep_value = best_sep_value;
-        ret.lesser_objs = best_lesser_objs;
-        ret.greater_objs = best_greater_objs;
-        ret.spanning_objs = best_spanning_objects;
-        return ret;
+        return {
+            sep_axis: best_axis,
+            sep_value: best_sep_value,
+            lesser_objs: best_lesser_objs,
+            greater_objs: best_greater_objs,
+            spanning_objs: best_spanning_objects
+        };
     }
     cast(ray, ret, minDist, maxDist, minBound=minDist, maxBound=maxDist) {
         if (minDist > maxDist)
@@ -185,9 +185,9 @@ class BVHScene extends Scene {
         return ret;
     }
 }
-class BVHSceneTreeNode extends BSPSceneTreeNode {
-    constructor(objects=[], depth=0, parentAABB=new AABB()) {
-        super([], depth);
+class BVHSceneTreeNode {
+    constructor(objects=[], depth=0) {
+        this.depth = depth;
 
         this.infinite_objects = [];
         for (let i = 0; i < objects.length; ++i) {
@@ -200,21 +200,30 @@ class BVHSceneTreeNode extends BSPSceneTreeNode {
         }
         
         const split = BSPSceneTreeNode.split_objects(objects);
-        this.sep_axis = split.sep_axis;
-        this.sep_value = split.sep_value;
-        this.spanning_objects = split.spanning_objs;
+        if (split) {
+            this.sep_axis = split.sep_axis;
+            this.sep_value = split.sep_value;
+            this.spanning_objects = split.spanning_objs;
 
-        // TODO: constrain AABBs to 
-        if (split.sep_axis >=0) {
-            this.greater_node = new BVHSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1);
-            this.lesser_node = new BVHSceneTreeNode(split.lesser_objs.concat(split.spanning_objs), depth+1);
-            this.aabb = AABB.fromAABBs([this.greater_node.aabb, this.lesser_node.aabb]);
+            for (let o of this.spanning_objects) {
+                if (o.getBoundingBox().center[this.sep_axis] > this.sep_value)
+                    split.greater_objs.push(o);
+                else
+                    split.lesser_objs.push(o);
+            }
+
+            this.greater_node = new BVHSceneTreeNode(split.greater_objs, depth+1);
+            this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs, depth+1);
+            this.aabb = AABB.hull([this.greater_node.aabb, this.lesser_node.aabb]);
         }
-        else
-            this.aabb = AABB.fromAABBs(this.spanning_objects.map(o => o.getBoundingBox()));
-        /*if (this.sep_axis < 0)
-            this.spanning_objects.push(new SceneObject(this.aabb,
-                new TransparentMaterial(Vec.random(3), 0.2)));*/
+        else {
+            this.sep_axis = -1;
+            this.spanning_objects = objects;
+            this.aabb = AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()));
+        }
+//         if (this.sep_axis < 0)
+//             this.spanning_objects.push(new SceneObject(this.aabb,
+//                 new TransparentMaterial(Vec.random(3), 0.2)));
     }
     cast(ray, ret, minDist, maxDist, minBound=minDist, maxBound=maxDist) {
         const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist), epsilon = 0.0000001;
@@ -236,8 +245,8 @@ class BVHSceneTreeNode extends BSPSceneTreeNode {
                 }
             }
             if (this.sep_axis >= 0) {
-                minBound = Math.max(minBound, aabb_ts.min);
-                maxBound = Math.min(maxBound, aabb_ts.max, ret.distance);
+                minBound = aabb_ts ? Math.max(minBound, aabb_ts.min) : minBound;
+                maxBound = aabb_ts ? Math.min(maxBound, aabb_ts.max, ret.distance) : maxBound;
                 this.greater_node.cast(ray, ret, minDist, maxDist, minBound, maxBound);
                 this.lesser_node. cast(ray, ret, minDist, maxDist, minBound, maxBound);
             }

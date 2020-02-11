@@ -22,7 +22,16 @@ class AABB extends Geometry {
         this.max = max;
     }
     static fromMinMax(min, max) {
-        return new AABB(min.mix(max, 0.5), max.minus(min).times(0.5), min, max);
+        const center = min.mix(max, 0.5), half_size = max.minus(min).times(0.5);
+        for (let i = 0; i < 3; ++i) {
+            if (!isFinite(min[i]) && !isFinite(max[i])) {
+                if (min[i] == max[i])
+                    half_size[i] = 0;
+                if (min[i] == -Infinity && max[i] == Infinity)
+                    center[i] = 0;
+            }
+        }
+        return new AABB(center, half_size, min, max);
     }
     static fromPoints(points) {
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
@@ -37,7 +46,7 @@ class AABB extends Geometry {
         }
         return AABB.fromMinMax(min, max);
     }
-    static fromAABBs(boxes) {
+    static hull(boxes) {
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
             max = Vec.of(-Infinity, -Infinity, -Infinity, 1);
         for (let b of boxes) {
@@ -49,6 +58,24 @@ class AABB extends Geometry {
             }
         }
         return AABB.fromMinMax(min, max);
+    }
+    static intersection(boxes) {
+        let min = Vec.of(-Infinity, -Infinity, -Infinity, 1),
+            max = Vec.of( Infinity,  Infinity,  Infinity, 1);
+        for (let b of boxes) {
+            for (let i = 0; i < 3; ++i) {
+                if (b.min[i] > min[i])
+                    min[i] = b.min[i];
+                if (b.max[i] < max[i])
+                    max[i] = b.max[i];
+            }
+        }
+        return AABB.fromMinMax(min, max);
+    }
+    static infinite() {
+        return AABB.fromMinMax(
+            Vec.of(-Infinity, -Infinity, -Infinity, 1),
+            Vec.of( Infinity,  Infinity,  Infinity, 1));
     }
     getCorners() {
         const a = this.min, b = this.max;

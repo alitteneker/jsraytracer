@@ -2,7 +2,6 @@
 
 document.addEventListener("DOMContentLoaded", function(event) {
 
-    const expected = document.querySelector("#expected-img");
     const loading = document.querySelector("#loading-img");
 
     const canvas = document.querySelector("#main-canvas");
@@ -18,17 +17,14 @@ document.addEventListener("DOMContentLoaded", function(event) {
         }
     });
 
+    const worker_selector = document.querySelector("#workers-count");
+
     // Do some initial setup for our workers.
-    const workerCount = 4;
     let activeWorkerCount = 0, startTime;
-    let workers = Array(workerCount).fill(null);
+    let workers = [];
     
     // Construct a canvas and a context to store the result from each 
     let tempcanvas = [], tempcontext = [];
-    for (let i = 0; i < workerCount; ++i) {
-        tempcanvas.push(document.createElement('canvas'));
-        tempcontext.push(tempcanvas[i].getContext("2d"));
-    }
 
     document.querySelector("#render-button").addEventListener("click", function onClick(e) {
 
@@ -38,17 +34,23 @@ document.addEventListener("DOMContentLoaded", function(event) {
         // Stop here if no valid test is selected.
         if (select.value === "")
             return;
+
+        const workerCount = Number.parseInt(worker_selector.value);
+        activeWorkerCount = workerCount;
+
+        for (let i = tempcanvas.length; i < workerCount; ++i) {
+            tempcanvas.push(document.createElement('canvas'));
+            tempcontext.push(tempcanvas[i].getContext("2d"));
+        }
         
         // Start the test!
         const testpath = select.value;
-        expected.src = testpath + "/expected.png";
         loading.style.visibility = "visible";
 
         context.clearRect(0, 0, canvas.width, canvas.height);
 
         console.log("Starting render for " + testpath + " with " + workerCount + " workers.");
 
-        activeWorkerCount = workerCount;
         startTime = Date.now();
         
         for (let i = 0; i < workerCount; ++i) {
@@ -65,9 +67,10 @@ document.addEventListener("DOMContentLoaded", function(event) {
                     if (--activeWorkerCount === 0) {
                         console.log("All workers finished in " + ((Date.now() - startTime)/1000) + " seconds!")
                         loading.style.visibility = "hidden";
+                        workers = [];
                     }
                 }
-                else {
+                else {                    
                     canvas.width = tempcanvas[e.data[1]].width = e.data[0].width;
                     canvas.height = tempcanvas[e.data[1]].height = e.data[0].height;
 
@@ -86,12 +89,13 @@ document.addEventListener("DOMContentLoaded", function(event) {
     });
 
     function stopWorkers() {
-        loading.style.visibility = "hidden";
-        for (let i = 0; i < workerCount; ++i) {
+        for (let i = 0; i < workers.length; ++i) {
             if (workers[i]) {
                 workers[i].terminate();
                 workers[i] = null;
             }
         }
+        workers = [];
+        loading.style.visibility = "hidden";
     }
 });
