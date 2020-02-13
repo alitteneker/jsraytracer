@@ -1,3 +1,55 @@
+// MaterialColor is for specifying a simple color, either solid, textured, or whatever.
+class MaterialColor {
+    static coerce(baseColor, mc) {
+        if (baseColor && !mc) {
+            mc = baseColor;
+            baseColor = null;
+        }
+        if (mc instanceof MaterialColor)
+            return mc;
+        if (mc instanceof Vec)
+            return new SolidMaterialColor(mc);
+        if (typeof mc === "number")
+            return new ScaledMaterialColor(MaterialColor.coerce(baseColor), mc);
+        throw "Type provided that cannot be coerced to MaterialColor";
+    }
+    color(data) {
+        throw 'MaterialColor subclass has not implemented color';
+    }
+}
+class SolidMaterialColor extends MaterialColor {
+    constructor(color) {
+        super();
+        this._color = color;
+    }
+    color(data) {
+        return this._color;
+    }
+}
+class ScaledMaterialColor extends MaterialColor {
+    constructor(mc, scale) {
+        super();
+        this._mc = MaterialColor.coerce(mc);
+        this._scale = scale;
+    }
+    color(data) {
+        return this._mc.color(data).times(this._scale);
+    }
+}
+
+class CheckerboardMaterialColor extends MaterialColor {
+    constructor(color1, color2) {
+        super();
+        this.color1 = MaterialColor.coerce(color1);
+        this.color2 = MaterialColor.coerce(color2);
+    }
+    color(data) {
+        return (Math.fmod(Math.floor(data.UV[0]) + Math.floor(data.UV[1]), 2) % 2 < 1)
+            ? this.color1.color(data) : this.color2.color(data);
+    }
+}
+
+// Materials color an object, and can take as parameters MaterialColors
 class Material {
     color(data, scene, recursionDepth) {
         throw "Material subclass has not implemented color";
@@ -8,49 +60,62 @@ class Material {
 class SolidColorMaterial extends Material {
     constructor(color) {
         super();
-        this._color = color;
+        this._color = MaterialColor.coerce(color);
     }
     color(data, scene, recursionDepth) {
-        return this._color;
+        return this._color.color(data);
     }
 }
 
-// no lighting, no shadows, no reflections, just a solid color
+// transparent material, will still cast a shadow unless the 
 class TransparentMaterial extends Material {
     constructor(color, opacity) {
         super();
-        this._color = color;
+        this._color = MaterialColor.coerce(color);
         this._opacity = opacity;
     }
     color(data, scene, recursionDepth) {
-        return this._color.times(this._opacity).plus(
+        return this._color.color(data).times(this._opacity).plus(
             scene.color(new Ray(data.position, data.ray.direction),
                 recursionDepth, 0.0001).times(1-this._opacity));
+    }
+}
+
+// Material modifier that sets UV coordinates in the data based on position
+class PositionalUVMaterial extends Material {
+    constructor(baseMaterial, origin=Vec.of(0,0,0), u_axis=Vec.of(1,0,0), v_axis=Vec.of(0,0,1)) {
+        super();
+        this.baseMaterial = baseMaterial;
+        this.origin = origin;
+        this.u_axis = u_axis;
+        this.v_axis = v_axis;
+    }
+    color(data, scene, recursionDepth) {
+        const delta = this.origin.minus(data.position);
+        data.UV = Vec.of(this.u_axis.dot(delta), this.v_axis.dot(delta));
+        return this.baseMaterial.color(data, scene, recursionDepth);
     }
 }
 
 class PhongMaterial extends Material {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=5, reflectivity=0) {
         super();
-        this.white = Vec.of(1, 1, 1);
-        this.baseColor = baseColor;
-        this.ambient = ambient;
-        this.diffusivity = diffusivity;
-        this.specularity = specularity;
-        this.smoothness = smoothness;
-        this.reflectivity = reflectivity;
+        this.baseColor    = MaterialColor.coerce(baseColor);
+        this.ambient      = MaterialColor.coerce(this.baseColor, ambient);
+        this.diffusivity  = MaterialColor.coerce(this.baseColor, diffusivity);
+        this.specularity  = MaterialColor.coerce(Vec.of(1,1,1), specularity);
+        this.reflectivity = MaterialColor.coerce(Vec.of(1,1,1), reflectivity);
+        this.smoothness   = smoothness;
     }
     color(data, scene, recursionDepth) {
 
         // ambient component
-        let surfaceColor = this.baseColor.times(this.ambient);
+        let surfaceColor = this.ambient.color(data);
         const N = data.normal.normalized();
         const V = data.ray.direction.normalized().times(-1);
         const R = N.times(2 * N.dot(V)).minus(V).normalized();
         
-        // TODO: It would be cool if we could refactor this so that this same material could
-        // support a variety of complex light types (eg. spotlight, area, etc.) generically.
-        // Can we design that in a way that allows for scalable levels of sampling?
+        // compute contribution from each light in the scene
         for (let l of scene.lights) {
             let light_sample = l.sample(data.position);
 
@@ -59,7 +124,7 @@ class PhongMaterial extends Material {
             if (shadowDist < 1)
                 continue;
             
-            // diffuse & specular: TODO
+            // diffuse & specular
             const L = light_sample.direction.normalized();
             // const H = L.minus(data.ray.direction.normalized()).normalized();
             
@@ -67,27 +132,24 @@ class PhongMaterial extends Material {
             const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
 
             surfaceColor = surfaceColor
-                .plus(light_sample.color.mult_pairs(this.baseColor.times(   this.diffusivity * diffuse)))
-                .plus(light_sample.color.times(                             this.specularity * specular));
+                .plus(light_sample.color.mult_pairs(this.diffusivity.color(data).times(diffuse )))
+                .plus(light_sample.color.mult_pairs(this.specularity.color(data).times(specular)));
         }
 
         // reflection
-        let reflectedColor = Vec.of(0, 0, 0);
-        if (this.reflectivity != 0 && N.dot(data.ray.direction) < 0)
-            reflectedColor = scene.color(
-                new Ray(data.position, R),
-                recursionDepth, 0.0001);
+        const reflectivity = this.reflectivity.color(data);
+        if (reflectivity != 0 && N.dot(data.ray.direction) < 0) {
+            surfaceColor = surfaceColor.plus(
+                scene.color(new Ray(data.position, R), recursionDepth, 0.0001).mult_pairs(reflectivity));
+        }
 
-        // TODO: refraction, we would have to pack current refractive index the ray data
+        // TODO: refraction, we would have to pack current refractive index in ray data
         // const r = n1/n2, c = -N.dot(data.ray.direction);
         // const refractedColor = scene.color(
         //     ray.direction.times(r).plus(N.times(r * c - Math.sqrt(1 - r * r * ( 1 - c * c )))),
         //     recursionDepth
         // );
         
-        return surfaceColor.plus(
-            reflectedColor.times(this.reflectivity)
-//          .plus(refractedColor.times(this.refractivity))
-        );
+        return surfaceColor;
     }
 }

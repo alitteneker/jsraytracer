@@ -1,5 +1,5 @@
 class SimpleRenderer {
-    constructor(scene, camera, maxRecursionDepth=1) {
+    constructor(scene, camera, maxRecursionDepth=3) {
         this.scene = scene;
         this.camera = camera;
         this.maxRecursionDepth = maxRecursionDepth;
@@ -7,12 +7,11 @@ class SimpleRenderer {
     render(img, timelimit=0, callback=false, x_offset = 0, x_delt = 1) {
         const img_width = img.width(),
             img_height = img.height(),
-            pixel_width = 1 / img_width,
-            pixel_height = 1 / img_height;
+            pixel_width = 2 / img_width,
+            pixel_height = 2 / img_height;
         
         let timeCounter = 0,
             lastTime = Date.now();
-
         
         for (let px = x_offset; px < img_width; px += x_delt) {
             let x = 2 * (px / img_width) - 1;
@@ -39,5 +38,20 @@ class SimpleRenderer {
     }
 }
 
-// TODO add GridMultisamplingRenderer(scene, maxRecursionDepth, samplesPerPixel)
-// TODO add RandomMultisamplingRenderer(scene, maxRecursionDepth, samplesPerPixel)
+class RandomMultisamplingRenderer extends SimpleRenderer {
+    constructor(scene, camera, samplesPerPixel, maxRecursionDepth=3) {
+        super(scene, camera, maxRecursionDepth);
+        this.samplesPerPixel = samplesPerPixel;
+    }
+    colorPixel(x, y, pixel_width, pixel_height) {
+        let color = Vec.of(0, 0, 0);
+        for (let i = 0; i < this.samplesPerPixel; ++i) {
+            color = color.plus(this.scene.color(
+                this.camera.getRayForPixel(
+                    x + pixel_width  * (Math.random() - 0.5),
+                    y + pixel_height * (Math.random() - 0.5)),
+                this.maxRecursionDepth).times(1 / this.samplesPerPixel));
+        }
+        return color;
+    }
+}

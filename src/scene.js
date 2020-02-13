@@ -4,10 +4,10 @@ class Scene {
         this.objects = objects;
         this.lights = lights;
     }
-    cast(ray, minDistance = 0, maxDistance = Infinity) {
+    cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
         let closestDist = Infinity, closestObj = null;
         for (let o of this.objects) {
-            let distance = o.intersect(ray, minDistance, maxDistance);
+            let distance = o.intersect(ray, minDistance, maxDistance, intersectTransparent);
             if (distance > minDistance && distance < closestDist && distance < maxDistance) {
                 closestDist = distance;
                 closestObj = o;

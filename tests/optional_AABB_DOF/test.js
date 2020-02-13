@@ -1,10 +1,11 @@
 function configureTest(callback) {
 
-    const camera = new PerspectiveCamera(Math.PI / 4, 1,
+    const camera = new DepthOfFieldPerspectiveCamera(Math.PI / 4, 1,
         Mat4.identity()
             .times(Mat4.translation([-6, 1, 0]))
             .times(Mat4.rotation(-0.6, Vec.of(0,1,0)))
-            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));
+            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))),
+        9.2, 0.2);
 
     const lights = [new SimplePointLight(
         Vec.of(10, 7, 10, 1),

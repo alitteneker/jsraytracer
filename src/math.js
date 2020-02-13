@@ -1,6 +1,4 @@
-Number.prototype.clamp = function(min, max) {
-  return Math.min(Math.max(this, min), max);
-};
+Math.fmod = function (a,b) { return Number((a - (Math.floor(a / b) * b)).toPrecision(8)); };
 
 // Much of this file was adapted from code written by Garett Ridge for the library tiny-graphics.js
 class Vec extends Float32Array {
@@ -11,6 +9,11 @@ class Vec extends Float32Array {
         const ret = Vec.from(Array(dim).fill(0));
         ret[axis] = dir;
         return ret;
+    }
+    static circlePick() {
+        const a = Math.random() * 2 * Math.PI,
+            r = Math.sqrt(Math.random());
+        return Vec.of(r * Math.cos(a), r * Math.cos(a));
     }
     equals(b) {
         return this.every((x, i) => x == b[i])

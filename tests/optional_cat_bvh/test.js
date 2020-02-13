@@ -2,15 +2,14 @@ function configureTest(callback) {
 
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         Mat4.identity());
-    const scene = new BSPScene();
 
-    scene.addLight(new SimplePointLight(
+    const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
         Vec.of(1, 1, 1)       
-    ));
-//     scene.addObject(new SceneObject(
-//         new Plane(Vec.of(0, 1, 0, 0), -1.5),
-//         new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100)));
+    )];
+    const objs = [new SceneObject(
+        new Plane(Vec.of(0, 1, 0, 0), -1.5),
+        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100))];
 
     loadObjFile(
         "../assets/cat.obj",
@@ -23,10 +22,8 @@ function configureTest(callback) {
 //             .times(Mat4.scale(0.05)),
 
         function(triangles) {
-            scene.addObjects(triangles);
-
             callback({
-                renderer: new SimpleRenderer(scene, camera, 4),
+                renderer: new SimpleRenderer(new BVHScene(triangles.concat(objs), lights), camera, 4),
                 width: 600,
                 height: 600
             });

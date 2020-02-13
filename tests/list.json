@@ -1,18 +1,9 @@
 [
-    "4a_cube_shadow",
-    "4b_double_shadow",
-    "4c_self_shadow",
-    "",
-    "5a_cube_reflection",
     "5b_cylinder_reflection",
-    "5c_parallel_reflection",
-    "",
+    "optional_AABB",
+    "optional_AABB_DOF",
     "optional_utah_teapot",
-    "optional_heart",
-    "optional_heart_bsp",
-    "optional_cat_bsp",
-    "optional_bunny_bsp",
+    "optional_cat_bvh",
     "optional_heart_bvh",
-    "optional_bunny_bvh",
-    "optional_AABB"
+    "optional_bunny_bvh"
 ]
