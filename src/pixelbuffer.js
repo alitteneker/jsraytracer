@@ -34,7 +34,7 @@ class PixelBuffer {
     }
     getColor(x, y) {
         const r = this.coord(x, y);
-        return Color.from([0, 1, 2, 3].map(i => this.imgdata[r + i] / 255));
+        return Vec.from([0, 1, 2, 3].map(i => this.imgdata.data[r + i] / 255));
     }
     setColor(x, y, color) {
         const r = this.coord(x, y);

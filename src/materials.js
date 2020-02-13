@@ -115,7 +115,7 @@ class PhongMaterial extends Material {
         const V = data.ray.direction.normalized().times(-1);
         const R = N.times(2 * N.dot(V)).minus(V).normalized();
         
-        // compute contribution from each light in the scene
+        // compute contribution from each light in the scene on this fragment
         for (let l of scene.lights) {
             let light_sample = l.sample(data.position);
 

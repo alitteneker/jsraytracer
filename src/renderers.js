@@ -18,7 +18,7 @@ class SimpleRenderer {
             for (let py = 0; py < img_height; ++py) {
                 
                 let y = -2 * (py / img_height) + 1;
-                img.setColor(px, py, this.colorPixel(x, y, pixel_width, pixel_height));
+                img.setColor(px, py, this.getPixelColor(x, y, pixel_width, pixel_height));
 
                 if (timelimit && callback) {
                     let currentTime = Date.now();
@@ -33,7 +33,7 @@ class SimpleRenderer {
         }
         return img;
     }
-    colorPixel(x, y, pixel_width, pixel_height) {
+    getPixelColor(x, y, pixel_width, pixel_height) {
         return this.scene.color(this.camera.getRayForPixel(x, y), this.maxRecursionDepth);
     }
 }
@@ -43,7 +43,7 @@ class RandomMultisamplingRenderer extends SimpleRenderer {
         super(scene, camera, maxRecursionDepth);
         this.samplesPerPixel = samplesPerPixel;
     }
-    colorPixel(x, y, pixel_width, pixel_height) {
+    getPixelColor(x, y, pixel_width, pixel_height) {
         let color = Vec.of(0, 0, 0);
         for (let i = 0; i < this.samplesPerPixel; ++i) {
             color = color.plus(this.scene.color(
@@ -53,5 +53,48 @@ class RandomMultisamplingRenderer extends SimpleRenderer {
                 this.maxRecursionDepth).times(1 / this.samplesPerPixel));
         }
         return color;
+    }
+}
+
+class IncrementalMultisamplingRenderer extends SimpleRenderer {
+    constructor(scene, camera, samplesPerPixel, maxRecursionDepth=3) {
+        super(scene, camera, maxRecursionDepth);
+        this.samplesPerPixel = samplesPerPixel;
+    }
+    render(img, timelimit=0, callback=false, x_offset = 0, x_delt = 1) {
+        const img_width = img.width(),
+            img_height = img.height(),
+            pixel_width = 2 / img_width,
+            pixel_height = 2 / img_height;
+        
+        let timeCounter = 0,
+            lastTime = Date.now();
+        
+        for (let iter = 0; iter < this.samplesPerPixel; ++iter) {
+            for (let px = x_offset; px < img_width; px += x_delt) {
+                const x = 2 * (px / img_width) - 1;
+                for (let py = 0; py < img_height; ++py) {
+
+                    const y = -2 * (py / img_height) + 1;
+                    img.setColor(px, py,
+                        img.getColor(px, py).mix(
+                            this.getPixelColor(
+                                x + pixel_width  * (Math.random() - 0.5),
+                                y + pixel_height * (Math.random() - 0.5),
+                                pixel_width, pixel_height).to4(true), 1/(iter + 1)));
+
+                    if (timelimit && callback) {
+                        let currentTime = Date.now();
+                        timeCounter += currentTime - lastTime;
+                        lastTime = currentTime;
+                        if (timeCounter >= timelimit) {
+                            timeCounter = 0;
+                            callback();
+                        }
+                    }
+                }
+            }
+        }
+        return img;
     }
 }
