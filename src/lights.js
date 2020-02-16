@@ -3,8 +3,8 @@
 // the the given position to this light source, and the color it would have. See 
 // SimplePointLight below for an example.
 class Light {
-    sample(position) {
-        throw "Light subclass has not implemented sample";
+    sampleIterator(position) {
+        throw "Light subclass has not implemented sampleIterator";
     }
 }
 
@@ -15,10 +15,44 @@ class SimplePointLight extends Light {
         this.position = position;
         this.color = color;
     }
-    sample(sample_position) {
-        return {
+    *sampleIterator(sample_position) {
+        yield {
             direction: this.position.minus(sample_position),
             color: this.color
         };
+    }
+}
+
+class LightArea {
+    sample() {
+        throw "LightArea subclass has not implemented sample";
+    }
+}
+class SquareLightArea extends LightArea {
+    constructor(transform) {
+        super();
+        this.transform = transform;
+    }
+    sample() {
+        return this.transform.times(Vec.of(
+            2 * (Math.random() - 0.5),
+            2 * (Math.random() - 0.5),
+            0, 1));
+    }
+}
+class RandomSampleAreaLight extends Light {
+    constructor(area, color, samples=1) {
+        super();
+        this.area = area;
+        this.color = color;
+        this.samples = samples;
+    }
+    *sampleIterator(sample_position) {
+        for (let i = 0; i < this.samples; ++i) {
+            yield {
+                direction: this.area.sample().minus(sample_position),
+                color: this.color
+            };
+        }
     }
 }

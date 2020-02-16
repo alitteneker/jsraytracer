@@ -131,6 +131,8 @@ class AABB extends Geometry {
                 norm[i] = Math.sign(comp);
             }
         }
+        if (norm.dot(ray.direction) > 0)
+            norm = normal.times(-1);
         return Object.assign(base_data, { normal: norm });
     }
     getTransformed(transform) {
@@ -161,7 +163,10 @@ class Plane extends Geometry {
         return (denom != 0) ? (this.delta - this.normal.dot(ray.origin)) / denom : -Infinity;
     }
     materialData(ray, scalar, base_data) {
-        return Object.assign(base_data, { normal: this.normal });
+        let normal = this.normal;
+        if (normal.dot(ray.direction) > 0)
+            normal = normal.times(-1);
+        return Object.assign(base_data, { normal: normal });
     }
     getBoundingBox() {
         let s = Vec.of(Infinity, Infinity, Infinity, 0);

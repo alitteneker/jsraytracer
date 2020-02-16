@@ -1,3 +1,5 @@
+"use strict";
+
 importScripts(
     'math.js',
     'scene.js',

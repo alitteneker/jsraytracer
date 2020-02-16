@@ -1,7 +1,7 @@
 // MaterialColor is for specifying a simple color, either solid, textured, or whatever.
 class MaterialColor {
     static coerce(baseColor, mc) {
-        if (baseColor && !mc) {
+        if (baseColor !== undefined && mc === undefined) {
             mc = baseColor;
             baseColor = null;
         }
@@ -117,28 +117,34 @@ class PhongMaterial extends Material {
         
         // compute contribution from each light in the scene on this fragment
         for (let l of scene.lights) {
-            let light_sample = l.sample(data.position);
+            let light_sample_count = 0,
+                light_color = Vec.of(0,0,0);
+            for (const light_sample of l.sampleIterator(data.position)) {
+                ++light_sample_count;
 
-            // test whether this light source is shadowed
-            const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1).distance;
-            if (shadowDist < 1)
-                continue;
-            
-            // diffuse & specular
-            const L = light_sample.direction.normalized();
-            // const H = L.minus(data.ray.direction.normalized()).normalized();
-            
-            const diffuse  =          Math.max(L.dot(N), 0);
-            const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
+                // test whether this light source is shadowed
+                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1).distance;
+                if (shadowDist < 1)
+                    continue;
 
-            surfaceColor = surfaceColor
-                .plus(light_sample.color.mult_pairs(this.diffusivity.color(data).times(diffuse )))
-                .plus(light_sample.color.mult_pairs(this.specularity.color(data).times(specular)));
+                // diffuse & specular
+                const L = light_sample.direction.normalized();
+                // const H = L.minus(data.ray.direction.normalized()).normalized();
+
+                const diffuse  =          Math.max(L.dot(N), 0);
+                const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
+
+                light_color = light_color
+                    .plus(light_sample.color.mult_pairs(this.diffusivity.color(data).times(diffuse )))
+                    .plus(light_sample.color.mult_pairs(this.specularity.color(data).times(specular)));
+            }
+            if (light_sample_count > 0)
+                surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
         }
 
         // reflection
         const reflectivity = this.reflectivity.color(data);
-        if (reflectivity != 0 && N.dot(data.ray.direction) < 0) {
+        if (reflectivity.squarednorm() > 0 && N.dot(data.ray.direction) < 0) {
             surfaceColor = surfaceColor.plus(
                 scene.color(new Ray(data.position, R), recursionDepth, 0.0001).mult_pairs(reflectivity));
         }

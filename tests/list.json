@@ -2,6 +2,7 @@
     "5b_cylinder_reflection",
     "optional_AABB",
     "optional_AABB_DOF",
+    "optional_cornell_box",
     "optional_utah_teapot",
     "optional_cat_bvh",
     "optional_heart_bvh",
