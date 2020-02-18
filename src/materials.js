@@ -165,7 +165,7 @@ class PhongMaterial extends Material {
 }
 
 class PhongPathTracingMaterial extends Material {
-    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=5) {
+    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0) {
         super();
         this.baseColor    = MaterialColor.coerce(baseColor);
         this.ambient      = MaterialColor.coerce(this.baseColor, ambient);
@@ -212,40 +212,44 @@ class PhongPathTracingMaterial extends Material {
                 surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
         }
 
-        // This is path tracing, so instead of reflecting, we sample based on the phone PDF!
-        const space_transform = Mat4.identity(),
-            ndotl = dot(V, N),
-            EPSILON = 0.00001;
-
-        if(1.0 - ndotl > EPSILON) {
-            let ivec, kvec, jvec;
-
-            if(fabs(ndotl) < EPSILON) {
-                kvec = V.normalized().times(-1);
-                jvec = N;
-                ivec = cross(jvec, kvec);
-            }
-            else {
-                ivec = V.cross(R).normalized();
-                jvec = R;
-                kvec = R.cross(ivec);
-            }
-
-            space_transform.set_col(0, ivec);
-            space_transform.set_col(1, jvec);
-            space_transform.set_col(2, kvec);
-        }
-
-        const u1 = Math.random(),
-            u2 = Math.random(),
-            phi = Math.acos(Math.pow(u1, 1.0 / (this.smoothness + 1))),
-            theta = 2 * Math.PI * u2;
-
-        return space_transform.times(Vec.of(
-            cos(theta) * sin(phi),
-            cos(phi),
-            sin(theta) * sin(phi), 0));
+        // This is path tracing, so instead of reflecting, we sample the Phong PDF!
+        surfaceColor = surfaceColor.plus(this.baseColor.color(data).mult_pairs(
+            scene.color(new Ray(data.position, this.sampleDirection(V, N, R)), recursionDepth, 0.0001)));
         
         return surfaceColor;
+    }
+
+    sampleDirection(V, N, R) {
+        const ndotl = V.dot(N),
+            EPSILON = 0.00001;
+
+        let space_transform = Mat4.identity();
+        if(1.0 - ndotl > EPSILON) {
+            let i = null, j = null, k = null;
+
+            // if V and N are close to being perpendicular, take a shortcut computing the transform
+            if(Math.abs(ndotl) < EPSILON) {
+                k = V.normalized().times(-1);
+                j = N;
+                i = j.cross(k).to4();
+            }
+            else {
+                i = V.cross(R).normalized().to4();
+                j = R;
+                k = R.cross(i).to4();
+            }
+            space_transform = Mat.from_cols(i, j, k, Vec.of(0,0,0,1));
+        }
+
+        // spherical coordinates following the pdf for Phong
+        const phi = Math.acos(Math.pow(Math.random(), 1.0 / (this.smoothness + 1))),
+            theta = 2 * Math.PI * Math.random();
+
+        // convert to cartesian, and transform to world space
+        const sin_phi = Math.sin(phi);
+        return space_transform.times(Vec.of(
+            Math.cos(theta) * sin_phi,
+            Math.cos(phi),
+            Math.sin(theta) * sin_phi, 0));
     }
 }

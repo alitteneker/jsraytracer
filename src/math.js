@@ -64,9 +64,6 @@ class Vec extends Float32Array {
         // Assume a minimum length of 2.
         return this[0] * b[0] + this[1] * b[1];
     }
-    avg() {
-        return this.reduce((a, v) => a + v, 0) / this.length;
-    }
     // For avoiding repeatedly typing Vec.of in lists.
     static cast(...args) {
         return args.map(x => Vec.from(x));
@@ -74,7 +71,7 @@ class Vec extends Float32Array {
     to3() {
         return Vec.of(this[0], this[1] || 0, this[2] || 0);
     }
-    to4(isPoint) {
+    to4(isPoint=false) {
         return Vec.of(this[0], this[1] || 0, this[2] || 0, +isPoint);
     }
     cross(b) {
@@ -108,6 +105,18 @@ class Mat extends Array {
         super(0);
         this.push(...args)
     }
+    static from_rows(...args) {
+        return new Mat(args.map(a => a.copy()))
+    }
+    static from_cols(...args) {
+        const ret = new Mat();
+        for (let i = 0; i < args[0].length; ++i)
+            ret.push(Array(args.length).fill(0));
+        for (let i = 0; i < args.length; ++i)
+            for (let j = 0; j < args[0].length; ++j)
+                ret[j][i] = args[i][j];
+        return ret;
+    }
     set_identity(m, n) {
         this.length = 0;
         for (let i = 0; i < m; i++) {
@@ -131,19 +140,19 @@ class Mat extends Array {
         return Vec.from(this.map((r) => r[index]));
     }
     copy() {
-        return this.map(r => Vec.of(...r))
+        return Mat.from(this.map(r => Vec.of(...r)))
     }
     equals(b) {
         return this.every((r, i) => r.every((x, j) => x == b[i][j]))
     }
     plus(b) {
-        return this.map((r, i) => r.map((x, j) => x + b[i][j]))
+        return Mat.from(this.map((r, i) => r.map((x, j) => x + b[i][j])))
     }
     minus(b) {
-        return this.map((r, i) => r.map((x, j) => x - b[i][j]))
+        return Mat.from(this.map((r, i) => r.map((x, j) => x - b[i][j])))
     }
     transposed() {
-        return this.map((r, i) => r.map((x, j) => this[j][i]))
+        return Mat.from(this.map((r, i) => r.map((x, j) => this[j][i])))
     }
     times(b) {
         // Mat * scalar case.
