@@ -114,6 +114,10 @@ class PhongMaterial extends Material {
         const N = data.normal.normalized();
         const V = data.ray.direction.normalized().times(-1);
         const R = N.times(2 * N.dot(V)).minus(V).normalized();
+
+        // get diffuse and specular values from material colors so that we're not asking multiple times
+        const specularity = this.specularity.color(data),
+            diffusivity = this.diffusivity.color(data);
         
         // compute contribution from each light in the scene on this fragment
         for (let l of scene.lights) {
@@ -135,8 +139,8 @@ class PhongMaterial extends Material {
                 const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
 
                 light_color = light_color
-                    .plus(light_sample.color.mult_pairs(this.diffusivity.color(data).times(diffuse )))
-                    .plus(light_sample.color.mult_pairs(this.specularity.color(data).times(specular)));
+                    .plus(light_sample.color.mult_pairs(diffusivity.times(diffuse )))
+                    .plus(light_sample.color.mult_pairs(specularity.times(specular)));
             }
             if (light_sample_count > 0)
                 surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
@@ -155,6 +159,92 @@ class PhongMaterial extends Material {
         //     ray.direction.times(r).plus(N.times(r * c - Math.sqrt(1 - r * r * ( 1 - c * c )))),
         //     recursionDepth
         // );
+        
+        return surfaceColor;
+    }
+}
+
+class PhongPathTracingMaterial extends Material {
+    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=5) {
+        super();
+        this.baseColor    = MaterialColor.coerce(baseColor);
+        this.ambient      = MaterialColor.coerce(this.baseColor, ambient);
+        this.diffusivity  = MaterialColor.coerce(this.baseColor, diffusivity);
+        this.specularity  = MaterialColor.coerce(Vec.of(1,1,1), specularity);
+        this.smoothness   = smoothness;
+    }
+    color(data, scene, recursionDepth) {
+
+        // ambient component
+        let surfaceColor = this.ambient.color(data);
+        const N = data.normal.normalized();
+        const V = data.ray.direction.normalized().times(-1);
+        const R = N.times(2 * N.dot(V)).minus(V).normalized();
+
+        // get diffuse and specular values from material colors so that we're not asking multiple times
+        const specularity = this.specularity.color(data),
+            diffusivity = this.diffusivity.color(data);
+        
+        // compute contribution from each light in the scene on this fragment
+        for (let l of scene.lights) {
+            let light_sample_count = 0,
+                light_color = Vec.of(0,0,0);
+            for (const light_sample of l.sampleIterator(data.position)) {
+                ++light_sample_count;
+
+                // test whether this light source is shadowed
+                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1).distance;
+                if (shadowDist < 1)
+                    continue;
+
+                // diffuse & specular
+                const L = light_sample.direction.normalized();
+                // const H = L.minus(data.ray.direction.normalized()).normalized();
+
+                const diffuse  =          Math.max(L.dot(N), 0);
+                const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
+
+                light_color = light_color
+                    .plus(light_sample.color.mult_pairs(diffusivity.times(diffuse )))
+                    .plus(light_sample.color.mult_pairs(specularity.times(specular)));
+            }
+            if (light_sample_count > 0)
+                surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
+        }
+
+        // This is path tracing, so instead of reflecting, we sample based on the phone PDF!
+        const space_transform = Mat4.identity(),
+            ndotl = dot(V, N),
+            EPSILON = 0.00001;
+
+        if(1.0 - ndotl > EPSILON) {
+            let ivec, kvec, jvec;
+
+            if(fabs(ndotl) < EPSILON) {
+                kvec = V.normalized().times(-1);
+                jvec = N;
+                ivec = cross(jvec, kvec);
+            }
+            else {
+                ivec = V.cross(R).normalized();
+                jvec = R;
+                kvec = R.cross(ivec);
+            }
+
+            space_transform.set_col(0, ivec);
+            space_transform.set_col(1, jvec);
+            space_transform.set_col(2, kvec);
+        }
+
+        const u1 = Math.random(),
+            u2 = Math.random(),
+            phi = Math.acos(Math.pow(u1, 1.0 / (this.smoothness + 1))),
+            theta = 2 * Math.PI * u2;
+
+        return space_transform.times(Vec.of(
+            cos(theta) * sin(phi),
+            cos(phi),
+            sin(theta) * sin(phi), 0));
         
         return surfaceColor;
     }

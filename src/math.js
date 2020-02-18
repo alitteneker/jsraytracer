@@ -64,6 +64,9 @@ class Vec extends Float32Array {
         // Assume a minimum length of 2.
         return this[0] * b[0] + this[1] * b[1];
     }
+    avg() {
+        return this.reduce((a, v) => a + v, 0) / this.length;
+    }
     // For avoiding repeatedly typing Vec.of in lists.
     static cast(...args) {
         return args.map(x => Vec.from(x));
