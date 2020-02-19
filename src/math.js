@@ -139,6 +139,10 @@ class Mat extends Array {
     column(index) {
         return Vec.from(this.map((r) => r[index]));
     }
+    set_col(index, vec) {
+        for (let i = 0; i < this[index].length; ++i)
+            this[i][index] = vec[i];
+    }
     copy() {
         return Mat.from(this.map(r => Vec.of(...r)))
     }

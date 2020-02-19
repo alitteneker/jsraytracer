@@ -37,11 +37,11 @@ function configureTest(callback) {
                 new PhongPathTracingMaterial(Vec.of(1,0,0), 0.1, 0.4)));
             // right wall
             objects.push(new SceneObject(
-                new Plane(Vec.of(1, 0, 0, 0), -5),
+                new Plane(Vec.of(-1, 0, 0, 0), 5),
                 new PhongPathTracingMaterial(Vec.of(0,1,0), 0.1, 0.4)));
             // ceiling
             objects.push(new SceneObject(
-                new Plane(Vec.of(0, 1, 0, 0), 10),
+                new Plane(Vec.of(0, -1, 0, 0), -10),
                 new PhongPathTracingMaterial(Vec.of(1,1,1), 0.1, 0.4)));
               
             // objects
@@ -50,7 +50,7 @@ function configureTest(callback) {
                 new PhongPathTracingMaterial(Vec.of(1,1,1), 0.2, 0.4, Vec.of(1,1,1), 1000)));
             objects.push(new SceneObject(
                 new Sphere(Mat4.translation([-2, 1.3, -1])),
-                new PhongPathTracingMaterial(Vec.of(1,1,1), 0.2, 0.4, 0.6, 100, 0.5)));
+                new PhongPathTracingMaterial(Vec.of(1,1,1), 0.2, 0.4, 0.6, 100)));
                 
             callback({
                 renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(new Scene(objects, lights), camera, 128, 7),

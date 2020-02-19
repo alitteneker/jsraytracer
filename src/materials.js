@@ -107,13 +107,30 @@ class PhongMaterial extends Material {
         this.reflectivity = MaterialColor.coerce(Vec.of(1,1,1), reflectivity);
         this.smoothness   = smoothness;
     }
-    color(data, scene, recursionDepth) {
 
-        // ambient component
-        let surfaceColor = this.ambient.color(data);
-        const N = data.normal.normalized();
+    getBaseFactors(data) {
         const V = data.ray.direction.normalized().times(-1);
+
+        let N = data.normal.normalized(), backside = false, vdotn = V.dot(N);
+        if (vdotn < 0) {
+            N = N.times(-1);
+            backside = true;
+            vdotn = -vdotn;
+        }
+        
         const R = N.times(2 * N.dot(V)).minus(V).normalized();
+
+        return {
+            V: V,
+            N: N,
+            R: R,
+            backside: backside,
+            vdotn: vdotn
+        };
+    }
+
+    colorFromLights(V, R, N, data, scene) {
+        let ret = this.ambient.color(data);
 
         // get diffuse and specular values from material colors so that we're not asking multiple times
         const specularity = this.specularity.color(data),
@@ -143,109 +160,126 @@ class PhongMaterial extends Material {
                     .plus(light_sample.color.mult_pairs(specularity.times(specular)));
             }
             if (light_sample_count > 0)
-                surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
+                ret = ret.plus(light_color.times(1/light_sample_count));
         }
+        return ret;
+    }
+
+    color(data, scene, recursionDepth) {
+        const bf = this.getBaseFactors(data);
+
+        let surfaceColor = this.colorFromLights(bf.V, bf.R, bf.N, data, scene);
 
         // reflection
         const reflectivity = this.reflectivity.color(data);
-        if (reflectivity.squarednorm() > 0 && N.dot(data.ray.direction) < 0) {
+        if (reflectivity.squarednorm() > 0) {
             surfaceColor = surfaceColor.plus(
-                scene.color(new Ray(data.position, R), recursionDepth, 0.0001).mult_pairs(reflectivity));
+                scene.color(new Ray(data.position, bf.R), recursionDepth, 0.0001).mult_pairs(reflectivity));
         }
-
-        // TODO: refraction, we would have to pack current refractive index in ray data
-        // const r = n1/n2, c = -N.dot(data.ray.direction);
-        // const refractedColor = scene.color(
-        //     ray.direction.times(r).plus(N.times(r * c - Math.sqrt(1 - r * r * ( 1 - c * c )))),
-        //     recursionDepth
-        // );
         
         return surfaceColor;
     }
 }
 
-class PhongPathTracingMaterial extends Material {
-    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0) {
-        super();
-        this.baseColor    = MaterialColor.coerce(baseColor);
-        this.ambient      = MaterialColor.coerce(this.baseColor, ambient);
-        this.diffusivity  = MaterialColor.coerce(this.baseColor, diffusivity);
-        this.specularity  = MaterialColor.coerce(Vec.of(1,1,1), specularity);
-        this.smoothness   = smoothness;
+class FresnelPhongMaterial extends PhongMaterial {
+    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=1) {
+        super(baseColor, ambient, diffusivity, specularity, smoothness);
+        this.refractiveIndexRatio = refractiveIndexRatio;
+    }
+    color(data, scene, recursionDepth) {
+        const bf = this.getBaseFactors(data);
+
+        let surfaceColor = this.colorFromLights(bf.V, bf.R, bf.N, data, scene);
+
+        const kr = this.getReflectionValue(bf),
+            baseColor = this.baseColor.color(data);
+        
+        // reflection
+        if (kr > 0) {
+            surfaceColor = surfaceColor.plus(
+                scene.color(new Ray(data.position, bf.R), recursionDepth, 0.0001)
+                .mult_pairs(baseColor).times(kr));
+        }
+
+        // refraction
+        if (kr < 1) {
+            surfaceColor = surfaceColor.plus(
+                scene.color(new Ray(data.position, this.getRefractionDirection(bf)), recursionDepth, 0.0001)
+                .mult_pairs(baseColor).times(1 - kr));
+        }
+        
+        return surfaceColor;
+    }
+    getRefractionDirection(bf) {
+        const r = bf.backside ? this.refractiveIndexRatio : 1 / this.refractiveIndexRatio,
+            k = 1 - r * r * ( 1 - bf.vdotn * bf.vdotn );
+        if (k < 0)
+            throw "Invalid refraction ray";
+        return bf.V.times(-1).times(r).plus(bf.N.times(r * bf.vdotn - Math.sqrt(k)));
+    }
+
+    getReflectionValue(bf) {
+        const ni = bf.backside ? this.refractiveIndexRatio : 1, nt = bf.backside ? 1 : this.refractiveIndexRatio;
+
+        // The magic of Snell's law
+        const cosi = bf.vdotn,
+            sint = ni / nt * Math.sqrt(Math.max(0, 1 - cosi * cosi));
+
+        // Total internal reflection
+        if (sint >= 1)
+            return 1;
+        else {
+            const cost = Math.sqrt(Math.max(0, 1 - sint * sint));
+            const Rs = ((nt * cosi) - (ni * cost)) / ((nt * cosi) + (ni * cost));
+            const Rp = ((ni * cosi) - (nt * cost)) / ((ni * cosi) + (nt * cost));
+            return (Rs * Rs + Rp * Rp) / 2;
+        }
+    }
+}
+
+class PhongPathTracingMaterial extends FresnelPhongMaterial {
+    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity) {
+        super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio);
     }
     color(data, scene, recursionDepth) {
 
-        // ambient component
-        let surfaceColor = this.ambient.color(data);
-        const N = data.normal.normalized();
-        const V = data.ray.direction.normalized().times(-1);
-        const R = N.times(2 * N.dot(V)).minus(V).normalized();
+        const bf = this.getBaseFactors(data);
 
-        // get diffuse and specular values from material colors so that we're not asking multiple times
-        const specularity = this.specularity.color(data),
-            diffusivity = this.diffusivity.color(data);
-        
-        // compute contribution from each light in the scene on this fragment
-        for (let l of scene.lights) {
-            let light_sample_count = 0,
-                light_color = Vec.of(0,0,0);
-            for (const light_sample of l.sampleIterator(data.position)) {
-                ++light_sample_count;
+        let surfaceColor = this.colorFromLights(bf.V, bf.R, bf.N, data, scene);
 
-                // test whether this light source is shadowed
-                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1).distance;
-                if (shadowDist < 1)
-                    continue;
-
-                // diffuse & specular
-                const L = light_sample.direction.normalized();
-                // const H = L.minus(data.ray.direction.normalized()).normalized();
-
-                const diffuse  =          Math.max(L.dot(N), 0);
-                const specular = Math.pow(Math.max(L.dot(R), 0), this.smoothness);
-
-                light_color = light_color
-                    .plus(light_sample.color.mult_pairs(diffusivity.times(diffuse )))
-                    .plus(light_sample.color.mult_pairs(specularity.times(specular)));
-            }
-            if (light_sample_count > 0)
-                surfaceColor = surfaceColor.plus(light_color.times(1/light_sample_count));
-        }
-
-        // This is path tracing, so instead of reflecting, we sample the Phong PDF!
+        // This is path tracing, so instead of reflecting or refracting, we sample the Phong PDF!
         surfaceColor = surfaceColor.plus(this.baseColor.color(data).mult_pairs(
-            scene.color(new Ray(data.position, this.sampleDirection(V, N, R)), recursionDepth, 0.0001)));
+            scene.color(new Ray(data.position, this.samplePathDirection(bf)), recursionDepth, 0.0001)));
         
         return surfaceColor;
     }
 
-    sampleDirection(V, N, R) {
-        const ndotl = V.dot(N),
-            EPSILON = 0.00001;
+    samplePathDirection(bf) {
+        const EPSILON = 0.00001;
+
+        let V = bf.V, R = bf.R;
+
+        // Allow some probability of doing a refraction ray, if the index of refraction allows it
+        if (Math.random() > this.getReflectionValue(bf)) {
+            V = V.minus(bf.N.times(2 * bf.vdotn));
+            R = this.getRefractionDirection(bf);
+        }
 
         let space_transform = Mat4.identity();
-        if(1.0 - ndotl > EPSILON) {
-            let i = null, j = null, k = null;
-
-            // if V and N are close to being perpendicular, take a shortcut computing the transform
-            if(Math.abs(ndotl) < EPSILON) {
-                k = V.normalized().times(-1);
-                j = N;
-                i = j.cross(k).to4();
-            }
-            else {
-                i = V.cross(R).normalized().to4();
-                j = R;
+        if(1.0 - bf.vdotn > EPSILON) {
+            const i = V.cross(R).normalized().to4(),
+                j = R,
                 k = R.cross(i).to4();
-            }
-            space_transform = Mat.from_cols(i, j, k, Vec.of(0,0,0,1));
+            space_transform.set_col(0, i);
+            space_transform.set_col(1, j);
+            space_transform.set_col(2, k);
         }
 
         // spherical coordinates following the pdf for Phong
         const phi = Math.acos(Math.pow(Math.random(), 1.0 / (this.smoothness + 1))),
             theta = 2 * Math.PI * Math.random();
 
-        // convert to cartesian, and transform to world space
+        // convert spherical to local cartesian, then to world space
         const sin_phi = Math.sin(phi);
         return space_transform.times(Vec.of(
             Math.cos(theta) * sin_phi,
