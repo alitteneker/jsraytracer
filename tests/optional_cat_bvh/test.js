@@ -5,7 +5,8 @@ function configureTest(callback) {
 
     const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
-        Vec.of(1, 1, 1)       
+        Vec.of(1, 1, 1),
+        5000
     )];
     const objs = [new SceneObject(
         new Plane(Vec.of(0, 1, 0, 0), -1.5),

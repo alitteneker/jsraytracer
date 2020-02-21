@@ -9,15 +9,18 @@ function configureTest(callback) {
     const lights = [
 //         new SimplePointLight(
 //             Vec.of(10, 7, 10, 1),
-//             Vec.of(1, 1, 1)       
+//             Vec.of(1, 1, 1),
+//             1000
 //         )
         new SimplePointLight(
             Vec.of(-1, 100, -3, 1),
-            Vec.of(1, 1, 1)       
+            Vec.of(1, 1, 1),
+            150000
         ),
         new SimplePointLight(
             Vec.of(3, 3, -20, 1),
-            Vec.of(1, 1, 1)       
+            Vec.of(1, 1, 1),
+            1000
         )
     ];
 
@@ -25,7 +28,7 @@ function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(Vec.of(0, 1, 0, 0), -1),
         new PositionalUVMaterial(new PhongMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0.5,0.5,0.5)),
                 0.1, 0.4, 0.6, 2, 0.5))));
     objects.push(new SceneObject(
         new Sphere(Mat4.translation([-3, 0, -5])),

@@ -6,7 +6,8 @@ function configureTest(callback) {
 
     const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
-        Vec.of(1, 1, 1)       
+        Vec.of(1, 1, 1),
+        5000
     )];
     
     const objs = []

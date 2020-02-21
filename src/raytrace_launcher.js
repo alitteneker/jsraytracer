@@ -10,7 +10,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
     // Populate the list of available tests from the manifest
     const select = document.querySelector("#test-select");
     fetch("tests/list.json").then(response => response.json()).then(function(json) {
-        for (let o of json) {
+        for (let o of json.sort()) {
             const option = document.createElement('option');
             option.value = "tests/" + (option.innerHTML = o);
             select.appendChild(option);

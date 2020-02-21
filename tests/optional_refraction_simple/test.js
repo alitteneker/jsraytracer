@@ -5,7 +5,18 @@ function configureTest(callback) {
 
     const lights = [new SimplePointLight(
         Vec.of(0.75, 0, -10, 1),
-        Vec.of(300, 1, 1)       
+        Vec.of(1, 0.01, 0.01),
+        300
+    ),
+    new SimplePointLight(
+        Vec.of(0, 0.75, -10, 1),
+        Vec.of(0.01, 0.01, 1),
+        300
+    ),
+    new SimplePointLight(
+        Vec.of(0.75, 0.75, -4, 1),
+        Vec.of(1, 1, 1),
+        30
     )];
 
 

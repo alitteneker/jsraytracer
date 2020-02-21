@@ -6,20 +6,24 @@ class Light {
     sampleIterator(position) {
         throw "Light subclass has not implemented sampleIterator";
     }
+    static falloff(delta) {
+        return 1 / (4 * Math.PI * delta.squarednorm());
+    }
 }
 
 // Simple point light source, with a single position and uniform color
 class SimplePointLight extends Light {
-    constructor(position, color) {
+    constructor(position, color, intensity=1) {
         super();
         this.position = position;
         this.color = color;
+        this.intensity = intensity;
     }
     *sampleIterator(sample_position) {
         const delta = this.position.minus(sample_position)
         yield {
             direction: delta,
-            color: this.color.times(1 / (4 * Math.PI * delta.squarednorm()))
+            color: this.color.times(this.intensity * Light.falloff(delta))
         };
     }
 }
@@ -42,17 +46,19 @@ class SquareLightArea extends LightArea {
     }
 }
 class RandomSampleAreaLight extends Light {
-    constructor(area, color, samples=1) {
+    constructor(area, color, intensity=1, samples=1) {
         super();
         this.area = area;
         this.color = color;
         this.samples = samples;
+        this.intensity = intensity;
     }
     *sampleIterator(sample_position) {
         for (let i = 0; i < this.samples; ++i) {
+            const delta = this.area.sample().minus(sample_position);
             yield {
-                direction: this.area.sample().minus(sample_position),
-                color: this.color
+                direction: delta,
+                color: this.color.times(this.intensity * Light.falloff(delta))
             };
         }
     }

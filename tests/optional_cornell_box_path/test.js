@@ -4,12 +4,12 @@ function configureTest(callback) {
         Mat4.translation([0, 5, 15]));
 
     const lights = [];
-//     lights.push(new RandomSampleAreaLight(
-//         new SquareLightArea(Mat4.translation([0,9.9,0])
-//             .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
-//             .times(Mat4.scale([2.5,2.5,1]))),
-//         Vec.of(1,1,1), 128));
-    lights.push(new SimplePointLight(Vec.of(0,9.9,0), Vec.of(1,1,1)));
+    lights.push(new RandomSampleAreaLight(
+        new SquareLightArea(Mat4.translation([0,9.9,0])
+            .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
+            .times(Mat4.scale([2.5,2.5,1]))),
+        Vec.of(1,1,1), 1500, 4));
+//     lights.push(new SimplePointLight(Vec.of(0,9.9,0), Vec.of(1,1,1), 1000));
 
     const objects = [];
     // floor

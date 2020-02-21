@@ -8,11 +8,12 @@ function configureTest(callback) {
 
     const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
-        Vec.of(1, 1, 1)       
+        Vec.of(1, 1, 1),
+        7000
     )];
     const objs = [new SceneObject(
         new Plane(Vec.of(0, 1, 0, 0), -1.5),
-        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100))];
+        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.5, 0.2, 100))];
 
     loadObjFile(
         "../assets/heart.obj",
