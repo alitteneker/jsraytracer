@@ -1,6 +1,7 @@
 [
-    "5b_cylinder_reflection",
+    "optional_refraction_simple",
     "optional_AABB",
+    "optional_AABB_path",
     "optional_AABB_DOF",
     "optional_refraction",
     "optional_refraction_path",

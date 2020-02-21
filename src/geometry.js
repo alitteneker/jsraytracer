@@ -132,7 +132,7 @@ class AABB extends Geometry {
             }
         }
         if (norm.dot(ray.direction) > 0)
-            norm = normal.times(-1);
+            norm = norm.times(-1);
         return Object.assign(base_data, { normal: norm });
     }
     getTransformed(transform) {

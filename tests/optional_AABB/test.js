@@ -8,7 +8,7 @@ function configureTest(callback) {
 
     const lights = [new SimplePointLight(
         Vec.of(10, 7, 10, 1),
-        Vec.of(1, 1, 1)       
+        Vec.of(5000, 5000, 5000)       
     )];
 
     loadObjFile(

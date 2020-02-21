@@ -16,9 +16,10 @@ class SimplePointLight extends Light {
         this.color = color;
     }
     *sampleIterator(sample_position) {
+        const delta = this.position.minus(sample_position)
         yield {
-            direction: this.position.minus(sample_position),
-            color: this.color
+            direction: delta,
+            color: this.color.times(1 / (4 * Math.PI * delta.squarednorm()))
         };
     }
 }
