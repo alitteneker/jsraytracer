@@ -256,7 +256,7 @@ class Sphere extends Geometry {
         const c = this.m.column(3);
         let h = Vec.of(0,0,0,0);
         for (let i = 0; i < 3; ++i)
-            h[i] = this.m.times(this.m.transposed().times(Vec.axis(i, 4)).normalized().to4(1))[i] - c[i];
+            h[i] = this.m.times(this.m.transposed().times(Vec.axis(i, 4)).to4(0).normalized().to4(1))[i] - c[i];
         return new AABB(c, h);
     }
     intersect(ray, minDistance) {

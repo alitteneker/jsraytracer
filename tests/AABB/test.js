@@ -35,7 +35,8 @@ function configureTest(callback) {
                 new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5)));
                 
             callback({
-                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(new Scene(objects, lights), camera, 16, 4),
+                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+                    new BVHScene(objects, lights), camera, 16, 4),
                 width: 600,
                 height: 600
             });

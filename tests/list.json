@@ -1,14 +1,16 @@
 [
-    "optional_refraction_simple",
-    "optional_AABB",
-    "optional_AABB_path",
-    "optional_AABB_DOF",
-    "optional_refraction",
-    "optional_refraction_path",
-    "optional_cornell_box",
-    "optional_cornell_box_path",
-    "optional_utah_teapot",
-    "optional_cat_bvh",
-    "optional_heart_bvh",
-    "optional_bunny_bvh"
+    "refraction_simple",
+    "AABB",
+    "AABB_path",
+    "AABB_DOF",
+    "refraction",
+    "refraction_path",
+    "cornell_box",
+    "cornell_box_path",
+    "utah_teapot",
+    "cat",
+    "heart",
+    "bunny",
+    "dragon",
+    "tie_fighter"
 ]
