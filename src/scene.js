@@ -25,13 +25,16 @@ class Scene {
     }
 }
 class SceneObject {
-    constructor(geometry, material, base_material_data) {
+    constructor(geometry, material, base_material_data={}, isTransparent=false) {
         this.geometry = geometry;
         this.material = material;
-        this.base_material_data = base_material_data | {};
+        this.base_material_data = base_material_data;
+        this.isTransparent = isTransparent;
     }
-    intersect(ray, minDistance) {
-        return this.geometry.intersect(ray, minDistance);
+    intersect(ray, minDistance, maxDistance=Infinity, intersectTransparent=true) {
+        if (this.isTransparent && !intersectTransparent)
+            return Infinity;
+        return this.geometry.intersect(ray, minDistance, maxDistance);
     }
     color(ray, distance, scene, recursionDepth) {
         let base_data = Object.assign({

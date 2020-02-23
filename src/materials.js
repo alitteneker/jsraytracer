@@ -143,7 +143,7 @@ class PhongMaterial extends Material {
             for (const light_sample of l.sampleIterator(data.position)) {
                 ++light_sample_count;
                 // test whether this light sample is shadowed
-                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1).distance;
+                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1, false).distance;
                 if (shadowDist < 1)
                     continue;
                 light_color = light_color.plus(this.colorFromLightSample(light_sample, data, scene));

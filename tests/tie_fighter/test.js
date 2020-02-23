@@ -5,25 +5,34 @@ function configureTest(callback) {
             .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));
 
     const lights = [new SimplePointLight(
-        Vec.of(-10, 10, -12, 1),
-        Vec.of(1, 1, 1),
-        5000
-    ),
-    new SimplePointLight(
-        Vec.of(3, 5, 0, 1),
-        Vec.of(0, 1, 0),
-        100
-    )];
+            Vec.of(-10, 10, -12, 1),
+            Vec.of(1, 1, 1),
+            5000
+        ),
+//         new RandomSampleAreaLight(
+//             new SquareLightArea(Mat4.translation([-0.15, 1.86, -2.73])
+//                 .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
+//                 .times(Mat4.scale([0.01, 0.01, 1.5]))
+//                 .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0)))),
+//             Vec.of(0,1,0), 5, 64
+//         )
+        new SimplePointLight(
+            Vec.of(-0.15, 1.86, -2.73, 1),
+            Vec.of(0, 1, 0),
+            10
+        )
+    ];
     
     const objs = []
     objs.push(new SceneObject(
         new Plane(Vec.of(0, 1, 0, 0), 1),
-        new PhongMaterial(Vec.of(0.3,0.3,0.3), 0.3, 0.4, 0.2, 100, 0.4)));
+        new PhongMaterial(Vec.of(0.3,0.3,0.3), 0.3, 0.4, 0.6, 100, 0.4)));
     objs.push(new SceneObject(
-        new Sphere(Mat4.translation([-0.2, 1.9, -2.75])
+        new Sphere(Mat4.translation([-0.15, 1.86, -2.73])
              .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
              .times(Mat4.scale([0.01, 0.01, 1.5]))),
-        new FresnelPhongMaterial(Vec.of(0,1,0), 0.2, 0.4, 0.5, 100, 1.3)));
+        new FresnelPhongMaterial(Vec.of(0,1,0), 0.2, 0.4, 0.5, 100, 1.3),
+        {}, true));
 
     loadObjFile(
         "../assets/Tie_Fighter.obj",
