@@ -14,11 +14,12 @@ The following is an incomplete list of currently supported features:
 * Point and area light sources
 * Camera depth of field
 * Bounding Volume Hierarchy (BVH) ray-geometry intersection acceleration
-* OBJ, MTL, and texture file loading
+* OBJ, MTL, and texture file loading (Note: textures do not currently work on Firefox)
 * Path tracing following the Phong PDF
 
 While this project is not currently under active development, there are a few
 items on the TODO list.
+* Time to completion estimates
 * Solid angle sampling for polygonal area lights
 * Ray bundling for batch intersection tests
 * Adaptive multisampling to improve efficiency
