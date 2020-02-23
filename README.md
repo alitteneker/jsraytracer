@@ -10,6 +10,7 @@ extensibility beyond what is currently supported.
 
 The following is an incomplete list of currently supported features:
 * Multi-threading with web workers
+* Incremental multisampling
 * Phong shading with reflection and refraction
 * Point and area light sources
 * Camera depth of field
@@ -19,7 +20,7 @@ The following is an incomplete list of currently supported features:
 
 While this project is not currently under active development, there are a few
 items on the TODO list.
-* Time to completion estimates
+* Time to completion estimates for rendering
 * Solid angle sampling for polygonal area lights
 * Ray bundling for batch intersection tests
 * Adaptive multisampling to improve efficiency
