@@ -1,7 +1,7 @@
 # JSRaytracer
 JSRaytracer is a multi-threaded CPU raytracer written in javascript that runs
 in your browser. To learn more about what it can do, continue reading, or try
-out the [online demo|https://alitteneker.github.io/jsraytracer/]!
+out the [online demo](https://alitteneker.github.io/jsraytracer/)!
 
 ## Features
 JSRaytracer supports a variety of material, camera, and lighting models,
