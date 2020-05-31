@@ -5,7 +5,7 @@ function configureTest(callback) {
             .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));
 
     const lights = [new SimplePointLight(
-        Vec.of(-15, 5, 12, 1),
+        Vec.of(-15, 10, 12, 1),
         Vec.of(1, 1, 1),
         5000
     )];
@@ -30,8 +30,8 @@ function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new SimpleRenderer(
-                    new BVHScene(objs.concat(triangles), lights), camera, 4),
+                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+                    new BVHScene(objs.concat(triangles), lights), camera, 16, 4),
                 width: 600,
                 height: 600
             });

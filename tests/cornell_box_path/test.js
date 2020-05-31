@@ -5,10 +5,10 @@ function configureTest(callback) {
 
     const lights = [];
     lights.push(new RandomSampleAreaLight(
-        new SquareLightArea(Mat4.translation([0,9.9,0])
+        new SquareLightArea(Mat4.translation([0,9,0])
             .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
             .times(Mat4.scale([2.5,2.5,1]))),
-        Vec.of(1,1,1), 1500, 4));
+        Vec.of(1,1,1), 1000, 16));
 //     lights.push(new SimplePointLight(Vec.of(0,9.9,0), Vec.of(1,1,1), 1000));
 
     const objects = [];
@@ -45,8 +45,8 @@ function configureTest(callback) {
 
     callback({
         renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
-            new Scene(objects, lights), camera, 128, 7),
-        width: 600,
+            new Scene(objects, lights), camera, 128, 4),
+        width:  600,
         height: 600
     });
 }

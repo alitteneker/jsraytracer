@@ -38,9 +38,13 @@ class PixelBuffer {
     }
     setColor(x, y, color) {
         const r = this.coord(x, y);
+        const color_copy = color.copy()
         for (let i = 0; i < 4; ++i) {
-            let comp = (color.length <= i) ? 1 : color[i];
-            this.imgdata.data[r + i] = Math.round(255 * Math.min(Math.max(comp, 0), 1));
+            let comp = 1;
+            if (color.length > i)
+                comp = color_copy[i] = Math.min(Math.max(color[i], 0), 1);
+            this.imgdata.data[r + i] = Math.round(255 * comp);
         }
+        return color_copy;
     }
 }

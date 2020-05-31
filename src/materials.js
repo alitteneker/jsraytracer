@@ -266,9 +266,10 @@ class FresnelPhongMaterial extends PhongMaterial {
 }
 
 class PhongPathTracingMaterial extends FresnelPhongMaterial {
-    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity, pathSmoothness=smoothness) {
+    constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity, pathSmoothness=smoothness, bounceProbability=0.3) {
         super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio);
         this.pathSmoothness = pathSmoothness;
+        this.bounceProbability = bounceProbability;
     }
     color(data, scene, recursionDepth) {
         this.getBaseFactors(data);
@@ -276,8 +277,9 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
         let surfaceColor = this.colorFromLights(data, scene);
 
         // This is path tracing, so instead of reflecting or refracting, we sample the Phong PDF!
-        surfaceColor = surfaceColor.plus(this.baseColor.color(data).mult_pairs(
-            scene.color(new Ray(data.position, this.samplePathDirection(data)), recursionDepth, 0.0001)));
+        if (Math.random() <= this.bounceProbability)
+            surfaceColor = surfaceColor.plus(this.baseColor.color(data).mult_pairs(
+                scene.color(new Ray(data.position, this.samplePathDirection(data)), recursionDepth, 0.0001)));
         
         return surfaceColor;
     }

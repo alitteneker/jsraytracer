@@ -6,21 +6,33 @@ function configureTest(callback) {
             .times(Mat4.rotation(-0.6, Vec.of(0,1,0)))
             .times(Mat4.rotation(-0.15, Vec.of(1,0,0))));
 
+//     const camera = new PerspectiveCamera(Math.PI / 4, 1,
+//         Mat4.identity()
+//             .times(Mat4.translation([-2, 1, -3]))
+//             .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
+//             .times(Mat4.rotation(-0.8, Vec.of(1,0,0))));
+
     const lights = [
 //         new SimplePointLight(
-//             Vec.of(10, 7, 10, 1),
+//             Vec.of(50, 2, 50, 1),
 //             Vec.of(1, 1, 1),
-//             1000
-//         )
+//             300000
+//         ),
+//         new RandomSampleAreaLight(
+//             new SquareLightArea(Mat4.translation([-3, 20, -4])
+//                 .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
+//                 .times(Mat4.scale(2))),
+//             Vec.of(1,1,1), 15000, 4),
         new SimplePointLight(
-            Vec.of(-1, 100, -3, 1),
+            Vec.of(-3, 10, -4, 1),
             Vec.of(1, 1, 1),
-            150000
+            300
         ),
         new SimplePointLight(
-            Vec.of(3, 3, -20, 1),
+            Vec.of(3, 10, -20, 1),
+            //Vec.of(12, 1, -40, 1),
             Vec.of(1, 1, 1),
-            1000
+            10000
         )
     ];
 
@@ -28,17 +40,17 @@ function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(Vec.of(0, 1, 0, 0), -1),
         new PositionalUVMaterial(new PhongPathTracingMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0.5,0.5,0.5)),
-                0.1, 0.4))));
+            new CheckerboardMaterialColor(Vec.of(0.8,0.8,0.8), Vec.of(0.5,0.5,0.5)),
+                0.1, 0.4, 0,0,Infinity, 1.0))));
     objects.push(new SceneObject(
-        new Sphere(Mat4.translation([-3, 1, -5])),
-        new PhongPathTracingMaterial(Vec.of(/*1,1,1/**/0.827,0.412,0.424), 0.1, 0.2, 0.9, 100, 1.3, Infinity)));
+        new Sphere(Mat4.translation([-2.5, 0, -5.5])),
+        new PhongPathTracingMaterial(Vec.of(/*1,1,1/**/0.827,0.412,0.424/**/), 0.1, 0.2, 0.9, 100, 1.3, Infinity, 1.0)));
     objects.push(new SceneObject(
-        new Sphere(Mat4.translation([-2, 1, -10]).times(Mat4.scale(2))),
-        new PhongPathTracingMaterial(Vec.of(0.255,0.506,0.498), 0.1, 0.2, 0.9, 100, 1.3, Infinity)));
+        new Sphere(Mat4.translation([-2, 1, -11]).times(Mat4.scale(2))),
+        new PhongPathTracingMaterial(Vec.of(0.255,0.506,0.498), 0.1, 0.2, 0.9, 100, 1.3, Infinity, 1.0)));
     objects.push(new SceneObject(
-        new Sphere(Mat4.translation([5, 2, -12]).times(Mat4.scale(3))),
-        new PhongPathTracingMaterial(Vec.of(0.655,0.78,0.388), 0.1, 0.2, 0.9, 100, 1.3, Infinity)));
+        new Sphere(Mat4.translation([4, 2, -12]).times(Mat4.scale(3))),
+        new PhongPathTracingMaterial(Vec.of(0.655,0.78,0.388), 0.1, 0.2, 0.9, 100, 1.3, Infinity, 1.0)));
 
     callback({
         renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
