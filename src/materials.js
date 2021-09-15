@@ -57,6 +57,7 @@ class Material {
 }
 
 // no lighting, no shadows, no reflections, just a solid color
+// NB: this will still cast a shadow unless the containing SceneObject has isTransparent set to true
 class SolidColorMaterial extends Material {
     constructor(color) {
         super();
@@ -67,7 +68,8 @@ class SolidColorMaterial extends Material {
     }
 }
 
-// transparent material, will still cast a shadow unless the 
+// transparent material: 
+// NB: this will still cast a shadow unless the containing SceneObject has isTransparent set to true
 class TransparentMaterial extends Material {
     constructor(color, opacity) {
         super();
