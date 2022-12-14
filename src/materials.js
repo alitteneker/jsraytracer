@@ -120,6 +120,7 @@ class PhongMaterial extends Material {
             vdotn = -vdotn;
         }
         
+        // R = normalize((2 * dot(N, V) * N) - V)
         const R = N.times(2 * N.dot(V)).minus(V).normalized();
 
         Object.assign(data, {

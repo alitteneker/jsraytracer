@@ -203,6 +203,9 @@ class Mat extends Array {
             for (let j = 0; j < M[i].length; j++) floats[index++] = M[i][j];
         return floats;
     }
+    static to_webgl(M) {
+        return Mat.flatten_2D_to_1D(M.transpose());
+    }
     to_string() {
         return "[" + this.map((r, i) => "[" + r.join(", ") + "]").join(" ") + "]"
     }
