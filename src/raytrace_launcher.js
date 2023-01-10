@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
     let activeWorkerCount = 0, startTime;
     let workers = [];
     
-    // Construct a canvas and a context to store the result from each 
+    // Construct a canvas and a context to store the result from each worker
     let tempcanvas = [], tempcontext = [];
 
     document.querySelector("#render-button").addEventListener("click", function onClick(e) {

@@ -16,34 +16,32 @@ function main() {
         return;
     }
 
-    // Vertex shader program
+    // Shader program sources
+    const vsSource = `
+#version 300 es
+in vec4 vertexPosition;
+void main() { gl_Position = vertexPosition; }`;
+    const fsSource_header = `
+#version 300 es
+precision mediump float;
+#define PI 3.14159265359`;
 
-    $.get('./vertex.glsl', null, function(ve) {
-        const vsSource = ve;
-        $.get('./fragment.glsl', null, function(fe) {
-            const fsSource = fe;
+    // Initialize a shader program.
+    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
 
-            // Initialize a shader program.
-            const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+    // Collect all the info needed to use the shader program.
+    const programInfo = {
+        program: shaderProgram,
+        uniformLocations: {
+            canvasSize: gl.getUniformLocation(shaderProgram, 'uCanvasSize')
+        },
+    };
 
-            // Collect all the info needed to use the shader program.
-            const programInfo = {
-                program: shaderProgram,
-                uniformLocations: {
-                    modelViewMatrix:  gl.getUniformLocation(shaderProgram, 'uCameraTransform'),
-                    canvasSize:       gl.getUniformLocation(shaderProgram, 'uCanvasSize'),
-                    aspect:           gl.getUniformLocation(shaderProgram, 'uAspect'),
-                    FOV:              gl.getUniformLocation(shaderProgram, 'uFOV')
-                },
-            };
+    // Here's where we call the routine that builds all the objects we'll be drawing.
+    const buffers = initBuffers(gl, programInfo);
 
-            // Here's where we call the routine that builds all the objects we'll be drawing.
-            const buffers = initBuffers(gl, programInfo);
-
-            // Draw the scene
-            drawScene(gl, programInfo, buffers);
-        });
-    });
+    // Draw the scene
+    drawScene(gl, programInfo, buffers);
 }
 
 // Initialize a shader program, so WebGL knows how to draw our data
@@ -117,6 +115,7 @@ function drawScene(gl, programInfo) {
     
     const canvas = document.querySelector('#glcanvas');
     gl.uniform2fv(programInfo.uniformLocations.canvasSize, Vec.from([canvas.width, canvas.height]));
+    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix.to_webgl());
     
     // ---- Camera parameters ----
     // uniform mat4 uCameraTransform;

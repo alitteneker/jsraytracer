@@ -27,7 +27,7 @@ function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+                renderer: new IncrementalMultisamplingRenderer(
                     new BVHScene(objs.concat(triangles), lights), camera, 8, 4),
                 width: 600,
                 height: 600
