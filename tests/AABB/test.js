@@ -23,19 +23,21 @@ function configureTest(callback) {
         function(objects) {
             objects = [];
             objects.push(new SceneObject(
-                new Plane(Vec.of(0, 1, 0, 0), -1),
+                new Plane(),
                 new PositionalUVMaterial(new PhongMaterial(
                     new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.1, 0.4, 0.6, 100, 0.5))));
+                        0.1, 0.4, 0.6, 100, 0.5)),
+                Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
             objects.push(new SceneObject(
                 new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),
                 new PhongMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 100, 0.5)));
             objects.push(new SceneObject(
-                new Sphere(Mat4.translation([-2, 0.3, -9])),
-                new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5)));
+                new Sphere(),
+                new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5),
+                Mat4.translation([-2, 0.3, -9])));
                 
             callback({
-                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+                renderer: new IncrementalMultisamplingRenderer(
                     new BVHScene(objects, lights), camera, 16, 4),
                 width: 600,
                 height: 600

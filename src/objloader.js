@@ -102,7 +102,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
     }
     loadMtlFiles(mtllibs, function(materials) {
 
-        const norm_transform = Mat4.inverse(transform).transposed();
+        const inv_transform = Mat4.inverse(transform);
 
         let positions = [],
             textures = [],
@@ -139,7 +139,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
                         data.normal = abc.map(x => normals[x[2]]);
                     triangles.push(new SceneObject(
                         new Triangle(abc.map(x => positions[x[0]]), data),
-                        currentMaterial));
+                        currentMaterial, transform, inv_transform));
                 }
                 continue;
             }
@@ -149,7 +149,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
 
             // vertex position: 3-4 floats xyz[w], w defaults to 1
             if (t[0] == "v")
-                positions.push(transform.times(Vec.of(t[1], t[2], t[3], (t.length < 5) ? 1 : t[4])));
+                positions.push(Vec.of(t[1], t[2], t[3], (t.length < 5) ? 1 : t[4]));
 
             // texture: 1-3 floats u[v[w]], optionals default to 0
             else if (t[0] == "vt")
@@ -157,7 +157,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
 
             // normal: 3 floats xyz
             else if (t[0] == "vn")
-                normals.push(norm_transform.times(Vec.of(t[1], t[2], t[3], 0)).to4(0).normalized());
+                normals.push(Vec.of(t[1], t[2], t[3], 0));
 
             // throw away material, smoothing, group, and parameter data
             else if (t[0] == "mtllib" || t[0] == "usemtl" || t[0] == "s"

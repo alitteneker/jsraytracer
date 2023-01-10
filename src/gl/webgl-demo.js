@@ -30,8 +30,10 @@ function main() {
             const programInfo = {
                 program: shaderProgram,
                 uniformLocations: {
-                    modelViewMatrix:  gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+                    modelViewMatrix:  gl.getUniformLocation(shaderProgram, 'uCameraTransform'),
                     canvasSize:       gl.getUniformLocation(shaderProgram, 'uCanvasSize'),
+                    aspect:           gl.getUniformLocation(shaderProgram, 'uAspect'),
+                    FOV:              gl.getUniformLocation(shaderProgram, 'uFOV')
                 },
             };
 
@@ -130,8 +132,8 @@ function drawScene(gl, programInfo) {
     // uniform mat4 uObjectInverseTransforms[16];
 
     // ---- Object Mappings ----
-    // uniform ivec2 usObjectGeometryIDs[MAX_OBJECTS]; // 1=Plane, 2=Triangle, 3=Sphere
-    // uniform ivec2 usObjectMaterialIDs[MAX_OBJECTS]; // 1=SimpleMaterial
+    // uniform int usObjectGeometryIDs[MAX_OBJECTS]; // 1=Plane, 2=Sphere, 3+=Triangle instance
+    // uniform int usObjectMaterialIDs[MAX_OBJECTS]; // 1+=SimpleMaterial instance
     // uniform int usObjectTransformIDs[MAX_OBJECTS];
 
     // ---- SimpleMaterial (Phong) ----
@@ -139,10 +141,6 @@ function drawScene(gl, programInfo) {
     // uniform vec4 umSimpleMaterialDiffuses[MAX_SIMPLE_MATERIALS];
     // uniform vec4 umSimpleMaterialSpeculars[MAX_SIMPLE_MATERIALS];
     // uniform float umSimpleMaterialSpecularFactors[MAX_SIMPLE_MATERIALS];
-    
-    // ---- Geometry: Planes ----
-    // uniform vec4 ugPlaneNormals[MAX_PLANES];
-    // uniform float ugPlaneDeltas[MAX_PLANES];
     
     // ---- Geometry: Triangles ----
     // uniform vec4 ugTriangleVertices[MAX_TRIANGLES * 3];

@@ -11,8 +11,9 @@ function configureTest(callback) {
         7000
     )];
     const objs = [new SceneObject(
-        new Plane(Vec.of(0, 1, 0, 0), -1.5),
-        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100, 0.4))];
+        new Plane(),
+        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100, 0.4),
+        Mat4.translation([0,-1.5,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];
 
     loadObjFile(
 //         "../assets/teapot.obj",

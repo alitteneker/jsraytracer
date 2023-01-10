@@ -23,16 +23,19 @@ function configureTest(callback) {
         function(objects) {
             objects = [];
             objects.push(new SceneObject(
-                new Plane(Vec.of(0, 1, 0, 0), -1),
+                new Plane(),
                 new PositionalUVMaterial(new PhongPathTracingMaterial(
                     new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.1, 0.4, 0.6, 10))));
+                        0.1, 0.4, 0.6, 10)),
+                Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
             objects.push(new SceneObject(
                 new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),
                 new PhongPathTracingMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 10000)));
             objects.push(new SceneObject(
-                new Sphere(Mat4.translation([-2, 0.3, -9])),
-                new PhongPathTracingMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100)));
+                new Sphere(),
+                new PhongPathTracingMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100),
+                Mat4.translation([-2, 0.3, -9])));
+
                 
             callback({
                 renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(

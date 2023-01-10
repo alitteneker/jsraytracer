@@ -22,8 +22,9 @@ function configureTest(callback) {
 
     const objects = [];
     objects.push(new SceneObject(
-        new Sphere(Mat4.translation([0, 0, -5])),
-        new FresnelPhongMaterial(Vec.of(1,1,1), 0.05, 0.4, 0.9, 100, 1.3)));
+        new Sphere(),
+        new FresnelPhongMaterial(Vec.of(1,1,1), 0.05, 0.4, 0.9, 100, 1.3),
+        Mat4.translation([0, 0, -5])));
 
     callback({
         renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(

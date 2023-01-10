@@ -15,35 +15,47 @@ precision mediump float;
 // ---- Plane ----
 #define GEOMETRY_PLANE_TYPE 1
 
-#define MAX_PLANES 16
-uniform vec4 ugPlaneNormals[MAX_PLANES];
-uniform float ugPlaneDeltas[MAX_PLANES];
-
-void getPlaneParameters(in int planeID, out vec4 normal, out float delta) {
-    normal = ugPlaneNormals[planeID];
-    delta = ugPlaneDeltas[planeID];
-}
 float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance, in vec4 n, in float delta) {
     float denom = dot(rd, n);
     if (denom == 0.0)
         return minDistance - 1.0;
     return (delta - dot(ro, n)) / denom;
 }
-float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance, in int planeID) {
-    vec4 normal;
-    float delta;
-    getPlaneParameters(planeID, normal, delta);
-    return planeIntersect(ro, rd, minDistance, normal, delta);
+float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
+    return planeIntersect(ro, rd, minDistance, vec4(0, 0, 1, 0), 0.0);
 }
-void planeMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV, in int planeID) {
-    float delta;
-    getPlaneParameters(planeID, normal, delta);
-    // what to do about UV?
+void planeMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
+    normal = vec4(0, 0, 1, 0);
+    UV = vec2(position.x, position.y);
+}
+
+
+// ---- Sphere ----
+#define GEOMETRY_SPHERE_TYPE 2
+float unitSphereIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
+    float a = dot(rd, rd),
+          b = dot(ro, rd),
+          c = dot(ro.xyz, ro.xyz) - 1.0;
+    float big = b * b - a * c;
+    if (big < 0.0 || a == 0.0)
+        return minDistance - 1.0;
+    big = sqrt(big);
+    float t1 = (-b + big) / a,
+          t2 = (-b - big) / a;
+    if (t1 >= minDistance && t2 >= minDistance)
+        return min(t1, t2);
+    return (t2 < minDistance) ? t1 : t2;
+}
+
+void unitSphereMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
+    normal = normalize(position);
+    UV.x = 0.5 + atan(normal.z, normal.x) / (2.0 * PI);
+    UV.y = 0.5 - asin(normal.y) / PI;
 }
 
 
 // ---- Triangle ----
-#define GEOMETRY_TRIANGLE_TYPE 2
+#define GEOMETRY_TRIANGLE_TYPE 3
 
 #define MAX_TRIANGLES 16
 uniform vec4 ugTriangleVertices[MAX_TRIANGLES * 3];
@@ -117,46 +129,23 @@ void triangleMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV, in
     UV = baryBlend(bary, uv1, uv2, uv3);
 }
 
-// ---- Sphere ----
-#define GEOMETRY_SPHERE_TYPE 3
-float unitSphereIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
-    float a = dot(rd, rd),
-          b = dot(ro, rd),
-          c = dot(ro.xyz, ro.xyz) - 1.0;
-    float big = b * b - a * c;
-    if (big < 0.0 || a == 0.0)
-        return minDistance - 1.0;
-    big = sqrt(big);
-    float t1 = (-b + big) / a,
-          t2 = (-b - big) / a;
-    if (t1 >= minDistance && t2 >= minDistance)
-        return min(t1, t2);
-    return (t2 < minDistance) ? t1 : t2;
-}
-
-void unitSphereMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
-    normal = normalize(position);
-    UV.x = 0.5 + atan(normal.z, normal.x) / (2.0 * PI);
-    UV.y = 0.5 - asin(normal.y) / PI;
-}
-
 // ---- Generics ----
-float geometryIntersect(in ivec2 geometryID, in vec4 ro, in vec4 rd, in float minDistance) {
-    if (geometryID.x == GEOMETRY_SPHERE_TYPE)
+float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance) {
+    if (geometryID == GEOMETRY_SPHERE_TYPE)
         return unitSphereIntersect(ro, rd, minDistance);
-    if (geometryID.x == GEOMETRY_PLANE_TYPE)
-        return planeIntersect(ro, rd, minDistance, geometryID.y);
-    if (geometryID.x == GEOMETRY_TRIANGLE_TYPE)
-        return triangleIntersect(ro, rd, minDistance, geometryID.y);
+    if (geometryID == GEOMETRY_PLANE_TYPE)
+        return planeIntersect(ro, rd, minDistance);
+    if (geometryID == GEOMETRY_TRIANGLE_TYPE)
+        return triangleIntersect(ro, rd, minDistance, geometryID - GEOMETRY_TRIANGLE_TYPE);
     return minDistance - 1.0;
 }
-void getGeometricMaterialProperties(in ivec2 geometryID, in vec4 position, inout vec4 normal, inout vec2 UV) {
-    if (geometryID.x == GEOMETRY_SPHERE_TYPE)
+void getGeometricMaterialProperties(in int geometryID, in vec4 position, inout vec4 normal, inout vec2 UV) {
+    if (geometryID == GEOMETRY_SPHERE_TYPE)
         unitSphereMaterialData(position, normal, UV);
-    else if (geometryID.x == GEOMETRY_PLANE_TYPE)
-        planeMaterialData(position, normal, UV, geometryID.y);
-    else if (geometryID.x == GEOMETRY_TRIANGLE_TYPE)
-        triangleMaterialData(position, normal, UV, geometryID.y);
+    else if (geometryID == GEOMETRY_PLANE_TYPE)
+        planeMaterialData(position, normal, UV);
+    else if (geometryID == GEOMETRY_TRIANGLE_TYPE)
+        triangleMaterialData(position, normal, UV, geometryID - GEOMETRY_TRIANGLE_TYPE);
 }
 
 
@@ -229,9 +218,9 @@ vec4 simpleMaterialColor(in int simpleMaterialID, in vec4 rp, in vec4 rd, in vec
 }
 
 // ---- Generic ----
-vec4 colorForMaterial(in ivec2 materialID, in vec4 rp, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color) {
-    if (materialID.x == MATERIAL_SIMPLE_TYPE)
-        return simpleMaterialColor(materialID.y, rp, rd, normal, UV, reflection_direction, reflection_color);
+vec4 colorForMaterial(in int materialID, in vec4 rp, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color) {
+    if (materialID == MATERIAL_SIMPLE_TYPE)
+        return simpleMaterialColor(materialID - MATERIAL_SIMPLE_TYPE, rp, rd, normal, UV, reflection_direction, reflection_color);
     return vec4(1.0, 1.0, 1.0, 1.0);
 }
 
@@ -247,8 +236,8 @@ uniform mat4 uObjectTransforms[16];
 uniform mat4 uObjectInverseTransforms[16];
 
 #define MAX_OBJECTS 64
-uniform ivec2 usObjectGeometryIDs[MAX_OBJECTS];
-uniform ivec2 usObjectMaterialIDs[MAX_OBJECTS];
+uniform int usObjectGeometryIDs[MAX_OBJECTS];
+uniform int usObjectMaterialIDs[MAX_OBJECTS];
 uniform int usObjectTransformIDs[MAX_OBJECTS];
 
 // ---- Intersections ----

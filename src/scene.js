@@ -25,35 +25,47 @@ class Scene {
     }
 }
 class SceneObject {
-    constructor(geometry, material, base_material_data={}, isTransparent=false) {
+    constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=false) {
         this.geometry = geometry;
         this.material = material;
+        
+        this.transform = transform;
+        this.inv_transform = inv_transform;
+        
         this.base_material_data = base_material_data;
-        this.isTransparent = isTransparent;
+        this.does_cast_shadow = does_cast_shadow;
     }
-    intersect(ray, minDistance, maxDistance=Infinity, intersectTransparent=true) {
-        if (this.isTransparent && !intersectTransparent)
+    intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
+        if (this.does_cast_shadow && !shadowCast)
             return Infinity;
-        return this.geometry.intersect(ray, minDistance, maxDistance);
+        return this.geometry.intersect(ray.getTransformed(this.inv_transform), minDistance, maxDistance);
     }
     color(ray, distance, scene, recursionDepth) {
         let base_data = Object.assign({
                 ray: ray,
                 distance: distance,
-                position: ray.getPoint(distance)
+                position: ray.getTransformed(this.inv_transform).getPoint(distance)
             }, this.base_material_data);
         let material_data = this.geometry.materialData(ray, distance, base_data);
+        if ('normal' in material_data)
+            material_data.normal = this.inv_transform.transposed().times(material_data.normal).to4(0).normalized();
+        material_data.position = ray.getPoint(distance);
         return this.material.color(material_data, scene, recursionDepth);
     }
     getTransformed(transform, inv_transform=Mat4.inverse(transform)) {
         return new SceneObject(
-            this.geometry.getTransformed(transform, inv_transform),
+            this.geometry,
             this.material,
-            this.base_material_data);
+            
+            transform.times(this.transform),
+            this.inv_trasform.times(inv_transform),
+            
+            this.base_material_data,
+            this.does_cast_shadow);
     }
     getBoundingBox() {
         if (!this.boundingBox)
-            this.boundingBox = this.geometry.getBoundingBox();
+            this.boundingBox = this.geometry.getBoundingBox(this.transform, this.inv_transform);
         return this.boundingBox;
     }
 }

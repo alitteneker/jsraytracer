@@ -1,4 +1,8 @@
 class Geometry {
+    static GEOMETRY_UID_GEN = 0;
+    constructor() {
+        this.GEOMETRY_UID = Geometry.GEOMETRY_UID_GEN++;
+    }
     intersect(ray, minDistance, maxDistance) {
         throw "Geometry subclass nas implemented intersect";
     }
@@ -8,7 +12,7 @@ class Geometry {
     getTransformed(transform, inv_transform, inv_transform_transpose) {
         throw "Geometry subclass has not implemented getTransformed";
     }
-    getBoundingBox() {
+    getBoundingBox(transform, inv_transform) {
         throw "Geometry subclass has not implemented getBoundingBox";
     }
 }
@@ -34,6 +38,8 @@ class AABB extends Geometry {
         return new AABB(center, half_size, min, max);
     }
     static fromPoints(points) {
+        if (points.length == 0)
+            throw "Cannot build AABB with zero points";
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
             max = Vec.of(-Infinity, -Infinity, -Infinity, 1);
         for (let p of points) {
@@ -47,6 +53,8 @@ class AABB extends Geometry {
         return AABB.fromMinMax(min, max);
     }
     static hull(boxes) {
+        if (boxes.length == 0)
+            throw "Cannot build AABB with zero boxes";
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
             max = Vec.of(-Infinity, -Infinity, -Infinity, 1);
         for (let b of boxes) {
@@ -70,6 +78,9 @@ class AABB extends Geometry {
                     max[i] = b.max[i];
             }
         }
+        for (let i = 0; i < 3; ++i)
+            if (min[i] > max[i])
+                return null;
         return AABB.fromMinMax(min, max);
     }
     static infinite() {
@@ -135,57 +146,49 @@ class AABB extends Geometry {
             norm = norm.times(-1);
         return Object.assign(base_data, { normal: norm });
     }
-    getTransformed(transform) {
-        throw "Cannot get a transformed AABB.";
-    }
-    getBoundingBox() {
-        return this;
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints(this.getCorners().map(c => transform.times(c)));
     }
 }
 
 class Plane extends Geometry {
-    constructor(normal, delta, mdata) {
+    constructor(mdata) {
         super();
-        this.normal = normal;
-        this.delta = delta;
         this.base_material_data = mdata || {};
     }
-    getTransformed(t, inv_t=Mat4.inverse(t), inv_t_transpose=inv_t.transposed()) {
-        const n = inv_t_transpose.times(this.normal),
-            o = t.times(this.normal.times(this.delta).to4(1));
-        return new Plane(n, n.dot(o), this.base_material_data);
-    }
-    getPoint() {
-        return this.normal.times(this.delta).to4(1);
-    }
     intersect(ray) {
-        let denom = this.normal.dot(ray.direction);
-        return (denom != 0) ? (this.delta - this.normal.dot(ray.origin)) / denom : -Infinity;
+        return (ray.direction[2] != 0) ? -ray.origin[2] / ray.direction[2] : -Infinity;
     }
     materialData(ray, scalar, base_data) {
-        return Object.assign(base_data, { normal: this.normal });
+        return Object.assign(base_data, {
+            normal: Vec.of(0, 0, (ray.origin[2] > 0) ? 1 : -1, 0),
+            UV: Vec.of(base_data.position[0], base_data.position[1])
+        });
     }
-    getBoundingBox() {
+    getBoundingBox(transform, inv_transform) {
+        const normal = inv_transform.transposed().times(Vec.of(0, 0, 1, 0)).normalized();
         let s = Vec.of(Infinity, Infinity, Infinity, 0);
         for (let i = 0; i < 3; ++i) {
             let found = false;
             for (let j = 0; !found && j < 3; ++j)
-                if (i != j && this.normal[j] != 0)
+                if (i != j && normal[j] != 0)
                     found = true;
             if (!found)
                 s[i] = 0;
         }
-        const p = this.getPoint();
+        const p = transform.times(Vec.of(0, 0, 0, 1));
         return new AABB(p, s, p.minus(s), p.plus(s.to4(1)));
     }
 }
 
-class Triangle extends Plane {
-    constructor(ps, psdata) {
-        const n = ps[1].minus(ps[0]).cross(ps[2].minus(ps[0])).normalized();
-        super(n.to4(0), n.dot(ps[0]));
+class Triangle extends Geometry {
+    constructor(ps, psdata={}) {
+        super()
+        
+        this.normal = ps[1].minus(ps[0]).cross(ps[2].minus(ps[0])).normalized().to4(0);
+        this.delta = this.normal.dot(ps[0]);
         this.ps = ps;
-        this.psdata = psdata || {};
+        this.psdata = psdata;
         
         this.v0 = ps[1].minus(ps[0]).to3();
         this.v1 = ps[2].minus(ps[0]).to3();
@@ -202,22 +205,25 @@ class Triangle extends Plane {
         return new Triangle(this.ps.map(p => t.times(p)), data);
     }
     intersect(ray) {
-        const distance = super.intersect(ray);
+        const denom = this.normal.dot(ray.direction);
+        const distance = (denom != 0) ? (this.delta - this.normal.dot(ray.origin)) / denom : -Infinity;
         if (!isFinite(distance) || distance < 0)
             return distance;
         const bary = this.toBarycentric(ray.getPoint(distance).to3());
         return bary.every(x => (x >= 0 && x <= 1)) ? distance : -Infinity;
     }
     materialData(ray, scalar, base_data) {
-        base_data = super.materialData(ray, scalar, base_data);
-        const extend_data = { bary: this.toBarycentric(base_data.position) };
+        const extend_data = {
+            normal: this.normal,
+            bary: this.toBarycentric(base_data.position)
+        };
         for (let k in this.psdata)
             extend_data[k] = Triangle.blend(extend_data.bary, this.psdata[k]);
         Object.assign(base_data, extend_data);
         return base_data;
     }
-    getBoundingBox() {
-        return AABB.fromPoints(this.ps);
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints(this.ps.map(p => transform.times(p)));
     }
     toBarycentric(p) {
         const v2 = p.minus(this.ps[0]).to3(),
@@ -243,27 +249,20 @@ class Triangle extends Plane {
 }
 
 class Sphere extends Geometry {
-    constructor(m=Mat4.identity()) {
+    constructor() {
         super();
-        this.m = m;
-        this.m_inv = Mat4.inverse(m);
-        this.m_inv_transpose = this.m_inv.transposed();
     }
-    getTransformed(transform, inv_transform) {
-        return new Sphere(transform.times(this.m.times));
-    }
-    getBoundingBox() {
-        const c = this.m.column(3);
+    getBoundingBox(transform, inv_transform) {
+        const c = transform.column(3);
         let h = Vec.of(0,0,0,0);
         for (let i = 0; i < 3; ++i)
-            h[i] = this.m.times(this.m.transposed().times(Vec.axis(i, 4)).to4(0).normalized().to4(1))[i] - c[i];
+            h[i] = transform.times(transform.transposed().times(Vec.axis(i, 4)).to4(0).normalized().to4(1))[i] - c[i];
         return new AABB(c, h);
     }
-    intersect(ray, minDistance) {
-        const r = ray.getTransformed(this.m_inv),
-            a = r.direction.squarednorm(),
-            b = r.direction.dot(r.origin),
-            c = r.origin.to3().squarednorm() - 1;
+    intersect(r, minDistance) {
+        const a = r.direction.squarednorm(),
+              b = r.direction.dot(r.origin),
+              c = r.origin.to3().squarednorm() - 1;
         let big = b * b - a * c;
         if (big < 0 || a == 0)
             return -Infinity;
@@ -275,9 +274,9 @@ class Sphere extends Geometry {
         return (t2 < minDistance) ? t1 : t2;
     }
     materialData(ray, scalar, base_data) {
-        let n = this.m_inv.times(base_data.position).normalized();
+        const n = base_data.position.normalized();
         return Object.assign(base_data, {
-            normal: this.m_inv_transpose.times(n).to4(0).normalized(),
+            normal: n,
             UV: Vec.of(
                 0.5 + Math.atan2(n[2], n[0]) / (2 * Math.PI),
                 0.5 - Math.asin(n[1]) / Math.PI)

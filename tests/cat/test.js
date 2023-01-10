@@ -9,8 +9,9 @@ function configureTest(callback) {
         5000
     )];
     const objs = [new SceneObject(
-        new Plane(Vec.of(0, 1, 0, 0), -1.5),
-        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100))];
+        new Plane(),
+        new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100),
+        Mat4.translation([0,-1.5,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];
 
     loadObjFile(
         "../assets/cat.obj",
@@ -18,7 +19,7 @@ function configureTest(callback) {
 //         new SolidColorMaterial(Vec.of(1,1,1)),
 
         Mat4.scale(0.05)
-        .times(Mat4.translation([30,-370,-150])),
+            .times(Mat4.translation([30,-370,-150])),
 //             .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
 //             .times(Mat4.scale(0.05)),
 

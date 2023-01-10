@@ -51,6 +51,10 @@ class CheckerboardMaterialColor extends MaterialColor {
 
 // Materials color an object, and can take as parameters MaterialColors
 class Material {
+    static MATERIAL_UID_GEN = 0;
+    constructor() {
+        this.MATERIAL_UID = Material.MATERIAL_UID_GEN++;
+    }
     color(data, scene, recursionDepth) {
         throw "Material subclass has not implemented color";
     }
@@ -308,11 +312,11 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
             space_transform.set_col(2, k);
         }
 
-        // spherical coordinates following the pdf for Phong
+        // spherical coordinates following the PDF for Phong
         const phi = Math.acos(Math.pow(Math.random(), 1.0 / (this.pathSmoothness + 1))),
             theta = 2 * Math.PI * Math.random();
 
-        // convert spherical to local cartesian, then to world space
+        // convert spherical to local Cartesian, then to world space
         const sin_phi = Math.sin(phi);
         return space_transform.times(Vec.of(
             Math.cos(theta) * sin_phi,
