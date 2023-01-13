@@ -8,10 +8,12 @@ class SimpleRenderer {
         const img_width = img.width(),
             img_height = img.height(),
             pixel_width = 2 / img_width,
-            pixel_height = 2 / img_height;
+            pixel_height = 2 / img_height,
+            total_pixels = img_width * img_height;
         
         let timeCounter = 0,
-            lastTime = Date.now();
+            lastTime = Date.now(),
+            pixel_count = 0;
         
         for (let px = x_offset; px < img_width; px += x_delt) {
             let x = 2 * (px / img_width) - 1;
@@ -21,12 +23,13 @@ class SimpleRenderer {
                 img.setColor(px, py, this.getPixelColor(x, y, pixel_width, pixel_height));
 
                 if (timelimit && callback) {
+                    ++pixel_count;
                     let currentTime = Date.now();
                     timeCounter += currentTime - lastTime;
                     lastTime = currentTime;
                     if (timeCounter >= timelimit) {
                         timeCounter = 0;
-                        callback();
+                        callback(pixel_count / total_pixels);
                     }
                 }
             }
@@ -65,10 +68,12 @@ class IncrementalMultisamplingRenderer extends SimpleRenderer {
         const img_width = img.width(),
             img_height = img.height(),
             pixel_width = 2 / img_width,
-            pixel_height = 2 / img_height;
+            pixel_height = 2 / img_height,
+            total_samples = ((img_width / x_delt) + Math.round(1 - x_offset/x_delt) * (img_width % x_delt)) * img_height * this.samplesPerPixel;
         
         let timeCounter = 0,
-            lastTime = Date.now();
+            lastTime = Date.now(),
+            sample_count = 0;
         
         let buffer = Array(img_width)
         for (let i = 0; i < img_width; ++i) {
@@ -93,12 +98,13 @@ class IncrementalMultisamplingRenderer extends SimpleRenderer {
 //                             console.log("Found Invalid Color");
 
                     if (timelimit && callback) {
+                        ++sample_count;
                         let currentTime = Date.now();
                         timeCounter += currentTime - lastTime;
                         lastTime = currentTime;
                         if (timeCounter >= timelimit) {
                             timeCounter = 0;
-                            callback();
+                            callback(sample_count / total_samples);
                         }
                     }
                 }

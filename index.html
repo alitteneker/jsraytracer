@@ -6,24 +6,32 @@
         
         <title>Ray Tracer</title>
 
+        <link rel="stylesheet" type="text/css" href="style.css">
         <script src= "src/raytrace_launcher.js" ></script>
     </head>
     <body>
         
-        <label for="test-select">Select a scene:</label>
-        <select id="test-select">
-            <option value="">--Select--</option>
-        </select>
-        <button id="render-button" type="button">Start Render</button>
-        <button id="stop-button" type="button">Stop Render</button>
-        Workers: <input type="number" id="workers-count" min="1" max="16" value="4"/>
-        <img id="loading-img" src="assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
-
+        <div id="controls">
+            <label for="test-select">Select a scene:</label>
+            <select id="test-select">
+                <option value="">--Select--</option>
+            </select>
+            <button id="render-button" type="button">Start Render</button>
+            <button id="stop-button" type="button">Stop Render</button>
+            Workers: <input type="number" id="workers-count" min="1" max="16" value="4"/>
+            <img id="loading-img" src="assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
+        </div>
+        
         <hr>
-
+        <div id="progress" style="visibility:hidden">
+            <div id="progress-label"></div>
+            <div id="progress-container">
+                <div id="progress-bar"></div>
+            </div>
+        </div>
         <div class="canvas-widget">
             <p>Rendered:</p>
-            <canvas id="main-canvas" style="border:black;border-style:solid;border-width:1px;"></canvas>
+            <canvas id="main-canvas"></canvas>
         </div>
     </body>
 </html>

@@ -26,14 +26,14 @@ onmessage = function(e) {
 
         let startTime = Date.now();
 
-        test.renderer.render(buffer, 1000, function() {
-            postMessage([buffer.imgdata, workerIndex]);
+        test.renderer.render(buffer, 1000, function(percentage) {
+            postMessage([buffer.imgdata, workerIndex, percentage]);
         }, workerIndex, workerCount);
 
         console.log("Worker " + workerIndex + " finished in "
             + ((Date.now() - startTime) / 1000) + " seconds!");
 
-        postMessage([buffer.imgdata, workerIndex]);
-        postMessage(["finished", workerIndex]);
+        postMessage([buffer.imgdata, workerIndex, 1]);
+        postMessage(["finished", workerIndex, 1]);
     });
 }
