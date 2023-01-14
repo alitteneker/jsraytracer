@@ -1,4 +1,4 @@
-function configureTest(callback) {
+export function configureTest(callback) {
 
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         Mat4.translation([0,2,0])

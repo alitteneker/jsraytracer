@@ -1,154 +1,120 @@
 "use strict";
 
-$(document).ready(main);
-
-//
-// Start here
-//
-function main() {
+$(document).ready(function() {
+    const scene_select = document.querySelector("#test-select");
+    fetch("../tests/list.json").then(response => response.json()).then(function(json) {
+        for (let o of json.sort()) {
+            const option = document.createElement('option');
+            option.value = "tests/" + (option.innerHTML = o);
+            scene_select.appendChild(option);
+        }
+    });
+    
     const canvas = document.querySelector('#glcanvas');
     const gl = canvas.getContext('webgl2');
-
-    // If we don't have a GL context, give up now
-
-    if (!gl) {
+    if (!gl)
         console.error('Unable to initialize WebGL. Your browser or machine may not support it.');
-        return;
+    
+    let adapter = false;
+    scene_select.addEventListener("change", function onChange(e) {
+        if (adapter) {
+            adapter.destroy();
+            adapter = false;
+        }
+        
+        if (scene_select.value === "")
+            return;
+        const scene_path = scene_select.value;
+        
+        import("../" + scene_path + "/test.js").then(function(module) {
+            module.configureTest(function(test) {
+                adapter = new WebGLAdapter(gl, test.renderer);
+                adapter.drawScene();
+            });
+        });
+    });
+});
+
+class WebGLAdapter {
+    constructor(gl, renderer) {
+        this.gl = gl;
+        this.rendererAdapter = new WebGLRendererAdapter(renderer);
+        this.buildShader(gl);
+        this.writeShaderData(gl);
+    }
+    destroy() {
+        if (this.shaderProgram)
+            this.gl.deleteProgram(this.shaderProgram);
+    }
+    
+    buildShader(gl) {
+        // Build shader program sources
+        const vsSource = "#version 300 es\nin vec4 vertexPosition;\n\nvoid main() { gl_Position = vertexPosition; }";
+        const fsSource = "#version 300 es\nprecision mediump float;\n\n#define PI 3.14159265359\n" + this.getShaderSource();
+
+        // Create vertex and fragment shaders with the created source.
+        const vertexShader = WebGLAdapter.loadShader(gl, gl.VERTEX_SHADER, vsSource);
+        const fragmentShader = WebGLAdapter.loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+        // Create the shader program
+        this.shaderProgram = gl.createProgram();
+        gl.attachShader(this.shaderProgram, vertexShader);
+        gl.attachShader(this.shaderProgram, fragmentShader);
+        gl.linkProgram(this.shaderProgram);
+
+        // If creating the shader program failed, alert
+        if (!gl.getProgramParameter(this.shaderProgram, gl.LINK_STATUS))
+            throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(this.shaderProgram);
+
+        // Create the position buffer data for a polygon covering the image.
+        const positionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0 ]), gl.STATIC_DRAW);
+
+        // Tell WebGL how to pull out the positions from the position buffer into the vertexPosition attribute.
+        const vertexPosition = gl.getAttribLocation(this.shaderProgram, 'vertexPosition');
+        gl.vertexAttribPointer(vertexPosition, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(vertexPosition);
+    }
+    
+    getShaderSource() {
+        return `
+                void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd);
+                vec4 sceneRayColor(in vec4 ro, in vec4 rd);
+                float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag, inout int objectID);
+                float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);
+                vec4 colorForMaterial(in int materialID, in vec4 rp, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color);
+                float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
+                void getGeometricMaterialProperties(in int geometryID, in vec4 position, inout vec4 normal, inout vec2 UV);
+            ` + this.rendererAdapter.getShaderSource();
+    }
+    
+    writeShaderData(gl) {
+        //gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix.to_webgl());
+        //const canvas = document.querySelector('#glcanvas');
+        //gl.uniform2fv(programInfo.uniformLocations.canvasSize, Vec.from([canvas.width, canvas.height]));
+        
+        this.rendererAdapter.writeShaderData(gl);
     }
 
-    // Shader program sources
-    const vsSource = `
-#version 300 es
-in vec4 vertexPosition;
-void main() { gl_Position = vertexPosition; }`;
-    const fsSource_header = `
-#version 300 es
-precision mediump float;
-#define PI 3.14159265359`;
-
-    // Initialize a shader program.
-    const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
-
-    // Collect all the info needed to use the shader program.
-    const programInfo = {
-        program: shaderProgram,
-        uniformLocations: {
-            canvasSize: gl.getUniformLocation(shaderProgram, 'uCanvasSize')
-        },
-    };
-
-    // Here's where we call the routine that builds all the objects we'll be drawing.
-    const buffers = initBuffers(gl, programInfo);
-
-    // Draw the scene
-    drawScene(gl, programInfo, buffers);
-}
-
-// Initialize a shader program, so WebGL knows how to draw our data
-function initShaderProgram(gl, vsSource, fsSource) {
-    const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
-    const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
-
-    // Create the shader program
-    const shaderProgram = gl.createProgram();
-    gl.attachShader(shaderProgram, vertexShader);
-    gl.attachShader(shaderProgram, fragmentShader);
-    gl.linkProgram(shaderProgram);
-
-    // If creating the shader program failed, alert
-    if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
-        console.error('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
-        return null;
+    drawScene() {
+        // Tell WebGL to use our program when drawing
+        this.gl.useProgram(this.shaderProgram);
+        
+        // Draw the magic square that begins ray-tracing shader magic.
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
+    
+    // utility function to create a shader of the given type, with given textual source code, and compile it.
+    static loadShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+            throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(shader);
 
-    return shaderProgram;
-}
-
-// creates a shader of the given type, uploads the source and compiles it.
-function loadShader(gl, type, source) {
-    const shader = gl.createShader(type);
-
-    // Send the source to the shader object
-    gl.shaderSource(shader, source);
-
-    // Compile the shader program
-    gl.compileShader(shader);
-
-    // See if it compiled successfully
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        console.error('An error occurred compiling the shader: ' + gl.getShaderInfoLog(shader));
-        gl.deleteShader(shader);
-        return null;
+        return shader;
     }
-
-    return shader;
 }
 
-function initBuffers(gl, programInfo) {
-    // Create the position buffer data, and bind the square to it.
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ 1.0, 1.0, -1.0, 1.0, 1.0, -1.0, -1.0, -1.0 ]), gl.STATIC_DRAW);
-
-    // Tell WebGL how to pull out the positions from the position buffer into the vertexPosition attribute.
-    const vertexPosition = gl.getAttribLocation(programInfo.program, 'vertexPosition');
-    gl.vertexAttribPointer(vertexPosition, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(vertexPosition);
-
-    return { position: positionBuffer };
-}
-
-
-function drawScene(gl, programInfo) {
-    gl.clearColor(0.0, 0.0, 0.0, 1.0); // Any calls to clear will reset all pixels to black, fully opaque
-    gl.clearDepth(1.0);                // Any calls to clear will reset the depth buffer as well
-    gl.enable(gl.DEPTH_TEST);          // Enable depth testing
-    gl.depthFunc(gl.LEQUAL);           // Near things obscure far things
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);  // Using these settings, clear the canvas before we start drawing on it.
-
-    // Tell WebGL to use our program when drawing
-    gl.useProgram(programInfo.program);
-
-    // Set the shader uniforms
-    // ====================================================
-    //gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix.to_webgl());
-    
-    const canvas = document.querySelector('#glcanvas');
-    gl.uniform2fv(programInfo.uniformLocations.canvasSize, Vec.from([canvas.width, canvas.height]));
-    gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix.to_webgl());
-    
-    // ---- Camera parameters ----
-    // uniform mat4 uCameraTransform;
-    // uniform float uAspect, uFOV;
-    
-    // ---- Scene-wide parameters ----
-    // uniform vec4 uBackgroundColor;
-    // uniform int uAllowedBounceDepth;
-    // uniform int uNumObjects;
-    
-    // ---- Object Transforms ----
-    // uniform mat4 uObjectTransforms[16];
-    // uniform mat4 uObjectInverseTransforms[16];
-
-    // ---- Object Mappings ----
-    // uniform int usObjectGeometryIDs[MAX_OBJECTS]; // 1=Plane, 2=Sphere, 3+=Triangle instance
-    // uniform int usObjectMaterialIDs[MAX_OBJECTS]; // 1+=SimpleMaterial instance
-    // uniform int usObjectTransformIDs[MAX_OBJECTS];
-
-    // ---- SimpleMaterial (Phong) ----
-    // uniform vec4 umSimpleMaterialAmbients[MAX_SIMPLE_MATERIALS];
-    // uniform vec4 umSimpleMaterialDiffuses[MAX_SIMPLE_MATERIALS];
-    // uniform vec4 umSimpleMaterialSpeculars[MAX_SIMPLE_MATERIALS];
-    // uniform float umSimpleMaterialSpecularFactors[MAX_SIMPLE_MATERIALS];
-    
-    // ---- Geometry: Triangles ----
-    // uniform vec4 ugTriangleVertices[MAX_TRIANGLES * 3];
-    // uniform vec4 ugTriangleNormals[MAX_TRIANGLES * 3];
-    // uniform vec2 ugTriangleUVs[MAX_TRIANGLES * 3];
-
-
-    // ====================================================
-    
-    // Draw the magic square that begins ray-tracing shader magic.
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-}

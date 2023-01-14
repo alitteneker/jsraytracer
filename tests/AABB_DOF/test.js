@@ -1,4 +1,4 @@
-function configureTest(callback) {
+export function configureTest(callback) {
 
     const camera = new DepthOfFieldPerspectiveCamera(Math.PI / 4, 1,
         Mat4.identity()
@@ -38,7 +38,7 @@ function configureTest(callback) {
                 Mat4.translation([-2, 0.3, -9])));
                 
             callback({
-                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer/**/(new Scene(objects, lights), camera, 64, 4),
+                renderer: new IncrementalMultisamplingRenderer(new Scene(objects, lights), camera, 64, 4),
                 width: 600,
                 height: 600
             });
