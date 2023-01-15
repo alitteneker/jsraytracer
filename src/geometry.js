@@ -151,6 +151,12 @@ class AABB extends Geometry {
     }
 }
 
+class UnitBox extends AABB {
+    constructor() {
+        super(Vec.of(0, 0, 0, 1), Vec.of(0.5, 0.5, 0.5, 0));
+    }
+}
+
 class Plane extends Geometry {
     constructor(mdata) {
         super();

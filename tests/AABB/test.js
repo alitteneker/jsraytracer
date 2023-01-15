@@ -29,8 +29,10 @@ export function configureTest(callback) {
                         0.1, 0.4, 0.6, 100, 0.5),
                 Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
             objects.push(new SceneObject(
-                new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),
-                new PhongMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 100, 0.5)));
+                //new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),
+                new UnitBox(),
+                new PhongMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 100, 0.5),
+                Mat4.translation([1.2, 0.2, -7, 1]).times(Mat4.scale(2))));
             objects.push(new SceneObject(
                 new Sphere(),
                 new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5),
