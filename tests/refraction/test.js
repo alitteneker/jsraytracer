@@ -27,9 +27,9 @@ export function configureTest(callback) {
     const objects = [];
     objects.push(new SceneObject(
         new Plane(),
-        new PositionalUVMaterial(new PhongMaterial(
+        new PhongMaterial(
             new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0.5,0.5,0.5)),
-                0.1, 0.4, 0.6, 2, 0.5)),
+                0.1, 0.4, 0.6, 2, 0.5),
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     objects.push(new SceneObject(
         new Sphere(),

@@ -15,9 +15,9 @@ export function configureTest(callback) {
     // floor
     objects.push(new SceneObject(
         new Plane(),
-        new PositionalUVMaterial(new PhongPathTracingMaterial(
+        new PhongPathTracingMaterial(
             new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                0.1, 0.4)),
+                0.1, 0.4),
         Mat4.rotation(Math.PI/2, Vec.of(1,0,0))));
     // back wall
     objects.push(new SceneObject(

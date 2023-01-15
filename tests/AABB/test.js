@@ -1,4 +1,4 @@
-export export function configureTest(callback) {
+export function configureTest(callback) {
 
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         Mat4.identity()
@@ -24,9 +24,9 @@ export export function configureTest(callback) {
             objects = [];
             objects.push(new SceneObject(
                 new Plane(),
-                new PositionalUVMaterial(new PhongMaterial(
+                new PhongMaterial(
                     new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.1, 0.4, 0.6, 100, 0.5)),
+                        0.1, 0.4, 0.6, 100, 0.5),
                 Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
             objects.push(new SceneObject(
                 new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),

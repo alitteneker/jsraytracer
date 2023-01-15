@@ -24,9 +24,9 @@ export function configureTest(callback) {
             objects = [];
             objects.push(new SceneObject(
                 new Plane(),
-                new PositionalUVMaterial(new PhongPathTracingMaterial(
+                new PhongPathTracingMaterial(
                     new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.1, 0.4, 0.6, 10)),
+                        0.1, 0.4, 0.6, 10),
                 Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
             objects.push(new SceneObject(
                 new AABB(Vec.of(1.2, 0.2, -7, 1), Vec.of(1,1,1,0)),
