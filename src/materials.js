@@ -16,6 +16,9 @@ class MaterialColor {
     color(data) {
         throw 'MaterialColor subclass has not implemented color';
     }
+    toSolidColor() {
+        throw 'MaterialColor subclass has not implemented toSolidColor';
+    }
 }
 class SolidMaterialColor extends MaterialColor {
     constructor(color) {
@@ -24,6 +27,9 @@ class SolidMaterialColor extends MaterialColor {
     }
     color(data) {
         return this._color;
+    }
+    toSolidColor() {
+        return this;
     }
 }
 class ScaledMaterialColor extends MaterialColor {
@@ -34,6 +40,12 @@ class ScaledMaterialColor extends MaterialColor {
     }
     color(data) {
         return this._mc.color(data).times(this._scale);
+    }
+    toSolidColor() {
+        const solid_mc = this._mc.toSolidColor();
+        if (this._scale == 1)
+            return solid_mc;
+        return new SolidMaterialColor(solid_mc._color);
     }
 }
 
@@ -60,8 +72,7 @@ class Material {
     }
 }
 
-// no lighting, no shadows, no reflections, just a solid color
-// NB: this will still cast a shadow unless the containing SceneObject has isTransparent set to true
+// no lighting, no shadows, no reflections, one solid color across the entire geometry
 class SolidColorMaterial extends Material {
     constructor(color) {
         super();

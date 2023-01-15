@@ -38,7 +38,11 @@ $(document).ready(function() {
 class WebGLAdapter {
     constructor(gl, renderer) {
         this.gl = gl;
-        this.rendererAdapter = new WebGLRendererAdapter(renderer);
+        this.renderer = renderer;
+        this.adapters = {
+            camera: new WebGLCameraAdapter(renderer.camera),
+            scene:  new WebGLSceneAdapter(renderer.scene)
+        };
         this.buildShader(gl);
         this.writeShaderData(gl);
     }
@@ -78,23 +82,45 @@ class WebGLAdapter {
     }
     
     getShaderSource() {
-        return `
-                void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd);
-                vec4 sceneRayColor(in vec4 ro, in vec4 rd);
+        return `void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd);
+                vec4 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
                 float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag, inout int objectID);
                 float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);
-                vec4 colorForMaterial(in int materialID, in vec4 rp, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color);
+                vec4 colorForMaterial(in int materialID, in vec4 rp, in vec4 ro, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color);
                 float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
-                void getGeometricMaterialProperties(in int geometryID, in vec4 position, inout vec4 normal, inout vec2 UV);
-            ` + this.rendererAdapter.getShaderSource();
+                void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV);
+                void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec4 lightColor);
+                
+                uniform vec2 uCanvasSize;
+                uniform float uTime;
+                uniform int uAllowedBounceDepth;
+                
+                out vec4 outTexelColor;
+
+                void main() {
+                    // TODO: seed noise
+
+                    vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
+                    vec2 pixelSize = 2.0 / uCanvasSize;
+                    
+                    vec4 ro, rd;
+                    computeCameraRayForTexel(canvasCoord, pixelSize, ro, rd);
+                    outTexelColor = sceneRayColor(ro, rd, uAllowedBounceDepth);
+                }`
+                + this.adapters.scene.getShaderSource()
+                + this.adapters.camera.getShaderSource();
     }
     
     writeShaderData(gl) {
-        //gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix.to_webgl());
-        //const canvas = document.querySelector('#glcanvas');
-        //gl.uniform2fv(programInfo.uniformLocations.canvasSize, Vec.from([canvas.width, canvas.height]));
+        this.gl.useProgram(this.shaderProgram);
         
-        this.rendererAdapter.writeShaderData(gl);
+        const canvas = document.querySelector('#glcanvas');
+        gl.uniform2fv(gl.getUniformLocation(this.shaderProgram, "uCanvasSize"), Vec.from([canvas.width, canvas.height]));
+        gl.uniform1i(gl.getUniformLocation(this.shaderProgram, "uAllowedBounceDepth"), this.renderer.maxRecursionDepth);
+        // gl.uniform1f(gl.getUniformLocation(this.shaderProgram, "uTime"), /* Some way of measuring time uniquely? */);
+        
+        this.adapters.camera.writeShaderData(gl, this.shaderProgram);
+        this.adapters.scene.writeShaderData(gl, this.shaderProgram);
     }
 
     drawScene() {

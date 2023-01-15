@@ -1,13 +1,27 @@
 class WebGLGeometriesAdapter {
     constructor() {
-        
+        this.id_map = {};
+        this.geometries = [ new Plane(), new Sphere(), new UnitBox() ];
     }
-    writeShaderData(gl) {
+    visit(geometry) {
+        if (geometry instanceof Plane)
+            return 0;
+        if (geometry instanceof Sphere)
+            return 1;
+        if (geometry instanceof UnitBox)
+            return 2;
+        if (geometry.GEOMETRY_UID in this.id_map)
+            return this.id_map[geometry.GEOMETRY_UID];
+        // TODO support triangles
+        throw "Unsupported geometry type";
+    }
+    writeShaderData(gl, program) {
+        // TODO only triangles need data
     }
     getShaderSource() {
         return `
             // ---- Plane ----
-            #define GEOMETRY_PLANE_TYPE 1
+            #define GEOMETRY_PLANE_TYPE 0
             float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance, in vec4 n, in float delta) {
                 float denom = dot(rd, n);
                 if (denom == 0.0)
@@ -24,7 +38,7 @@ class WebGLGeometriesAdapter {
 
 
             // ---- Sphere ----
-            #define GEOMETRY_SPHERE_TYPE 2
+            #define GEOMETRY_SPHERE_TYPE 1
             float unitSphereIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
                 float a = dot(rd, rd),
                       b = dot(ro, rd),
@@ -47,8 +61,55 @@ class WebGLGeometriesAdapter {
             }
 
 
+            // ---- Unit Box ----
+            #define GEOMETRY_UNITBOX_TYPE 2
+            float unitBoxIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
+                float t_min = minDistance - 1.0, t_max = 1e20;
+                vec4 p = vec4(0,0,0,1) - ro;
+                for (int i = 0; i < 3; ++i) {
+                    if (abs(rd[i]) > 0.0000001) {
+                        float t1 = (p[i] + 0.5) / rd[i],
+                            t2 = (p[i] - 0.5) / rd[i];
+                        if (t1 > t2) {
+                            float tmp = t1;
+                            t1 = t2;
+                            t2 = tmp;
+                        }
+                        if (t1 > t_min)
+                            t_min = t1;
+                        if (t2 < t_max)
+                            t_max = t2;
+                        if (t_min > t_max || t_max < minDistance)
+                            return minDistance - 1.0;
+                    }
+                    else if (abs(p[i]) > 0.5)
+                        return minDistance - 1.0;
+                }
+                if (t_min >= minDistance)
+                    return t_min;
+                return t_max;
+            }
+            void unitBoxMaterialData(in vec4 p, in vec4 rd, inout vec4 norm, inout vec2 UV) {
+                float norm_dist = 0.0;
+                norm = vec4(0.0);
+                for (int i = 0; i < 3; ++i) {
+                    float comp = p[i] / 0.5;
+                    float abs_comp = abs(comp);
+                    if (abs_comp > norm_dist) {
+                        norm_dist = abs_comp;
+                        norm = vec4(0.0);
+                        norm[i] = sign(comp);
+                    }
+                }
+                if (dot(norm, rd) > 0.0)
+                    norm = -1.0 * norm;
+                
+                // TODO: what to do about UV?
+            }
+
+
             // ---- Triangle ----
-            #define GEOMETRY_TRIANGLE_TYPE 3
+            #define GEOMETRY_TRIANGLE_MIN_INDEX 3
 
             #define MAX_TRIANGLES 16
             uniform vec4 ugTriangleVertices[MAX_TRIANGLES * 3];
@@ -126,19 +187,21 @@ class WebGLGeometriesAdapter {
             float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance) {
                 if (geometryID == GEOMETRY_SPHERE_TYPE)
                     return unitSphereIntersect(ro, rd, minDistance);
-                if (geometryID == GEOMETRY_PLANE_TYPE)
+                else if (geometryID == GEOMETRY_PLANE_TYPE)
                     return planeIntersect(ro, rd, minDistance);
-                if (geometryID == GEOMETRY_TRIANGLE_TYPE)
-                    return triangleIntersect(ro, rd, minDistance, geometryID - GEOMETRY_TRIANGLE_TYPE);
-                return minDistance - 1.0;
+                else if (geometryID == GEOMETRY_UNITBOX_TYPE)
+                    return unitBoxIntersect(ro, rd, minDistance);
+                return triangleIntersect(ro, rd, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
             }
-            void getGeometricMaterialProperties(in int geometryID, in vec4 position, inout vec4 normal, inout vec2 UV) {
+            void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV) {
                 if (geometryID == GEOMETRY_SPHERE_TYPE)
                     unitSphereMaterialData(position, normal, UV);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)
                     planeMaterialData(position, normal, UV);
-                else if (geometryID == GEOMETRY_TRIANGLE_TYPE)
-                    triangleMaterialData(position, normal, UV, geometryID - GEOMETRY_TRIANGLE_TYPE);
+                else if (geometryID == GEOMETRY_UNITBOX_TYPE)
+                    unitBoxMaterialData(position, rd, normal, UV);
+                else
+                    triangleMaterialData(position, normal, UV, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
             }`;
     }
 }
