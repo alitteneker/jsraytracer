@@ -30,12 +30,12 @@ class WebGLLightsAdapter {
             #define MAX_POINT_LIGHTS 4
             uniform vec4 uPointLightCenters[MAX_POINT_LIGHTS];
             uniform vec3 uPointLightColors[MAX_POINT_LIGHTS];
-            void samplePointLight(in vec4 center, in vec3 color, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor) {
-                vec4 delta = position - center;
+            void samplePointLight(in vec4 lightCenter, in vec3 lightColor, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor) {
+                vec4 delta = lightCenter - position;
                 float norm_squared = dot(delta, delta);
                 
                 outLightDirection = delta;
-                outLightColor = color / (4.0 * PI * norm_squared);
+                outLightColor = lightColor / (4.0 * PI * norm_squared);
             }
             void sampleLight(in int lightID, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor) {
                 vec4 lightCenter = uPointLightCenters[lightID];

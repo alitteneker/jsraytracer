@@ -55,7 +55,7 @@ class WebGLGeometriesAdapter {
             }
 
             void unitSphereMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
-                normal = normalize(position);
+                normal = vec4(normalize(position.xyz), 0);
                 UV.x = 0.5 + atan(normal.z, normal.x) / (2.0 * PI);
                 UV.y = 0.5 - asin(normal.y) / PI;
             }

@@ -11,9 +11,6 @@ $(document).ready(function() {
     });
     
     const canvas = document.querySelector('#glcanvas');
-    const gl = canvas.getContext('webgl2');
-    if (!gl)
-        console.error('Unable to initialize WebGL. Your browser or machine may not support it.');
     
     let adapter = false;
     scene_select.addEventListener("change", function onChange(e) {
@@ -28,6 +25,13 @@ $(document).ready(function() {
         
         import("../" + scene_path + "/test.js").then(function(module) {
             module.configureTest(function(test) {
+                canvas.width = test.width;
+                canvas.height = test.height;
+                
+                const gl = canvas.getContext('webgl2');
+                if (!gl)
+                    console.error('Unable to initialize WebGL. Your browser or machine may not support it.');
+                
                 adapter = new WebGLAdapter(gl, test.renderer);
                 adapter.drawScene();
             });

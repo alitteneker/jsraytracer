@@ -45,19 +45,22 @@ class WebGLMaterialsAdapter {
             uniform float umSimpleMaterialSpecularFactors[MAX_MATERIALS];
             uniform vec3  umSimpleMaterialReflectivities [MAX_MATERIALS];
 
-            void getMaterialFactors(in int materialID, in vec2 UV, out vec3 ambient, out vec3 diffuse, out vec3 specular, out float specular_factor, out vec3 reflectivity) {
-                ambient         = umSimpleMaterialAmbients       [materialID];
-                diffuse         = umSimpleMaterialDiffuses       [materialID];
-                specular        = umSimpleMaterialSpeculars      [materialID];
-                specular_factor = umSimpleMaterialSpecularFactors[materialID];
-                reflectivity    = umSimpleMaterialReflectivities [materialID];
+            void getMaterialFactors(in int materialID, in vec2 UV, out vec3 ambient, out vec3 diffuse, out vec3 specular, out float specularFactor, out vec3 reflectivity) {
+                ambient        = umSimpleMaterialAmbients       [materialID];
+                diffuse        = umSimpleMaterialDiffuses       [materialID];
+                specular       = umSimpleMaterialSpeculars      [materialID];
+                specularFactor = umSimpleMaterialSpecularFactors[materialID];
+                reflectivity   = umSimpleMaterialReflectivities [materialID];
             }
-            vec3 computeMaterialColor(in vec3 ambientColor, in vec3 diffuseColor, in vec3 specularColor, in float specular_factor, in vec3 reflectivityColor, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 computeMaterialColor(in vec3 ambientColor, in vec3 diffuseColor, in vec3 specularColor, in float specularFactor, in vec3 reflectivityColor, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec4 V = normalize(-rd);
                 vec4 N = normalize(normal);
-                if (dot(V, N) < 0.0)
+                float vdotn = dot(V, N);
+                if (vdotn < 0.0) {
                     N = -N;
-                vec4 R = normalize((2.0 * dot(normal, V) * normal) - V);
+                    vdotn = -vdotn;
+                }
+                vec4 R = normalize((2.0 * vdotn * N) - V);
 
                 vec3 totalColor = ambientColor;
                 for (int i = 0; i < uNumLights; ++i) {
@@ -65,17 +68,17 @@ class WebGLMaterialsAdapter {
                     vec3 lightColor;
                     sampleLight(i, rp, lightDirection, lightColor);
                     
-                    float lightIntersection = sceneRayCast(rp, lightDirection, 0.0001, true);
-                    if (lightIntersection <= 0.0 || lightIntersection >= 1.0)
+                    float shadowIntersection = sceneRayCast(rp, lightDirection, 0.0001, true);
+                    if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     
-                    lightDirection = normalize(lightDirection);
+                    vec4 L = normalize(lightDirection);
                     
                     // diffuse component
-                    totalColor += max(dot(lightDirection, N), 0.0) * diffuseColor * lightColor;
+                    totalColor +=     max(dot(L, N), 0.0)                  * diffuseColor  * lightColor;
                     
                     // specular component
-                    totalColor += pow(max(dot(lightDirection, R), 0.0), specular_factor) * specularColor * lightColor;
+                    totalColor += pow(max(dot(L, R), 0.0), specularFactor) * specularColor * lightColor;
                 }
                 
                 // reflection
@@ -89,9 +92,9 @@ class WebGLMaterialsAdapter {
             // ---- Generic ----
             vec3 colorForMaterial(in int materialID, in vec4 rp, in vec4 ro, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec3 ambient, diffuse, specular, reflectivity;
-                float specular_factor;
-                getMaterialFactors(materialID, UV, ambient, diffuse, specular, specular_factor, reflectivity);
-                return computeMaterialColor(ambient, diffuse, specular, specular_factor, reflectivity, rp, rd, normal, reflection_direction, reflection_color);
+                float specularFactor;
+                getMaterialFactors(materialID, UV, ambient, diffuse, specular, specularFactor, reflectivity);
+                return computeMaterialColor(ambient, diffuse, specular, specularFactor, reflectivity, rp, rd, normal, reflection_direction, reflection_color);
             }`;
     }
 }

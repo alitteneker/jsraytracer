@@ -101,7 +101,7 @@ class WebGLSceneAdapter {
                     
                     vec4 reflection_direction = vec4(0.0);
                     vec3 reflection_color = vec3(0.0);
-                    rayColor += attenuation_color * sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
+                    rayColor += /*attenuation_color * */ sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
                     
                     if (dot(reflection_direction, reflection_direction) == 0.0)
                         break;
