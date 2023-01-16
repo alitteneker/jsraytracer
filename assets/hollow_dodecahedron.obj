@@ -203,7 +203,6 @@ vt 0.7 0.207652
 vt 0.9 0.207652
 
 g Vertex_Object_2 
-usemtl Default
 # Number of Polygons: 120
 f 1/1 21/21 22/22 2/2 
 f 2/2 22/22 24/24 7/7 

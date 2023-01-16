@@ -2,6 +2,19 @@ class WebGLGeometriesAdapter {
     constructor() {
         this.id_map = {};
         this.geometries = [ new Plane(), new Sphere(), new UnitBox() ];
+        
+        this.triangle_data_map = {};
+        this.triangle_data = [];
+        this.triangles = [];
+    }
+    visitTriangleData(vec) {
+        vec = vec.slice(0, 3);
+        const key = vec.to_string();
+        if (key in this.triangle_data_map)
+            return this.triangle_data_map[key];
+        this.triangle_data_map[key] = this.triangle_data.length;
+        this.triangle_data.push(Array.of(...vec));
+        return this.triangle_data_map[key];
     }
     visit(geometry) {
         if (geometry instanceof Plane)
@@ -12,11 +25,26 @@ class WebGLGeometriesAdapter {
             return 2;
         if (geometry.GEOMETRY_UID in this.id_map)
             return this.id_map[geometry.GEOMETRY_UID];
-        // TODO support triangles
+        if (geometry instanceof Triangle) {
+            this.triangles.push({
+                vertex_indices: (geometry.ps                                             ).map(p => this.visitTriangleData(p)),
+                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.visitTriangleData(v)),
+                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.visitTriangleData(Vec.of(...v, 0)))
+            });
+            this.id_map[geometry.GEOMETRY_UID] = this.geometries.length;
+            this.geometries.push(geometry);
+            return this.id_map[geometry.GEOMETRY_UID];
+        }
         throw "Unsupported geometry type";
     }
     writeShaderData(gl, program) {
-        // TODO only triangles need data
+        // Write triangle data, as all other types need no data written for geometry
+        if (this.triangles.length) {
+            gl.uniform3fv(gl.getUniformLocation(program, "ugTriangleData"),          this.triangle_data.flat());
+            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleVertexIndices"), this.triangles.map(t => t.vertex_indices).flat());
+            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleNormalIndices"), this.triangles.map(t => t.normal_indices).flat());
+            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleUVIndices"),     this.triangles.map(t => t.uv_indices).flat());
+        }
     }
     getShaderSource() {
         return `
@@ -111,25 +139,28 @@ class WebGLGeometriesAdapter {
             // ---- Triangle ----
             #define GEOMETRY_TRIANGLE_MIN_INDEX 3
 
-            #define MAX_TRIANGLES 16
-            uniform vec4 ugTriangleVertices[MAX_TRIANGLES * 3];
-            uniform vec4 ugTriangleNormals[MAX_TRIANGLES * 3];
-            uniform vec2 ugTriangleUVs[MAX_TRIANGLES * 3];
+            #define MAX_TRIANGLES 64
+            #define MAX_TRIANGLE_DATA 128
+            
+            uniform vec3 ugTriangleData         [MAX_TRIANGLE_DATA];
+            uniform int  ugTriangleVertexIndices[MAX_TRIANGLES * 3];
+            uniform int  ugTriangleNormalIndices[MAX_TRIANGLES * 3];
+            uniform int  ugTriangleUVIndices    [MAX_TRIANGLES * 3];
 
             void getTriangleVertices(in int triangleID, out vec4 p1, out vec4 p2, out vec4 p3) {
-                p1 = ugTriangleVertices[triangleID * 3];
-                p2 = ugTriangleVertices[triangleID * 3 + 1];
-                p3 = ugTriangleVertices[triangleID * 3 + 2];
+                p1 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3    ]], 1);
+                p2 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3 + 1]], 1);
+                p3 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3 + 2]], 1);
             }
             void getTriangleNormals(in int triangleID, out vec4 n1, out vec4 n2, out vec4 n3) {
-                n1 = ugTriangleNormals[triangleID * 3];
-                n2 = ugTriangleNormals[triangleID * 3 + 1];
-                n3 = ugTriangleNormals[triangleID * 3 + 2];
+                n1 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3    ]], 0);
+                n2 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3 + 1]], 0);
+                n3 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3 + 2]], 0);
             }
             void getTriangleUVs(in int triangleID, out vec2 uv1, out vec2 uv2, out vec2 uv3) {
-                uv1 = ugTriangleUVs[triangleID * 3];
-                uv2 = ugTriangleUVs[triangleID * 3 + 1];
-                uv3 = ugTriangleUVs[triangleID * 3 + 2];
+                uv1 = ugTriangleData[ugTriangleUVIndices[triangleID * 3    ]].xy;
+                uv3 = ugTriangleData[ugTriangleUVIndices[triangleID * 3 + 2]].xy;
+                uv2 = ugTriangleData[ugTriangleUVIndices[triangleID * 3 + 1]].xy;
             }
             float baryBlend(in vec3 bary, in float v1, in float v2, in float v3) {
                 return (bary.x * v1) + (bary.y * v2) + (bary.z * v3);

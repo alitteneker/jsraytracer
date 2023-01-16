@@ -83,7 +83,6 @@ vt 0.125 0.695913
 vt 0.375 0.695913
 
 g Vertex_Object_1 
-usemtl Default
 # Number of Polygons: 48
 f 2/2 9/9 11/11 6/6 
 f 6/6 11/11 12/12 7/7 
