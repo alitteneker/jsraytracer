@@ -30,9 +30,12 @@ $(document).ready(function() {
                 
                 const gl = canvas.getContext('webgl2');
                 if (!gl)
-                    console.error('Unable to initialize WebGL. Your browser or machine may not support it.');
+                    throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
                 
+                console.log("Building adapters from scene...");
                 adapter = new WebGLAdapter(gl, test.renderer);
+                
+                console.log("Drawing scene...");
                 adapter.drawScene();
             });
         });
@@ -47,7 +50,11 @@ class WebGLAdapter {
             camera: new WebGLCameraAdapter(renderer.camera),
             scene:  new WebGLSceneAdapter(renderer.scene)
         };
+        
+        console.log("Building shader...");
         this.buildShader(gl);
+        
+        console.log("Writing shader data...");
         this.writeShaderData(gl);
     }
     destroy() {

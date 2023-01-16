@@ -88,20 +88,20 @@ class WebGLSceneAdapter {
                 vec2 UV;
                 mat4 inverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
                 getGeometricMaterialProperties(usObjectGeometryIDs[objectID], inverseTransform * rp, inverseTransform * ro, inverseTransform * rd, normal, UV);
-                normal = transpose(inverseTransform) * normal;
+                normal = vec4(normalize((transpose(inverseTransform) * normal).xyz), 0);
                 return colorForMaterial(usObjectMaterialIDs[objectID], rp, ro, rd, normal, UV, reflection_direction, reflection_color);
             }
             vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth) {
                 vec3 rayColor = uBackgroundColor, attenuation_color = vec3(1.0);
-                for (int i = 0; i <= maxBounceDepth; ++i) {
+                for (int i = 0; i < maxBounceDepth; ++i) {
                     int objectID = -1;
-                    float distance = sceneRayCast(ro, rd, 0.0, false, objectID);
+                    float distance = sceneRayCast(ro, rd, 0.0001, false, objectID);
                     if (objectID == -1)
                         break;
                     
                     vec4 reflection_direction = vec4(0.0);
                     vec3 reflection_color = vec3(0.0);
-                    rayColor += /*attenuation_color * */ sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
+                    rayColor += attenuation_color * sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
                     
                     if (dot(reflection_direction, reflection_direction) == 0.0)
                         break;
