@@ -45,7 +45,7 @@ class ScaledMaterialColor extends MaterialColor {
         const solid_mc = this._mc.toSolidColor();
         if (this._scale == 1)
             return solid_mc;
-        return new SolidMaterialColor(solid_mc._color);
+        return new SolidMaterialColor(solid_mc._color.times(this._scale));
     }
 }
 

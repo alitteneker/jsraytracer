@@ -83,13 +83,13 @@ class WebGLAdapter {
     
     getShaderSource() {
         return `void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd);
-                vec4 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
+                vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
                 float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag, inout int objectID);
                 float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);
-                vec4 colorForMaterial(in int materialID, in vec4 rp, in vec4 ro, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec4 reflection_color);
+                vec3 colorForMaterial(in int materialID, in vec4 rp, in vec4 ro, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec3 reflection_color);
                 float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
                 void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV);
-                void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec4 lightColor);
+                void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor);
                 
                 uniform vec2 uCanvasSize;
                 uniform float uTime;
@@ -105,7 +105,7 @@ class WebGLAdapter {
                     
                     vec4 ro, rd;
                     computeCameraRayForTexel(canvasCoord, pixelSize, ro, rd);
-                    outTexelColor = sceneRayColor(ro, rd, uAllowedBounceDepth);
+                    outTexelColor = vec4(sceneRayColor(ro, rd, uAllowedBounceDepth), 1.0);
                 }`
                 + this.adapters.scene.getShaderSource()
                 + this.adapters.camera.getShaderSource();

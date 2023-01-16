@@ -10,15 +10,15 @@ class WebGLCameraAdapter {
     writeShaderData(gl, program) {
         gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"), this.tanFov);
         gl.uniform1f(gl.getUniformLocation(program, "uAspect"), this.aspect);
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uInverseCameraTransform"), false, this.camera.inv_transform.to_webgl());
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), false, this.camera.transform.to_webgl());
     }
     getShaderSource() {
         return `
-            uniform mat4 uInverseCameraTransform;
+            uniform mat4 uCameraTransform;
             uniform float uAspect, uTanFOV;
             void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd) {
-                ro = uInverseCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
-                rd = uInverseCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
+                ro = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
+                rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
             }`;
     }
 }

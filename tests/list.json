@@ -1,8 +1,9 @@
 [
+    "ASimpleScene",
     "refraction_simple",
-    "AABB",
-    "AABB_path",
-    "AABB_DOF",
+    "BoxBall",
+    "BoxBall_path",
+    "BoxBall_DOF",
     "refraction",
     "refraction_path",
     "cornell_box",

@@ -65,7 +65,7 @@ function defaultCompare(a, b) {
 class BSPScene extends Scene {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
         super(objects, lights, bg_color);
-        this.kdtree = new BSPSceneTreeNode(this.objects);
+        this.kdtree = new BSPSceneTreeNode(Array.from(objects));
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
         let ret = { distance: Infinity, object: null };
@@ -178,7 +178,7 @@ class BSPSceneTreeNode {
 class BVHScene extends Scene {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
         super(objects, lights, bg_color);
-        this.kdtree = new BVHSceneTreeNode(this.objects);
+        this.kdtree = new BVHSceneTreeNode(Array.from(objects));
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
         let ret = { distance: Infinity, object: null };

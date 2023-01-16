@@ -23,7 +23,6 @@ class WebGLSceneAdapter {
             else {
                 this.properties.transformIDs.push(transform_ID_map[transform_ID] = this.inv_transforms.length);
                 this.inv_transforms.push(object.inv_transform);
-                
             }
             this.properties.geometryIDs.push(this.adapters.geometries.visit(object.geometry));
             this.properties.materialIDs.push(this.adapters.materials.visit(object.material));
@@ -84,7 +83,7 @@ class WebGLSceneAdapter {
             }
 
             // ---- Color ----
-            vec4 sceneObjectColor(in int objectID, in vec4 rp, in vec4 ro, in vec4 rd, inout vec4 reflection_direction, inout vec4 reflection_color) {
+            vec3 sceneObjectColor(in int objectID, in vec4 rp, in vec4 ro, in vec4 rd, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec4 normal;
                 vec2 UV;
                 mat4 inverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
@@ -92,15 +91,16 @@ class WebGLSceneAdapter {
                 normal = transpose(inverseTransform) * normal;
                 return colorForMaterial(usObjectMaterialIDs[objectID], rp, ro, rd, normal, UV, reflection_direction, reflection_color);
             }
-            vec4 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth) {
-                vec4 rayColor = vec4(uBackgroundColor, 1.0), attenuation_color = vec4(1.0);
+            vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth) {
+                vec3 rayColor = uBackgroundColor, attenuation_color = vec3(1.0);
                 for (int i = 0; i <= maxBounceDepth; ++i) {
                     int objectID = -1;
                     float distance = sceneRayCast(ro, rd, 0.0, false, objectID);
                     if (objectID == -1)
                         break;
                     
-                    vec4 reflection_direction = vec4(0.0), reflection_color = vec4(0.0);
+                    vec4 reflection_direction = vec4(0.0);
+                    vec3 reflection_color = vec3(0.0);
                     rayColor += attenuation_color * sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
                     
                     if (dot(reflection_direction, reflection_direction) == 0.0)

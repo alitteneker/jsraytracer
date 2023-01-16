@@ -7,8 +7,7 @@ class WebGLLightsAdapter {
         
         if (light instanceof SimplePointLight) {
             light_data.center = light.position;
-            light_data.color = light.color;
-            // TODO: deal with intensity
+            light_data.color = light.color.times(light.intensity);
         }
         else {
             throw "Unsupported light type";
@@ -19,28 +18,28 @@ class WebGLLightsAdapter {
     writeShaderData(gl, program) {
         const centers = [], colors = [];
         for (let light_data of this.lights_data) {
-            this.centers.push(...light_data.center);
-            this.colors.push(...light_data.color);
+            centers.push(...light_data.center);
+            colors.push(...light_data.color);
         }
         gl.uniform4fv(gl.getUniformLocation(program, "uPointLightCenters"), centers);
-        gl.uniform4fv(gl.getUniformLocation(program, "uPointLightColors"), colors);
+        gl.uniform3fv(gl.getUniformLocation(program, "uPointLightColors"), colors);
     }
     getShaderSource() {
         return `
             // ---- Point Lights ----
             #define MAX_POINT_LIGHTS 4
             uniform vec4 uPointLightCenters[MAX_POINT_LIGHTS];
-            uniform vec4 uPointLightColors[MAX_POINT_LIGHTS];
-            void sampPointLight(in vec4 center, in vec4 color, in vec4 position, out vec4 outLightDirection, out vec4 outLightColor) {
+            uniform vec3 uPointLightColors[MAX_POINT_LIGHTS];
+            void samplePointLight(in vec4 center, in vec3 color, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor) {
                 vec4 delta = position - center;
                 float norm_squared = dot(delta, delta);
                 
                 outLightDirection = delta;
                 outLightColor = color / (4.0 * PI * norm_squared);
             }
-            void sampleLight(in int lightID, in vec4 position, out vec4 outLightDirection, out vec4 outLightColor) {
+            void sampleLight(in int lightID, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor) {
                 vec4 lightCenter = uPointLightCenters[lightID];
-                vec4 lightColor = uPointLightColors[lightID];
+                vec3 lightColor = uPointLightColors[lightID];
                 samplePointLight(lightCenter, lightColor, position, outLightDirection, outLightColor);
             }`;
     }
