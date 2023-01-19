@@ -47,6 +47,13 @@ class WebGLSceneAdapter {
         this.adapters.materials.writeShaderData(gl, program);
         this.adapters.geometries.writeShaderData(gl, program);
     }
+    getShaderSourceForwardDefinitions() {
+        return `vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
+                float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);` + "\n"
+            + this.adapters.lights.getShaderSourceForwardDefinitions() + "\n"
+            + this.adapters.materials.getShaderSourceForwardDefinitions() + "\n"
+            + this.adapters.geometries.getShaderSourceForwardDefinitions();
+    }
     getShaderSource() {
         return `
             uniform vec3 uBackgroundColor;

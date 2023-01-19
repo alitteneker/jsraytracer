@@ -46,6 +46,10 @@ class WebGLGeometriesAdapter {
             gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleUVIndices"),     this.triangles.map(t => t.uv_indices).flat());
         }
     }
+    getShaderSourceForwardDefinitions() {
+        return `float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
+                void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV);`;
+    }
     getShaderSource() {
         return `
             // ---- Plane ----

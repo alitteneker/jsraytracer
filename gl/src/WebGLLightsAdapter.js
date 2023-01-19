@@ -24,6 +24,9 @@ class WebGLLightsAdapter {
         gl.uniform4fv(gl.getUniformLocation(program, "uPointLightCenters"), centers);
         gl.uniform3fv(gl.getUniformLocation(program, "uPointLightColors"), colors);
     }
+    getShaderSourceForwardDefinitions() {
+        return `void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor);`;
+    }
     getShaderSource() {
         return `
             // ---- Point Lights ----

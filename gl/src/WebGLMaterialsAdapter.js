@@ -36,6 +36,10 @@ class WebGLMaterialsAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "umSimpleMaterialReflectivities"), reflectivities);
         gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialSpecularFactors"), specularFactors);
     }
+    getShaderSourceForwardDefinitions() {
+        return `vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in vec4 ray_origin, in vec4 ray_direction,
+                                      in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec3 reflection_color);`
+    }
     getShaderSource() {
         return `
             #define MAX_MATERIALS 4
