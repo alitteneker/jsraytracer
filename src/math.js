@@ -13,7 +13,7 @@ class Vec extends Float32Array {
     static circlePick() {
         const a = Math.random() * 2 * Math.PI,
             r = Math.sqrt(Math.random());
-        return Vec.of(r * Math.cos(a), r * Math.cos(a));
+        return Vec.of(r * Math.cos(a), r * Math.sin(a));
     }
     equals(b) {
         return this.every((x, i) => x == b[i])
@@ -210,7 +210,7 @@ class Mat extends Array {
         return ret;
     }
     static mat_to_webgl(M) {
-        return Mat.flatten_2D_to_1D(M.transposed());
+        return Mat.flatten_2D_to_1D(M);
     }
     to_webgl() {
         return Mat4.mat_to_webgl(this);

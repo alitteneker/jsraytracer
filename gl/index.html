@@ -24,6 +24,7 @@
         <script src="./src/WebGLlightsAdapter.js" defer></script>
         <script src="./src/WebGLMaterialsAdapter.js" defer></script>
         <script src="./src/WebGLSceneAdapter.js" defer></script>
+        <script src="./src/WebGLRandomHelper.js" defer></script>
     </head>
 
     <body>
@@ -36,11 +37,8 @@
         </div>
         
         <hr>
-        <div id="progress" style="visibility:hidden">
-            <div id="progress-label"></div>
-            <div id="progress-container">
-                <div id="progress-bar"></div>
-            </div>
+        <div id="progress">
+            <div id="fps-display"></div>
         </div>
         <div class="canvas-widget">
             <p>Rendered:</p>

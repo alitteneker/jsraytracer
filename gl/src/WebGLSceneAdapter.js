@@ -35,7 +35,7 @@ class WebGLSceneAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
         
         // write transforms
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), false, Mat.mats_to_webgl(this.inv_transforms));
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
         
         // write geometry ids, material ids, transform ids
         gl.uniform1iv(gl.getUniformLocation(program, "usObjectGeometryIDs"), this.properties.geometryIDs);

@@ -5,31 +5,23 @@
     display: block;
     margin-left: auto;
     margin-right: auto;
+    touch-action: none;
 }
 
 #progress {
     width: 100%;
     text-align: center;
     line-height: 30px;
+    min-height: 30px;
 }
 
-#progress-label {
+#fps-display {
+    width: 100%;
     float: left;
     color: white;
-    padding-left: 10px;
-}
-
-#progress-container {
-    width: 100%;
     background-color: lightgray;
     border-width: 1px;
     border-color: black;
     border-style: solid;
-}
-
-#progress-bar {
-    width: 0%;
-    height: 30px;
-    background-color: grey;
-    text-align: center;
+    min-height: 30px;
 }

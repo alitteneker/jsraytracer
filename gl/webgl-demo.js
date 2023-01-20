@@ -12,6 +12,7 @@ $(document).ready(function() {
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
     let adapter = null;
     const canvas = $('#glcanvas');
+    const fps_div = $('#fps-display');
     scene_select.on("change", function onChange(e) {
         if (adapter) {
             adapter.destroy();
@@ -48,6 +49,7 @@ $(document).ready(function() {
         "a":       [-1, 0, 0],
         "d":       [ 1, 0, 0],
         " ":       [ 0, 1, 0],
+        "c":       [ 0,-1, 0],
         "Control": [ 0,-1, 0]};
     function calcKeyDelta() {
         keyDelta = [0,0,0];
@@ -98,9 +100,10 @@ $(document).ready(function() {
     
     // Draw the scene, incorporating mouse/key deltas
     let lastDrawTimestamp = null;
-    const keySpeed = 1.0, mouseSpeed = 0.01;
+    const keySpeed = 1.0, mouseSpeed = 0.02;
     function drawScene(timestamp) {
         const timeDelta = lastDrawTimestamp ? (timestamp - lastDrawTimestamp) : 1;
+        fps_div.text((1000 / timeDelta).toFixed(1) + " FPS");
         
         // draw the scene, and request the next frame of animation
         if (adapter) {
@@ -109,7 +112,7 @@ $(document).ready(function() {
                 const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v / timeDelta));
                 adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
             }
-            adapter.drawScene(mouseDelta, keyDelta);
+            adapter.drawScene(timestamp);
             window.requestAnimationFrame(drawScene);
         }
         

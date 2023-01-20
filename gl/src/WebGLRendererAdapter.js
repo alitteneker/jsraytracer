@@ -4,7 +4,8 @@ class WebGLRendererAdapter {
         this.renderer = renderer;
         this.adapters = {
             camera: new WebGLCameraAdapter(renderer.camera),
-            scene:  new WebGLSceneAdapter(renderer.scene)
+            scene:  new WebGLSceneAdapter(renderer.scene),
+            random: new WebGLRandomHelper()
         };
         
         console.log("Building shader...");
@@ -12,6 +13,12 @@ class WebGLRendererAdapter {
         
         console.log("Writing shader data...");
         this.writeShaderData(gl);
+        
+        this.uniforms = {
+            time:           gl.getUniformLocation(this.shaderProgram, "uTime"),
+            doRandomSample: gl.getUniformLocation(this.shaderProgram, "uRendererRandomMultisample")
+        };
+        this.doRandomSample = true;
         
         this.drawCount = 0;
     }
@@ -52,58 +59,6 @@ class WebGLRendererAdapter {
         gl.enableVertexAttribArray(vertexPosition);
     }
     
-    getShaderSourceForwardDefinitions() {
-        return this.adapters.scene.getShaderSourceForwardDefinitions() + "\n"
-            + this.adapters.camera.getShaderSourceForwardDefinitions();
-    }
-    getShaderSource() {
-        return `uniform vec2 uCanvasSize;
-                uniform float uTime;
-                uniform int uAllowedBounceDepth;
-                
-                out vec4 outTexelColor;
-
-                void main() {
-                    // TODO: seed noise
-
-                    vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
-                    vec2 pixelSize = 2.0 / uCanvasSize;
-                    
-                    vec4 ro, rd;
-                    computeCameraRayForTexel(canvasCoord, pixelSize, ro, rd);
-                    outTexelColor = vec4(sceneRayColor(ro, rd, uAllowedBounceDepth), 1.0);
-                }`
-                + this.adapters.scene.getShaderSource()
-                + this.adapters.camera.getShaderSource();
-    }
-    
-    writeShaderData(gl) {
-        this.gl.useProgram(this.shaderProgram);
-        
-        const canvas = document.querySelector('#glcanvas');
-        gl.uniform2fv(gl.getUniformLocation(this.shaderProgram, "uCanvasSize"), Vec.from([canvas.width, canvas.height]));
-        gl.uniform1i(gl.getUniformLocation(this.shaderProgram, "uAllowedBounceDepth"), this.renderer.maxRecursionDepth);
-        // gl.uniform1f(gl.getUniformLocation(this.shaderProgram, "uTime"), /* Some way of measuring time uniquely? */);
-        
-        this.adapters.camera.writeShaderData(gl, this.shaderProgram);
-        this.adapters.scene.writeShaderData(gl, this.shaderProgram);
-    }
-
-    moveCamera(rotateDelta, translateDelta) {
-        if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.shaderProgram))
-            this.drawCount = 0;
-    }
-
-    drawScene() {
-        // Tell WebGL to use our program when drawing
-        this.gl.useProgram(this.shaderProgram);
-        
-        // Draw the magic square that begins ray-tracing shader magic.
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-        
-        ++this.drawCount;
-    }
-    
     // utility function to create a shader of the given type, with given textual source code, and compile it.
     static loadShader(gl, type, source) {
         const shader = gl.createShader(type);
@@ -114,5 +69,68 @@ class WebGLRendererAdapter {
             throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(shader);
 
         return shader;
+    }
+    
+    getShaderSourceForwardDefinitions() {
+        return this.adapters.scene.getShaderSourceForwardDefinitions() + "\n"
+            + this.adapters.camera.getShaderSourceForwardDefinitions() + "\n"
+            + this.adapters.random.getShaderSourceForwardDefinitions();
+    }
+    getShaderSource() {
+        return `uniform bool uRendererRandomMultisample;
+                uniform float uTime;
+                
+                uniform vec2 uCanvasSize;
+                uniform int uAllowedBounceDepth;
+                
+                out vec4 outTexelColor;
+
+                void main() {
+                    vec2 random_seed = gl_FragCoord.xy + vec2(uTime);
+
+                    vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
+                    vec2 pixelSize = 2.0 / uCanvasSize;
+                    
+                    if (uRendererRandomMultisample)
+                        canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
+                    
+                    vec4 ro, rd;
+                    computeCameraRayForTexel(canvasCoord, pixelSize, ro, rd, random_seed);
+                    outTexelColor = vec4(sceneRayColor(ro, rd, uAllowedBounceDepth), 1.0);
+                }`
+                + this.adapters.scene.getShaderSource()
+                + this.adapters.camera.getShaderSource()
+                + this.adapters.random.getShaderSource();
+    }
+    
+    writeShaderData(gl) {
+        this.gl.useProgram(this.shaderProgram);
+        
+        const canvas = document.querySelector('#glcanvas');
+        gl.uniform2fv(gl.getUniformLocation(this.shaderProgram, "uCanvasSize"), Vec.from([canvas.width, canvas.height]));
+        gl.uniform1i(gl.getUniformLocation(this.shaderProgram, "uAllowedBounceDepth"), this.renderer.maxRecursionDepth);
+        
+        this.adapters.scene.writeShaderData(gl, this.shaderProgram);
+        this.adapters.camera.writeShaderData(gl, this.shaderProgram);
+        this.adapters.random.writeShaderData(gl, this.shaderProgram);
+    }
+
+    moveCamera(rotateDelta, translateDelta) {
+        if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.shaderProgram))
+            this.drawCount = 0;
+    }
+
+    drawScene(timestamp) {
+        // Tell WebGL to use our program when drawing
+        this.gl.useProgram(this.shaderProgram);
+        
+        // Write the uniforms that are allowed to vary between frames
+        this.gl.uniform1f(this.uniforms.time, timestamp);
+        this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
+        
+        // Draw the magic square that begins ray-tracing shader magic.
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        
+        ++this.drawCount;
     }
 }
