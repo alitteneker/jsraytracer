@@ -12,6 +12,8 @@ class WebGLRendererAdapter {
         
         console.log("Writing shader data...");
         this.writeShaderData(gl);
+        
+        this.drawCount = 0;
     }
     destroy() {
         if (this.shaderProgram)
@@ -87,12 +89,19 @@ class WebGLRendererAdapter {
         this.adapters.scene.writeShaderData(gl, this.shaderProgram);
     }
 
+    moveCamera(rotateDelta, translateDelta) {
+        if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.shaderProgram))
+            this.drawCount = 0;
+    }
+
     drawScene() {
         // Tell WebGL to use our program when drawing
         this.gl.useProgram(this.shaderProgram);
         
         // Draw the magic square that begins ray-tracing shader magic.
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        
+        ++this.drawCount;
     }
     
     // utility function to create a shader of the given type, with given textual source code, and compile it.
