@@ -3,7 +3,7 @@ class WebGLRandomHelper {
     }
     writeShaderData(gl, program) {
     }
-    getShaderSourceForwardDefinitions() {
+    getShaderSourceDeclarations() {
         return `highp float randf(inout vec2 seed);
                 vec2 rand2f(inout vec2 seed);
                 vec2 randomCirclePoint(inout vec2 seed);`;

@@ -46,7 +46,7 @@ class WebGLCameraAdapter {
     writeCameraTransform(gl, program, transform) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.to_webgl());
     }
-    getShaderSourceForwardDefinitions() {
+    getShaderSourceDeclarations() {
         return `void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ray_origin, inout vec4 ray_direction, inout vec2 random_seed);`;
     }
     getShaderSource() {

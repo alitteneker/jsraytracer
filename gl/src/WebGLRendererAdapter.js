@@ -31,7 +31,7 @@ class WebGLRendererAdapter {
         // Build shader program sources
         const vsSource = "#version 300 es\nin vec4 vertexPosition;\n\nvoid main() { gl_Position = vertexPosition; }";
         const fsSource = "#version 300 es\nprecision mediump float;\n\n#define PI 3.14159265359\n"
-            + this.getShaderSourceForwardDefinitions()
+            + this.getShaderSourceDeclarations()
             + this.getShaderSource();
 
         // Create vertex and fragment shaders with the created source.
@@ -71,10 +71,10 @@ class WebGLRendererAdapter {
         return shader;
     }
     
-    getShaderSourceForwardDefinitions() {
-        return this.adapters.scene.getShaderSourceForwardDefinitions() + "\n"
-            + this.adapters.camera.getShaderSourceForwardDefinitions() + "\n"
-            + this.adapters.random.getShaderSourceForwardDefinitions();
+    getShaderSourceDeclarations() {
+        return this.adapters.scene.getShaderSourceDeclarations() + "\n"
+            + this.adapters.camera.getShaderSourceDeclarations() + "\n"
+            + this.adapters.random.getShaderSourceDeclarations();
     }
     getShaderSource() {
         return `uniform bool uRendererRandomMultisample;

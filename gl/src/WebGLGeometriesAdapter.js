@@ -46,7 +46,7 @@ class WebGLGeometriesAdapter {
             gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleUVIndices"),     this.triangles.map(t => t.uv_indices).flat());
         }
     }
-    getShaderSourceForwardDefinitions() {
+    getShaderSourceDeclarations() {
         return `float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
                 void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV);`;
     }
@@ -143,8 +143,8 @@ class WebGLGeometriesAdapter {
             // ---- Triangle ----
             #define GEOMETRY_TRIANGLE_MIN_INDEX 3
 
-            #define MAX_TRIANGLES 64
-            #define MAX_TRIANGLE_DATA 128
+            #define MAX_TRIANGLES ${Math.max(this.triangles.length, 1)}
+            #define MAX_TRIANGLE_DATA ${Math.max(this.triangle_data.length, 1)}
             
             uniform vec3 ugTriangleData         [MAX_TRIANGLE_DATA];
             uniform int  ugTriangleVertexIndices[MAX_TRIANGLES * 3];

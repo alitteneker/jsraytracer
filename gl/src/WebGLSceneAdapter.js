@@ -47,12 +47,12 @@ class WebGLSceneAdapter {
         this.adapters.materials.writeShaderData(gl, program);
         this.adapters.geometries.writeShaderData(gl, program);
     }
-    getShaderSourceForwardDefinitions() {
+    getShaderSourceDeclarations() {
         return `vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
                 float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);` + "\n"
-            + this.adapters.lights.getShaderSourceForwardDefinitions() + "\n"
-            + this.adapters.materials.getShaderSourceForwardDefinitions() + "\n"
-            + this.adapters.geometries.getShaderSourceForwardDefinitions();
+            + this.adapters.lights.getShaderSourceDeclarations() + "\n"
+            + this.adapters.materials.getShaderSourceDeclarations() + "\n"
+            + this.adapters.geometries.getShaderSourceDeclarations();
     }
     getShaderSource() {
         return `
@@ -62,7 +62,7 @@ class WebGLSceneAdapter {
 
             uniform mat4 uObjectInverseTransforms[16];
 
-            #define MAX_OBJECTS 64
+            #define MAX_OBJECTS ${Math.max(this.scene.objects.length, 1)}
             uniform int usObjectGeometryIDs [MAX_OBJECTS];
             uniform int usObjectMaterialIDs [MAX_OBJECTS];
             uniform int usObjectTransformIDs[MAX_OBJECTS];
