@@ -15,8 +15,8 @@ class WebGLCameraAdapter {
                 this.sensor_size = camera.sensor_size;
             }
             else {
-                this.focus_distance = 1;//8
-                this.sensor_size = 0;//0.1
+                this.focus_distance = 8;//1
+                this.sensor_size = 0.2;//0
             }
         }
         else 

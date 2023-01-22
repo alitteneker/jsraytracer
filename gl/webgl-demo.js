@@ -28,12 +28,8 @@ $(document).ready(function() {
                 canvas.attr("width", test.width);
                 canvas.attr("height", test.height);
                 
-                const gl = canvas.get(0).getContext('webgl2');
-                if (!gl)
-                    throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
-                
                 console.log("Building adapters from scene...");
-                adapter = new WebGLRendererAdapter(gl, test.renderer);
+                adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
                 console.log("Starting draw scene loop...");
                 drawScene();
@@ -44,13 +40,12 @@ $(document).ready(function() {
     
     let keyDelta = [0, 0, 0], keysDown = {};
     const keyDirMap = {
-        "w":       [ 0, 0,-1],
-        "s":       [ 0, 0, 1],
-        "a":       [-1, 0, 0],
-        "d":       [ 1, 0, 0],
-        " ":       [ 0, 1, 0],
-        "c":       [ 0,-1, 0],
-        "Control": [ 0,-1, 0]};
+        "w": [ 0, 0,-1],
+        "s": [ 0, 0, 1],
+        "a": [-1, 0, 0],
+        "d": [ 1, 0, 0],
+        " ": [ 0, 1, 0],
+        "c": [ 0,-1, 0]};
     function calcKeyDelta() {
         keyDelta = [0,0,0];
         for (let [key, isDown] of Object.entries(keysDown))
@@ -103,10 +98,10 @@ $(document).ready(function() {
     const keySpeed = 1.0, mouseSpeed = 0.02;
     function drawScene(timestamp) {
         const timeDelta = lastDrawTimestamp ? (timestamp - lastDrawTimestamp) : 1;
-        fps_div.text((1000 / timeDelta).toFixed(1) + " FPS");
         
         // draw the scene, and request the next frame of animation
         if (adapter) {
+            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + adapter.drawCount + " samples");
             if (!mouseDelta.every(x => (x == 0)) || !keyDelta.every(x => (x == 0))) {
                 const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v / timeDelta));
                 const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v / timeDelta));
