@@ -12,11 +12,11 @@ class WebGLCameraAdapter {
             
             if (camera instanceof DepthOfFieldPerspectiveCamera) {
                 this.focus_distance = camera.focus_distance;
-                this.sensor_size = camera.sensor_size;
+                this.aperture_size = camera.sensor_size;
             }
             else {
-                this.focus_distance = 8;//1
-                this.sensor_size = 0.2;//0
+                this.focus_distance = 1;
+                this.aperture_size = 0;
             }
         }
         else 
@@ -26,7 +26,7 @@ class WebGLCameraAdapter {
         gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"), this.tanFov);
         gl.uniform1f(gl.getUniformLocation(program, "uAspect"), this.aspect);
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
-        gl.uniform1f(gl.getUniformLocation(program, "uSensorSize"), this.sensor_size);
+        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"), this.aperture_size);
         
         this.writeCameraTransform(gl, program, this.camera_transform);
     }
@@ -43,6 +43,13 @@ class WebGLCameraAdapter {
         this.writeCameraTransform(gl, program, this.camera_transform);
         return true;
     }
+    changeLensSettings(focusDistance, apertureSize, gl, program) {
+        if (this.focus_distance == focusDistance && this.aperture_size == apertureSize)
+            return false;
+        gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance = focusDistance);
+        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"), this.aperture_size = apertureSize);
+        return true;
+    }
     writeCameraTransform(gl, program, transform) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.to_webgl());
     }
@@ -52,12 +59,12 @@ class WebGLCameraAdapter {
     getShaderSource() {
         return `
             uniform mat4 uCameraTransform;
-            uniform float uAspect, uTanFOV, uSensorSize, uFocusDistance;
+            uniform float uAspect, uTanFOV, uApertureSize, uFocusDistance;
             void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd, inout vec2 random_seed) {
                 ro = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
                 rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
-                if (uSensorSize > 0.0 && uFocusDistance >= 0.0) {
-                    vec4 offset = uCameraTransform * vec4(uSensorSize * randomCirclePoint(random_seed), 0, 0);
+                if (uApertureSize > 0.0 && uFocusDistance >= 0.0) {
+                    vec4 offset = uCameraTransform * vec4(uApertureSize * randomCirclePoint(random_seed), 0, 0);
                     ro += offset;
                     rd = normalize((uFocusDistance * rd) - offset);
                 }

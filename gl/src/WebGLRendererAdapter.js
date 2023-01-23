@@ -199,6 +199,12 @@ class WebGLRendererAdapter {
         if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.tracerShaderProgram))
             this.drawCount = 0;
     }
+    
+    changeLensSettings(focusDistance, apertureSize) {
+        this.gl.useProgram(this.tracerShaderProgram);
+        if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, this.gl, this.tracerShaderProgram))
+            this.drawCount = 0;
+    }
 
     drawScene(timestamp) {
         // Tell WebGL to use our program when drawing

@@ -9,10 +9,13 @@ $(document).ready(function() {
             scene_select.append(`<option value="tests/${o}">${o}</option>`);
     });
     
-    // Setup a listener so that the rendered scene will update anytime the scene selector is changed
-    let adapter = null;
     const canvas = $('#glcanvas');
     const fps_div = $('#fps-display');
+    const focusSlider = $('#focus-distance');
+    const apertureSlider = $('#aperture-size');
+    
+    // Setup a listener so that the rendered scene will update anytime the scene selector is changed
+    let adapter = null;
     scene_select.on("change", function onChange(e) {
         if (adapter) {
             adapter.destroy();
@@ -31,13 +34,17 @@ $(document).ready(function() {
                 console.log("Building adapters from scene...");
                 adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
+                focusSlider.val(adapter.adapters.camera.focus_distance);
+                apertureSlider.val(adapter.adapters.camera.aperture_size);
+                
                 console.log("Starting draw scene loop...");
-                drawScene();
+                window.requestAnimationFrame(drawScene);
             });
         });
     });
     
     
+    // Setup key mappings so that the camera can be moved
     let keyDelta = [0, 0, 0], keysDown = {};
     const keyDirMap = {
         "w": [ 0, 0,-1],
@@ -71,9 +78,12 @@ $(document).ready(function() {
     $("div.canvas-widget").on("keyup", keyUp);
     $("div.canvas-widget").on("blur", keyReset);
     
+    
     // setup some mouse listeners to track mouse movements while the cursor is pressed over the canvas
     let mouseDelta = [0, 0], lastMousePos = null, isMouseDown = false;
     function pointerDown(e) {
+        if (e.pointerType === 'mouse' && e.button !== 0)
+            return;
         isMouseDown = true;
         lastMousePos = [event.clientX, event.clientY];
         canvas.get(0).setPointerCapture(e.pointerId);
@@ -92,6 +102,20 @@ $(document).ready(function() {
     canvas.on("pointerup pointercancel", pointerLeave);
     canvas.on("pointermove", pointerMove);
     canvas.on("blur", e => { isMouseDown = false; });
+    
+    
+    // setup listeners to change the camera focus settings whenever the sliders change
+    function changeLensSettings() {
+        const focusValue = Number.parseFloat(focusSlider.val()), apertureValue = Number.parseFloat(apertureSlider.val());
+        if (adapter)
+            adapter.changeLensSettings(focusValue, apertureValue);
+        $('#focus-output').text(focusValue.toFixed(2));
+        $('#aperture-output').text(apertureValue.toFixed(2));
+    }
+    focusSlider.on('input', changeLensSettings);
+    apertureSlider.on('input', changeLensSettings);
+    
+    
     
     // Draw the scene, incorporating mouse/key deltas
     let lastDrawTimestamp = null;

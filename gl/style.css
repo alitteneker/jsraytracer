@@ -8,6 +8,15 @@
     touch-action: none;
 }
 
+output {
+    width: 50px;
+    display: inline-block;
+}
+
+input[type=range] {
+    width: 70%;
+}
+
 #progress {
     width: 100%;
     text-align: center;
