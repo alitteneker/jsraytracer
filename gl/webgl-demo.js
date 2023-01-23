@@ -36,6 +36,7 @@ $(document).ready(function() {
                 
                 focusSlider.val(adapter.adapters.camera.focus_distance);
                 apertureSlider.val(adapter.adapters.camera.aperture_size);
+                changeLensSettings();
                 
                 console.log("Starting draw scene loop...");
                 window.requestAnimationFrame(drawScene);
@@ -135,7 +136,7 @@ $(document).ready(function() {
             window.requestAnimationFrame(drawScene);
         }
         
-        // reset all intermediary variables
+        // reset all intermediary input/timing variables
         lastDrawTimestamp = timestamp;
         mouseDelta = [0,0];
     }
