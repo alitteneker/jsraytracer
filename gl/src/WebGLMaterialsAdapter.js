@@ -63,6 +63,13 @@ class WebGLMaterialsAdapter {
     }
     getShaderSourceDeclarations() {
         return `
+                struct MaterialParameters {
+                    vec3 ambient;
+                    vec3 diffuse;
+                    vec3 specular;
+                    vec3 reflectivity;
+                    float specularFactor;
+                };
                 vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                                         inout vec4 reflection_direction, inout vec3 reflection_color);`
     }
@@ -86,14 +93,14 @@ class WebGLMaterialsAdapter {
                 }
                 return umSolidColors[color_index];
             }
-            void getMaterialFactors(in int materialID, in GeometricMaterialData data, out vec3 ambient, out vec3 diffuse, out vec3 specular, out float specularFactor, out vec3 reflectivity) {
-                ambient        = getMaterialColor(umSimpleMaterialAmbientMCs     [materialID], data.UV);
-                diffuse        = getMaterialColor(umSimpleMaterialDiffuseMCs     [materialID], data.UV);
-                specular       = getMaterialColor(umSimpleMaterialSpecularMCs    [materialID], data.UV);
-                reflectivity   = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], data.UV);
-                specularFactor = umSimpleMaterialSpecularFactors[materialID];
+            void getMaterialParameters(in int materialID, in GeometricMaterialData geodata, out MaterialParameters matParams) {
+                matParams.ambient        = getMaterialColor(umSimpleMaterialAmbientMCs     [materialID], geodata.UV);
+                matParams.diffuse        = getMaterialColor(umSimpleMaterialDiffuseMCs     [materialID], geodata.UV);
+                matParams.specular       = getMaterialColor(umSimpleMaterialSpecularMCs    [materialID], geodata.UV);
+                matParams.reflectivity   = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], geodata.UV);
+                matParams.specularFactor = umSimpleMaterialSpecularFactors[materialID];
             }
-            vec3 computeMaterialColor(in vec3 ambientColor, in vec3 diffuseColor, in vec3 specularColor, in float specularFactor, in vec3 reflectivityColor, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec4 V = normalize(-rd);
                 vec4 N = normalize(normal);
                 float vdotn = dot(V, N);
@@ -103,7 +110,7 @@ class WebGLMaterialsAdapter {
                 }
                 vec4 R = normalize((2.0 * vdotn * N) - V);
 
-                vec3 totalColor = ambientColor;
+                vec3 totalColor = matParams.ambient;
                 for (int i = 0; i < uNumLights; ++i) {
                     vec4 lightDirection;
                     vec3 lightColor;
@@ -116,26 +123,25 @@ class WebGLMaterialsAdapter {
                     vec4 L = normalize(lightDirection);
                     
                     // diffuse component
-                    totalColor +=     max(dot(L, N), 0.0)                  * diffuseColor  * lightColor;
+                    totalColor +=     max(dot(L, N), 0.0)                            * matParams.diffuse  * lightColor;
                     
                     // specular component
-                    totalColor += pow(max(dot(L, R), 0.0), specularFactor) * specularColor * lightColor;
+                    totalColor += pow(max(dot(L, R), 0.0), matParams.specularFactor) * matParams.specular * lightColor;
                 }
                 
                 // reflection
-                if (dot(reflectivityColor, reflectivityColor) > 0.0) {
+                if (dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
                     reflection_direction = R;
-                    reflection_color = reflectivityColor;
+                    reflection_color = matParams.reflectivity;
                 }
                 return totalColor;
             }
 
             // ---- Generic ----
-            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData data, inout vec4 reflection_direction, inout vec3 reflection_color) {
-                vec3 ambient, diffuse, specular, reflectivity;
-                float specularFactor;
-                getMaterialFactors(materialID, data, ambient, diffuse, specular, specularFactor, reflectivity);
-                return computeMaterialColor(ambient, diffuse, specular, specularFactor, reflectivity, rp, r.d, data.normal, reflection_direction, reflection_color);
+            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata, inout vec4 reflection_direction, inout vec3 reflection_color) {
+                MaterialParameters matParams;
+                getMaterialParameters(materialID, geodata, matParams);
+                return computeMaterialColor(matParams, rp, r.d, geodata.normal, reflection_direction, reflection_color);
             }`;
     }
 }

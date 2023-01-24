@@ -48,7 +48,10 @@ class WebGLGeometriesAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                struct GeometricMaterialData { vec4 normal; vec2 UV; };
+                struct GeometricMaterialData {
+                    vec4 normal;
+                    vec2 UV;
+                };
                 float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
                 void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);`;
     }
