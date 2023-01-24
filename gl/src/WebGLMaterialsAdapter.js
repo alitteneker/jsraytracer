@@ -62,8 +62,9 @@ class WebGLMaterialsAdapter {
         gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialSpecularFactors"), this.materials.map(m => m.specularFactor));
     }
     getShaderSourceDeclarations() {
-        return `vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in vec4 ray_origin, in vec4 ray_direction,
-                                      in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec3 reflection_color);`
+        return `
+                vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
+                                        inout vec4 reflection_direction, inout vec3 reflection_color);`
     }
     getShaderSource() {
         return `
@@ -85,11 +86,11 @@ class WebGLMaterialsAdapter {
                 }
                 return umSolidColors[color_index];
             }
-            void getMaterialFactors(in int materialID, in vec2 UV, out vec3 ambient, out vec3 diffuse, out vec3 specular, out float specularFactor, out vec3 reflectivity) {
-                ambient        = getMaterialColor(umSimpleMaterialAmbientMCs     [materialID], UV);
-                diffuse        = getMaterialColor(umSimpleMaterialDiffuseMCs     [materialID], UV);
-                specular       = getMaterialColor(umSimpleMaterialSpecularMCs    [materialID], UV);
-                reflectivity   = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], UV);
+            void getMaterialFactors(in int materialID, in GeometricMaterialData data, out vec3 ambient, out vec3 diffuse, out vec3 specular, out float specularFactor, out vec3 reflectivity) {
+                ambient        = getMaterialColor(umSimpleMaterialAmbientMCs     [materialID], data.UV);
+                diffuse        = getMaterialColor(umSimpleMaterialDiffuseMCs     [materialID], data.UV);
+                specular       = getMaterialColor(umSimpleMaterialSpecularMCs    [materialID], data.UV);
+                reflectivity   = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], data.UV);
                 specularFactor = umSimpleMaterialSpecularFactors[materialID];
             }
             vec3 computeMaterialColor(in vec3 ambientColor, in vec3 diffuseColor, in vec3 specularColor, in float specularFactor, in vec3 reflectivityColor, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
@@ -108,7 +109,7 @@ class WebGLMaterialsAdapter {
                     vec3 lightColor;
                     sampleLight(i, rp, lightDirection, lightColor);
                     
-                    float shadowIntersection = sceneRayCast(rp, lightDirection, 0.0001, true);
+                    float shadowIntersection = sceneRayCast(Ray(rp, lightDirection), 0.0001, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     
@@ -130,11 +131,11 @@ class WebGLMaterialsAdapter {
             }
 
             // ---- Generic ----
-            vec3 colorForMaterial(in int materialID, in vec4 rp, in vec4 ro, in vec4 rd, in vec4 normal, in vec2 UV, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData data, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec3 ambient, diffuse, specular, reflectivity;
                 float specularFactor;
-                getMaterialFactors(materialID, UV, ambient, diffuse, specular, specularFactor, reflectivity);
-                return computeMaterialColor(ambient, diffuse, specular, specularFactor, reflectivity, rp, rd, normal, reflection_direction, reflection_color);
+                getMaterialFactors(materialID, data, ambient, diffuse, specular, specularFactor, reflectivity);
+                return computeMaterialColor(ambient, diffuse, specular, specularFactor, reflectivity, rp, r.d, data.normal, reflection_direction, reflection_color);
             }`;
     }
 }

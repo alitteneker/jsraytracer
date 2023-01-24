@@ -48,11 +48,12 @@ class WebGLSceneAdapter {
         this.adapters.geometries.writeShaderData(gl, program);
     }
     getShaderSourceDeclarations() {
-        return `vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth);
-                float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag);` + "\n"
+        return `
+                vec3 sceneRayColor(in Ray r, in int maxBounceDepth);
+                float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
-            + this.adapters.materials.getShaderSourceDeclarations() + "\n"
-            + this.adapters.geometries.getShaderSourceDeclarations();
+            + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
+            + this.adapters.materials.getShaderSourceDeclarations() + "\n";
     }
     getShaderSource() {
         return `
@@ -68,15 +69,15 @@ class WebGLSceneAdapter {
             uniform int usObjectTransformIDs[MAX_OBJECTS];
 
             // ---- Intersections ----
-            float sceneObjectIntersect(in int objectID, in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag) {
+            float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
                 // TODO: add shadowflag logic
                 mat4 objectInverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
-                return geometryIntersect(usObjectGeometryIDs[objectID], objectInverseTransform * ro, objectInverseTransform * rd, minDistance);
+                return geometryIntersect(usObjectGeometryIDs[objectID], Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
-            float sceneRayCast(in vec4 ro, in vec4 rd, in float minT, in bool shadowFlag, inout int objectID) {
+            float sceneRayCast(in Ray r, in float minT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
                 for (int i = 0; i < uNumObjects; ++i) {
-                    float t = sceneObjectIntersect(i, ro, rd, minT, shadowFlag);
+                    float t = sceneObjectIntersect(i, r, minT, shadowFlag);
                     if (t >= minT && (min_found_t < minT || t < min_found_t)) {
                         min_found_t = t;
                         objectID = i;
@@ -84,36 +85,35 @@ class WebGLSceneAdapter {
                 }
                 return min_found_t;
             }
-            float sceneRayCast(in vec4 ro, in vec4 rd, in float minDistance, in bool shadowFlag) {
+            float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag) {
                 int objectID = -1;
-                return sceneRayCast(ro, rd, minDistance, shadowFlag, objectID);
+                return sceneRayCast(r, minDistance, shadowFlag, objectID);
             }
 
             // ---- Color ----
-            vec3 sceneObjectColor(in int objectID, in vec4 rp, in vec4 ro, in vec4 rd, inout vec4 reflection_direction, inout vec3 reflection_color) {
-                vec4 normal;
-                vec2 UV;
+            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec4 reflection_direction, inout vec3 reflection_color) {
+                GeometricMaterialData geomatdata;
                 mat4 inverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
-                getGeometricMaterialProperties(usObjectGeometryIDs[objectID], inverseTransform * rp, inverseTransform * ro, inverseTransform * rd, normal, UV);
-                normal = vec4(normalize((transpose(inverseTransform) * normal).xyz), 0);
-                return colorForMaterial(usObjectMaterialIDs[objectID], rp, ro, rd, normal, UV, reflection_direction, reflection_color);
+                getGeometricMaterialData(usObjectGeometryIDs[objectID], inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
+                geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
+                return colorForMaterial(usObjectMaterialIDs[objectID], rp, r, geomatdata, reflection_direction, reflection_color);
             }
-            vec3 sceneRayColor(in vec4 ro, in vec4 rd, in int maxBounceDepth) {
+            vec3 sceneRayColor(in Ray r, in int maxBounceDepth) {
                 vec3 rayColor = uBackgroundColor, attenuation_color = vec3(1.0);
                 for (int i = 0; i < maxBounceDepth; ++i) {
                     int objectID = -1;
-                    float distance = sceneRayCast(ro, rd, 0.0001, false, objectID);
+                    float intersect_time = sceneRayCast(r, 0.0001, false, objectID);
                     if (objectID == -1)
                         break;
                     
                     vec4 reflection_direction = vec4(0.0);
                     vec3 reflection_color = vec3(0.0);
-                    rayColor += attenuation_color * sceneObjectColor(objectID, ro + distance * rd, ro, rd, reflection_direction, reflection_color);
+                    rayColor += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, reflection_direction, reflection_color);
                     
                     if (dot(reflection_direction, reflection_direction) == 0.0)
                         break;
-                    ro += distance * rd;
-                    rd = reflection_direction;
+                    r.o += intersect_time * r.d;
+                    r.d = reflection_direction;
                     attenuation_color *= reflection_color;
                 }
                 return rayColor;

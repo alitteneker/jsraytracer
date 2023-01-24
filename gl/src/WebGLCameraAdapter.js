@@ -54,19 +54,20 @@ class WebGLCameraAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.to_webgl());
     }
     getShaderSourceDeclarations() {
-        return `void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ray_origin, inout vec4 ray_direction, inout vec2 random_seed);`;
+        return `
+                void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout Ray r, inout vec2 random_seed);`;
     }
     getShaderSource() {
         return `
             uniform mat4 uCameraTransform;
             uniform float uAspect, uTanFOV, uApertureSize, uFocusDistance;
-            void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec4 ro, inout vec4 rd, inout vec2 random_seed) {
-                ro = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
-                rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
+            void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout Ray r, inout vec2 random_seed) {
+                r.o = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
+                r.d = uCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
                 if (uApertureSize > 0.0 && uFocusDistance >= 0.0) {
                     vec4 offset = uCameraTransform * vec4(uApertureSize * randomCirclePoint(random_seed), 0, 0);
-                    ro += offset;
-                    rd = normalize((uFocusDistance * rd) - offset);
+                    r.o += offset;
+                    r.d = normalize((uFocusDistance * r.d) - offset);
                 }
             }`;
     }

@@ -47,34 +47,36 @@ class WebGLGeometriesAdapter {
         }
     }
     getShaderSourceDeclarations() {
-        return `float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance);
-                void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV);`;
+        return `
+                struct GeometricMaterialData { vec4 normal; vec2 UV; };
+                float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
+                void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);`;
     }
     getShaderSource() {
         return `
             // ---- Plane ----
             #define GEOMETRY_PLANE_TYPE 0
-            float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance, in vec4 n, in float delta) {
-                float denom = dot(rd, n);
+            float planeIntersect(in Ray r, in float minDistance, in vec4 n, in float delta) {
+                float denom = dot(r.d, n);
                 if (denom == 0.0)
                     return minDistance - 1.0;
-                return (delta - dot(ro, n)) / denom;
+                return (delta - dot(r.o, n)) / denom;
             }
-            float planeIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
-                return planeIntersect(ro, rd, minDistance, vec4(0, 0, 1, 0), 0.0);
+            float planeIntersect(in Ray r, in float minDistance) {
+                return planeIntersect(r, minDistance, vec4(0, 0, 1, 0), 0.0);
             }
-            void planeMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
-                normal = vec4(0, 0, 1, 0);
-                UV = vec2(position.x, position.y);
+            void planeMaterialData(in vec4 position, inout GeometricMaterialData data) {
+                data.normal = vec4(0, 0, 1, 0);
+                data.UV = vec2(position.x, position.y);
             }
 
 
             // ---- Sphere ----
             #define GEOMETRY_SPHERE_TYPE 1
-            float unitSphereIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
-                float a = dot(rd, rd),
-                      b = dot(ro, rd),
-                      c = dot(ro.xyz, ro.xyz) - 1.0;
+            float unitSphereIntersect(in Ray r, in float minDistance) {
+                float a = dot(r.d, r.d),
+                      b = dot(r.o, r.d),
+                      c = dot(r.o.xyz, r.o.xyz) - 1.0;
                 float big = b * b - a * c;
                 if (big < 0.0 || a == 0.0)
                     return minDistance - 1.0;
@@ -86,22 +88,22 @@ class WebGLGeometriesAdapter {
                 return (t2 < minDistance) ? t1 : t2;
             }
 
-            void unitSphereMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV) {
-                normal = vec4(normalize(position.xyz), 0);
-                UV.x = 0.5 + atan(normal.z, normal.x) / (2.0 * PI);
-                UV.y = 0.5 - asin(normal.y) / PI;
+            void unitSphereMaterialData(in vec4 position, inout GeometricMaterialData data) {
+                data.normal = vec4(normalize(position.xyz), 0);
+                data.UV.x = 0.5 + atan(data.normal.z, data.normal.x) / (2.0 * PI);
+                data.UV.y = 0.5 - asin(data.normal.y) / PI;
             }
 
 
             // ---- Unit Box ----
             #define GEOMETRY_UNITBOX_TYPE 2
-            float unitBoxIntersect(in vec4 ro, in vec4 rd, in float minDistance) {
+            float unitBoxIntersect(in Ray r, in float minDistance) {
                 float t_min = minDistance - 1.0, t_max = 1e20;
-                vec4 p = vec4(0,0,0,1) - ro;
+                vec4 p = vec4(0,0,0,1) - r.o;
                 for (int i = 0; i < 3; ++i) {
-                    if (abs(rd[i]) > 0.0000001) {
-                        float t1 = (p[i] + 0.5) / rd[i],
-                            t2 = (p[i] - 0.5) / rd[i];
+                    if (abs(r.d[i]) > 0.0000001) {
+                        float t1 = (p[i] + 0.5) / r.d[i],
+                            t2 = (p[i] - 0.5) / r.d[i];
                         if (t1 > t2) {
                             float tmp = t1;
                             t1 = t2;
@@ -121,20 +123,20 @@ class WebGLGeometriesAdapter {
                     return t_min;
                 return t_max;
             }
-            void unitBoxMaterialData(in vec4 p, in vec4 rd, inout vec4 norm, inout vec2 UV) {
+            void unitBoxMaterialData(in vec4 p, in vec4 rd, inout GeometricMaterialData data) {
                 float norm_dist = 0.0;
-                norm = vec4(0.0);
+                data.normal = vec4(0.0);
                 for (int i = 0; i < 3; ++i) {
                     float comp = p[i] / 0.5;
                     float abs_comp = abs(comp);
                     if (abs_comp > norm_dist) {
                         norm_dist = abs_comp;
-                        norm = vec4(0.0);
-                        norm[i] = sign(comp);
+                        data.normal = vec4(0.0);
+                        data.normal[i] = sign(comp);
                     }
                 }
-                if (dot(norm, rd) > 0.0)
-                    norm = -1.0 * norm;
+                if (dot(data.normal, rd) > 0.0)
+                    data.normal = -1.0 * data.normal;
                 
                 // TODO: what to do about UV?
             }
@@ -192,51 +194,53 @@ class WebGLGeometriesAdapter {
                       w = (d00 * d21 - d01 * d20) / denom;
                 return vec3(1.0 - v - w, v, w);
             }
-            float triangleIntersect(in vec4 ro, in vec4 rd, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
+            float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
                 vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 1.0);
-                float distance = planeIntersect(ro, rd, minDistance, normal, dot(p1, normal));
+                float distance = planeIntersect(r, minDistance, normal, dot(p1, normal));
                 if (distance < minDistance)
                     return distance;
-                vec3 bary = triangleToBarycentric(ro + (distance * rd), p1, p2, p3);
+                vec3 bary = triangleToBarycentric(r.o + (distance * r.d), p1, p2, p3);
                 if (bary.x >= 0.0 && bary.x <= 1.0 && bary.y >= 0.0 && bary.y <= 1.0 && bary.z >= 0.0 && bary.z <= 1.0)
                     return distance;
                 return minDistance - 1.0;
             }
-            float triangleIntersect(in vec4 ro, in vec4 rd, in float minDistance, in int triangleID) {
+            float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
                 vec4 p1, p2, p3;
                 getTriangleVertices(triangleID, p1, p2, p3);
-                return triangleIntersect(ro, rd, minDistance, p1, p2, p3);
+                return triangleIntersect(r, minDistance, p1, p2, p3);
             }
-            void triangleMaterialData(in vec4 position, inout vec4 normal, inout vec2 UV, in int triangleID) {
+            void triangleMaterialData(in vec4 position, inout GeometricMaterialData data, in int triangleID) {
                 vec4 p1, p2, p3, n1, n2, n3;
                 vec2 uv1, uv2, uv3;
-                getTriangleVertices(triangleID, p1, p2, p3);
-                getTriangleNormals(triangleID, n1, n2, n3);
-                getTriangleUVs(triangleID, uv1, uv2, uv3);
+                getTriangleVertices(triangleID,  p1,  p2,  p3);
+                getTriangleNormals( triangleID,  n1,  n2,  n3);
+                getTriangleUVs(     triangleID, uv1, uv2, uv3);
+                
                 vec3 bary = triangleToBarycentric(position, p1, p2, p3);
-                normal = baryBlend(bary, n1, n2, n3);
-                UV = baryBlend(bary, uv1, uv2, uv3);
+                
+                data.normal = baryBlend(bary,  n1,  n2,  n3);
+                data.UV     = baryBlend(bary, uv1, uv2, uv3);
             }
 
             // ---- Generics ----
-            float geometryIntersect(in int geometryID, in vec4 ro, in vec4 rd, in float minDistance) {
+            float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
                 if (geometryID == GEOMETRY_SPHERE_TYPE)
-                    return unitSphereIntersect(ro, rd, minDistance);
+                    return unitSphereIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)
-                    return planeIntersect(ro, rd, minDistance);
+                    return planeIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)
-                    return unitBoxIntersect(ro, rd, minDistance);
-                return triangleIntersect(ro, rd, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                    return unitBoxIntersect(r, minDistance);
+                return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
             }
-            void getGeometricMaterialProperties(in int geometryID, in vec4 position, in vec4 ro, in vec4 rd, inout vec4 normal, inout vec2 UV) {
+            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data) {
                 if (geometryID == GEOMETRY_SPHERE_TYPE)
-                    unitSphereMaterialData(position, normal, UV);
+                    unitSphereMaterialData(position, data);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)
-                    planeMaterialData(position, normal, UV);
+                    planeMaterialData(position, data);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)
-                    unitBoxMaterialData(position, rd, normal, UV);
+                    unitBoxMaterialData(position, r.d, data);
                 else
-                    triangleMaterialData(position, normal, UV, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                    triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
             }`;
     }
 }

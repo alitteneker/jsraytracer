@@ -138,13 +138,16 @@ class WebGLRendererAdapter {
     }
     
     getShaderSourceDeclarations() {
-        return `#define PI 3.14159265359` + "\n"
+        return `
+                #define PI 3.14159265359
+                struct Ray { vec4 o; vec4 d; };` + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n"
             + this.adapters.random.getShaderSourceDeclarations();
     }
     getShaderSource() {
-        return `uniform sampler2D uPreviousSamplesTexture;
+        return `
+                uniform sampler2D uPreviousSamplesTexture;
                 uniform float uSampleWeight;
         
                 uniform bool uRendererRandomMultisample;
@@ -166,10 +169,10 @@ class WebGLRendererAdapter {
                     if (uRendererRandomMultisample)
                         canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
                     
-                    vec4 ro, rd;
-                    computeCameraRayForTexel(canvasCoord, pixelSize, ro, rd, random_seed);
+                    Ray r;
+                    computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
                     
-                    vec4 sampleColor = vec4(sceneRayColor(ro, rd, uAllowedBounceDepth), 1.0);
+                    vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth), 1.0);
                     if (uSampleWeight == 0.0)
                         outTexelColor = sampleColor;
                     else {

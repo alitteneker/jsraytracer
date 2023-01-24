@@ -25,7 +25,8 @@ class WebGLLightsAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "uPointLightColors"), colors);
     }
     getShaderSourceDeclarations() {
-        return `void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor);`;
+        return `
+                void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor);`;
     }
     getShaderSource() {
         return `
