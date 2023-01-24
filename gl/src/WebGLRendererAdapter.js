@@ -172,7 +172,7 @@ class WebGLRendererAdapter {
                     Ray r;
                     computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
                     
-                    vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth), 1.0);
+                    vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth, random_seed), 1.0);
                     if (uSampleWeight == 0.0)
                         outTexelColor = sampleColor;
                     else {

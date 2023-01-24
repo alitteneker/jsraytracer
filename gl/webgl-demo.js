@@ -39,6 +39,9 @@ $(document).ready(function() {
                 apertureSlider.val(adapter.adapters.camera.aperture_size);
                 changeLensSettings();
                 
+                // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
+                mouseDelta = [0,0];
+                
                 console.log("Starting draw scene loop...");
                 window.requestAnimationFrame(drawScene);
             });
@@ -128,10 +131,11 @@ $(document).ready(function() {
         // draw the scene, and request the next frame of animation
         if (adapter) {
             fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + adapter.drawCount + " samples");
-            if (!mouseDelta.every(x => (x == 0)) || !keyDelta.every(x => (x == 0))) {
+            if (timeDelta > 0 && (mouseDelta.some(x => (x != 0)) || keyDelta.some(x => (x != 0)))) {
                 const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v / timeDelta));
                 const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v / timeDelta));
                 adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+                mouseDelta = [0,0];
             }
             adapter.drawScene(timestamp);
             window.requestAnimationFrame(drawScene);
@@ -139,7 +143,6 @@ $(document).ready(function() {
         
         // reset all intermediary input/timing variables
         lastDrawTimestamp = timestamp;
-        mouseDelta = [0,0];
     }
 });
 

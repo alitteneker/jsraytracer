@@ -17,6 +17,10 @@ input[type=range] {
     width: 70%;
 }
 
+div#controls {
+    height: 30px;
+}
+
 #progress {
     width: 100%;
     text-align: center;

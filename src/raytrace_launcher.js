@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
 
     // Do some initial setup for our workers.
     let workerCount=0, activeWorkerCount=0, startTime=0;
-    let workers=[], percentages=[];
+    let workers=[], percentages=[], passes=[];
     
     // Construct a canvas and a context to store the result from each worker
     let tempcanvas = [], tempcontext = [];
@@ -46,6 +46,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
             tempcanvas.push(document.createElement('canvas'));
             tempcontext.push(tempcanvas[i].getContext("2d"));
             percentages.push(0);
+            passes.push(0);
             if (workers.length < i)
                 workers.push(null);
         }
@@ -72,6 +73,8 @@ document.addEventListener("DOMContentLoaded", function(event) {
                 if (e.data[0] === "finished") {
                     worker.terminate();
                     workers[e.data[1]] = null;
+                    percentages[e.data[1]] = 1;
+                    ++passes[e.data[1]];
                     if (--activeWorkerCount === 0) {
                         console.log("All workers finished in " + ((Date.now() - startTime)/1000) + " seconds!")
                         loading.style.visibility = "hidden";
@@ -81,7 +84,10 @@ document.addEventListener("DOMContentLoaded", function(event) {
                     }
                 }
                 else {
-                    percentages[e.data[1]] = e.data[2];
+                    if (e.data[2]) {
+                        percentages[e.data[1]] = e.data[2].completion;
+                        passes[e.data[1]] = e.data[2].pass;
+                    }
                     
                     canvas.width = tempcanvas[e.data[1]].width = e.data[0].width;
                     canvas.height = tempcanvas[e.data[1]].height = e.data[0].height;
@@ -90,7 +96,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
                     for (let j = 0; j < workerCount; ++j)
                         context.drawImage(tempcanvas[j], 0, 0);
                     
-                    updateCompletionEstimates(percentages);
+                    updateCompletionEstimates();
                 }
             });
         }
@@ -111,6 +117,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
         }
         workers = [];
         percentages = [];
+        passes = [];
         loading.style.visibility = "hidden";
         progress.style.visibility = "hidden";
         progress_label.innerHTML = "";
@@ -118,11 +125,13 @@ document.addEventListener("DOMContentLoaded", function(event) {
     
     function updateCompletionEstimates() {
         const percentage = percentages.reduce((sum,value) => sum + (value||0), 0) / workerCount;
+        const pass = passes.reduce((sum,value) => sum + (value||0), 0) / workerCount;
+        
         const time_so_far = Date.now() - startTime;
         const total_time = time_so_far / percentage;
         const remaining_time = total_time - time_so_far;
         
         progress_bar.style.width = (percentage * 100) + "%";
-        progress_label.innerHTML = (percentage * 100).toFixed(1) + "% : " + (remaining_time / 1000).toFixed(1) + "s left of " + (total_time / 1000).toFixed(1) + "s est.";
+        progress_label.innerHTML = (percentage * 100).toFixed(1) + "% after " + pass.toFixed(1) + " passes : " + (remaining_time / 1000).toFixed(1) + "s left of " + (total_time / 1000).toFixed(1) + "s est.";
     }
 });

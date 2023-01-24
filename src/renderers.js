@@ -4,12 +4,15 @@ class SimpleRenderer {
         this.camera = camera;
         this.maxRecursionDepth = maxRecursionDepth;
     }
+    static computePixelCount(img, x_offset, x_delt) {
+        return ((img.width() / x_delt) + Math.round(1 - x_offset/x_delt) * (img.width() % x_delt)) * img.height();
+    }
     render(img, timelimit=0, callback=false, x_offset = 0, x_delt = 1) {
         const img_width = img.width(),
             img_height = img.height(),
             pixel_width = 2 / img_width,
             pixel_height = 2 / img_height,
-            total_pixels = img_width * img_height;
+            total_pixels = SimpleRenderer.computePixelCount(img, x_offset, x_delt);
         
         let timeCounter = 0,
             lastTime = Date.now(),
@@ -29,7 +32,7 @@ class SimpleRenderer {
                     lastTime = currentTime;
                     if (timeCounter >= timelimit) {
                         timeCounter = 0;
-                        callback(pixel_count / total_pixels);
+                        callback({ pass: 0, completion: pixel_count / total_pixels });
                     }
                 }
             }
@@ -69,7 +72,7 @@ class IncrementalMultisamplingRenderer extends SimpleRenderer {
             img_height = img.height(),
             pixel_width = 2 / img_width,
             pixel_height = 2 / img_height,
-            total_samples = ((img_width / x_delt) + Math.round(1 - x_offset/x_delt) * (img_width % x_delt)) * img_height * this.samplesPerPixel;
+            total_samples = SimpleRenderer.computePixelCount(img, x_offset, x_delt) * this.samplesPerPixel;
         
         let timeCounter = 0,
             lastTime = Date.now(),
@@ -104,7 +107,7 @@ class IncrementalMultisamplingRenderer extends SimpleRenderer {
                         lastTime = currentTime;
                         if (timeCounter >= timelimit) {
                             timeCounter = 0;
-                            callback(sample_count / total_samples);
+                            callback({ pass: iter, completion: sample_count / total_samples });
                         }
                     }
                 }

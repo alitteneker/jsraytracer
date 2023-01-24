@@ -71,7 +71,7 @@ class WebGLMaterialsAdapter {
                     float specularFactor;
                 };
                 vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
-                                        inout vec4 reflection_direction, inout vec3 reflection_color);`
+                                        inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color);`
     }
     getShaderSource() {
         return `
@@ -100,7 +100,7 @@ class WebGLMaterialsAdapter {
                 matParams.reflectivity   = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], geodata.UV);
                 matParams.specularFactor = umSimpleMaterialSpecularFactors[materialID];
             }
-            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal, inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 vec4 V = normalize(-rd);
                 vec4 N = normalize(normal);
                 float vdotn = dot(V, N);
@@ -114,7 +114,7 @@ class WebGLMaterialsAdapter {
                 for (int i = 0; i < uNumLights; ++i) {
                     vec4 lightDirection;
                     vec3 lightColor;
-                    sampleLight(i, rp, lightDirection, lightColor);
+                    sampleLight(i, rp, lightDirection, lightColor, random_seed);
                     
                     float shadowIntersection = sceneRayCast(Ray(rp, lightDirection), 0.0001, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
@@ -138,10 +138,10 @@ class WebGLMaterialsAdapter {
             }
 
             // ---- Generic ----
-            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata, inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color) {
                 MaterialParameters matParams;
                 getMaterialParameters(materialID, geodata, matParams);
-                return computeMaterialColor(matParams, rp, r.d, geodata.normal, reflection_direction, reflection_color);
+                return computeMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, reflection_direction, reflection_color);
             }`;
     }
 }

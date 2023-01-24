@@ -39,6 +39,9 @@ class WebGLCameraAdapter {
         this.camera_transform = Mat4.translation(this.translateDelta)
             .times(this.base_camera_transform)
             .times(Mat4.rotation(this.rotateDelta[0], Vec.of(0,1,0))).times(Mat4.rotation(this.rotateDelta[1], Vec.of(1,0,0)));
+            
+        if (this.translateDelta.some(v => isNaN(v)))
+            throw "NaN found in moved camera translation";
         
         this.writeCameraTransform(gl, program, this.camera_transform);
         return true;

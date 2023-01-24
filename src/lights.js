@@ -58,7 +58,7 @@ class RandomSampleAreaLight extends Light {
             const delta = this.area.sample().minus(sample_position);
             yield {
                 direction: delta,
-                color: this.color.times(this.intensity * Light.falloff(delta) / this.samples)
+                color: this.color.times(this.intensity * Light.falloff(delta))
             };
         }
     }
