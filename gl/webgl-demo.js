@@ -34,6 +34,7 @@ $(document).ready(function() {
                 console.log("Building adapters from scene...");
                 adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
+                // Set the initial slider values for the camera settings to the display
                 focusSlider.val(adapter.adapters.camera.focus_distance);
                 apertureSlider.val(adapter.adapters.camera.aperture_size);
                 changeLensSettings();

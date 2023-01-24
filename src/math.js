@@ -31,7 +31,7 @@ class Vec extends Float32Array {
         this.forEach((x, i, a) => a[i] *= s)
     }
     times(s) {
-        return this.map(x => s * x)
+        return (s instanceof Vec) ? this.map((x,i) => s[i] * x) : this.map(x => s * x)
     }
     randomized(s) {
         return this.map(x => x + s * (Math.random() - .5))
