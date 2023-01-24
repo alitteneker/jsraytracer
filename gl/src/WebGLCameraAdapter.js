@@ -37,8 +37,8 @@ class WebGLCameraAdapter {
         this.rotateDelta = this.rotateDelta.plus(rotateDelta);
         this.translateDelta = this.translateDelta.plus(this.camera_transform.times(translateDelta.to4(0)));
         this.camera_transform = Mat4.translation(this.translateDelta)
-            .times(Mat4.rotation(this.rotateDelta[0], Vec.of(0,1,0))).times(Mat4.rotation(this.rotateDelta[1], Vec.of(1,0,0)))
-            .times(this.base_camera_transform);
+            .times(this.base_camera_transform)
+            .times(Mat4.rotation(this.rotateDelta[0], Vec.of(0,1,0))).times(Mat4.rotation(this.rotateDelta[1], Vec.of(1,0,0)));
         
         this.writeCameraTransform(gl, program, this.camera_transform);
         return true;

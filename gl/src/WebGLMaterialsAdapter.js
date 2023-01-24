@@ -52,7 +52,8 @@ class WebGLMaterialsAdapter {
     }
     writeShaderData(gl, program) {
         gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.map(x => [...x]).flat());
-        gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
+        if (this.checkerboard_colors.length)
+            gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
         
         gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialAmbientMCs"),      this.materials.map(m => m.ambient_id));
         gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialDiffuseMCs"),      this.materials.map(m => m.diffuse_id));
