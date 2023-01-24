@@ -68,8 +68,6 @@ class WebGLMaterialsAdapter {
     getShaderSource() {
         return `
             uniform vec3 umSolidColors[${this.solid_colors.length}];
-            
-            #define NUM_CHECKERBOARD_COLORS ${this.checkerboard_colors.length}
             uniform int umCheckerboardColors[${Math.max(1, 2*this.checkerboard_colors.length)}];
             
             #define MAX_MATERIALS ${Math.max(this.materials.length, 1)}
