@@ -167,7 +167,7 @@ class Plane extends Geometry {
     }
     materialData(ray, scalar, base_data) {
         return Object.assign(base_data, {
-            normal: Vec.of(0, 0, (ray.origin[2] > 0) ? 1 : -1, 0),
+            normal: Vec.of(0, 0, 1, 0),
             UV: Vec.of(base_data.position[0], base_data.position[1])
         });
     }
@@ -184,6 +184,21 @@ class Plane extends Geometry {
         }
         const p = transform.times(Vec.of(0, 0, 0, 1));
         return new AABB(p, s, p.minus(s), p.plus(s.to4(1)));
+    }
+}
+
+class Square extends Plane {
+    constructor(mdata) {
+        super();
+        this.base_material_data = mdata || {};
+    }
+    intersect(ray) {
+        const t = super.intersect(ray);
+        const p = ray.getPosition(t);
+        return [p[0], p[1]].every(c => (-0.5 <= c && c <= 0.5)) ? t : -Infinity;
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints([[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].map(a => Vec.of(...a, 0, 1)).map(p => transform.times(p)));
     }
 }
 
@@ -286,6 +301,30 @@ class Sphere extends Geometry {
             UV: Vec.of(
                 0.5 + Math.atan2(n[2], n[0]) / (2 * Math.PI),
                 0.5 - Math.asin(n[1]) / Math.PI)
+        });
+    }
+}
+
+class Cylinder extends Geometry {
+    constructor() {
+        super();
+    }
+    getBoundingBox(transform, inv_transform) {
+
+    }
+    intersect(r, minDistance) {
+        if (Math.abs(r.origin[2]) > 1 && r.direction[2] != 0)
+            minDistance = Math.max(minDistance, -(r.origin[2] - Math.sign(r.origin[2])) / r.direction[2]);
+        const t = Sphere.intersect(new Ray(...[r.origin, r.direction].map(v => Vec.of(1,1,0,1).times(v))), minDistance);
+        return (Math.abs(ray.origin[2] + t * ray.direction[2]) <= 1) ? t : -Infinity;
+    }
+    materialData(ray, scalar, base_data) {
+        const n = base_data.position.normalized();
+        return Object.assign(base_data, {
+            normal: Vec.of(base_data.position[0], base_data.position[1], 0, 0).normalized(),
+            UV: Vec.of(
+                0.5 + Math.atan2(base_data.position[2], base_data.position[0]) / (2 * Math.PI),
+                0.5 + base_data.position[1])
         });
     }
 }
