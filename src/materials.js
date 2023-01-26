@@ -200,7 +200,7 @@ class PhongMaterial extends Material {
 
 class FresnelPhongMaterial extends PhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=1) {
-        super(baseColor, ambient, diffusivity, specularity, smoothness);
+        super(baseColor, ambient, diffusivity, specularity, smoothness, 1);
         this.refractiveIndexRatio = refractiveIndexRatio;
     }
     getBaseFactors(data) {
@@ -267,7 +267,8 @@ class FresnelPhongMaterial extends PhongMaterial {
             return 1;
 
         // The magic of Snell's law
-        const ni = data.backside ? this.refractiveIndexRatio : 1, nt = data.backside ? 1 : this.refractiveIndexRatio;
+        const ni = data.backside ? this.refractiveIndexRatio : 1,
+              nt = data.backside ? 1 : this.refractiveIndexRatio;
         const cosi = data.vdotn,
             sint = ni / nt * Math.sqrt(Math.max(0, 1 - cosi * cosi));
 

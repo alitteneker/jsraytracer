@@ -89,12 +89,15 @@ class WebGLSceneAdapter {
             }
 
             // ---- Color ----
-            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color) {
+            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed,
+                inout vec4 reflection_direction, inout vec3 reflection_color, inout vec4 refraction_direction, inout vec3 refraction_color)
+            {
                 GeometricMaterialData geomatdata;
                 mat4 inverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
                 getGeometricMaterialData(usObjectGeometryIDs[objectID], inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
-                return colorForMaterial(usObjectMaterialIDs[objectID], rp, r, geomatdata, random_seed, reflection_direction, reflection_color);
+                return colorForMaterial(usObjectMaterialIDs[objectID], rp, r, geomatdata, random_seed,
+                                        reflection_direction, reflection_color, refraction_direction, refraction_color);
             }
             vec3 sceneRayColor(in Ray r, in int maxBounceDepth, inout vec2 random_seed) {
                 vec3 rayColor = uBackgroundColor, attenuation_color = vec3(1.0);
@@ -104,9 +107,10 @@ class WebGLSceneAdapter {
                     if (objectID == -1)
                         break;
                     
-                    vec4 reflection_direction = vec4(0.0);
-                    vec3 reflection_color = vec3(0.0);
-                    rayColor += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed, reflection_direction, reflection_color);
+                    vec4 reflection_direction = vec4(0.0), refraction_direction = vec4(0.0);
+                    vec3 reflection_color = vec3(0.0), refraction_color = vec3(0.0);
+                    rayColor += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
+                        reflection_direction, reflection_color, refraction_direction, refraction_color);
                     
                     if (dot(reflection_direction, reflection_direction) == 0.0)
                         break;
