@@ -47,7 +47,7 @@ class WebGLLightsAdapter {
             
             float lightFalloff(in vec4 delta) {
                 float norm_squared = dot(delta, delta);
-                if (norm_squared < 0.0000001)
+                if (norm_squared < EPSILON)
                     return 0.0;
                 return 1.0 / (4.0 * PI * norm_squared);
             }

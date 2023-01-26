@@ -234,7 +234,7 @@ class FresnelPhongMaterial extends PhongMaterial {
         return surfaceColor;
     }
 
-    // override this to correspond to the way that light passes through fresnel materials
+    // override this to correspond to the way that light passes through Fresnel materials
     colorFromLightSample(light_sample, data, scene) {
         const L = light_sample.direction.normalized(),
             ldotn = L.dot(data.N);

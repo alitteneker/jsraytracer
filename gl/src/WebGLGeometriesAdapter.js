@@ -144,7 +144,7 @@ class WebGLGeometriesAdapter {
                 float t_min = minDistance - 1.0, t_max = 1e20;
                 vec4 p = vec4(0,0,0,1) - r.o;
                 for (int i = 0; i < 3; ++i) {
-                    if (abs(r.d[i]) > 0.0000001) {
+                    if (abs(r.d[i]) > EPSILON) {
                         float t1 = (p[i] + 0.5) / r.d[i],
                             t2 = (p[i] - 0.5) / r.d[i];
                         if (t1 > t2) {

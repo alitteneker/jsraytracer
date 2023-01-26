@@ -140,6 +140,8 @@ class WebGLRendererAdapter {
     getShaderSourceDeclarations() {
         return `
             #define PI 3.14159265359
+            #define EPSILON 0.000001
+            #define MAX_BOUNCE_DEPTH ${this.renderer.maxRecursionDepth}
             struct Ray { vec4 o; vec4 d; };` + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n"
@@ -154,8 +156,6 @@ class WebGLRendererAdapter {
             uniform float uTime;
             
             uniform vec2 uCanvasSize;
-            uniform int uAllowedBounceDepth;
-            
             out vec4 outTexelColor;
 
             void main() {
@@ -172,7 +172,7 @@ class WebGLRendererAdapter {
                 Ray r;
                 computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
                 
-                vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth, random_seed), 1.0);
+                vec4 sampleColor = vec4(sceneRayColor(r, random_seed), 1.0);
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
                 else {
@@ -190,7 +190,6 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         
         gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
-        gl.uniform1i(gl.getUniformLocation(this.tracerShaderProgram, "uAllowedBounceDepth"), this.renderer.maxRecursionDepth);
         
         this.adapters.scene.writeShaderData(gl, this.tracerShaderProgram);
         this.adapters.camera.writeShaderData(gl, this.tracerShaderProgram);

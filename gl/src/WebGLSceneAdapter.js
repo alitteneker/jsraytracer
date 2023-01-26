@@ -48,7 +48,8 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            vec3 sceneRayColor(in Ray r, in int maxBounceDepth, inout vec2 random_seed);
+            #define SCENE_QUEUE_LENGTH 1 << MAX_BOUNCE_DEPTH
+            vec3 sceneRayColor(in Ray r, inout vec2 random_seed);
             float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
@@ -99,26 +100,51 @@ class WebGLSceneAdapter {
                 return colorForMaterial(usObjectMaterialIDs[objectID], rp, r, geomatdata, random_seed,
                                         reflection_direction, reflection_color, refraction_direction, refraction_color);
             }
-            vec3 sceneRayColor(in Ray r, in int maxBounceDepth, inout vec2 random_seed) {
-                vec3 rayColor = uBackgroundColor, attenuation_color = vec3(1.0);
-                for (int i = 0; i < maxBounceDepth; ++i) {
+            vec3 sceneRayColor(in Ray in_ray, inout vec2 random_seed) {
+                vec3 total_color = uBackgroundColor;
+                
+                Ray q_rays[SCENE_QUEUE_LENGTH];
+                vec3 q_attenuation_colors[SCENE_QUEUE_LENGTH];
+                int q_bounce_depths[SCENE_QUEUE_LENGTH];
+                
+                int q_len = 1;
+                q_rays[0] = in_ray;
+                q_attenuation_colors[0] = vec3(1.0);
+                q_bounce_depths[0] = 0;
+                
+                for (int i = 0; i < q_len; ++i) {
+                    Ray r = q_rays[i];
+                    vec3 attenuation_color = q_attenuation_colors[i];
+                    int bounce_depth = q_bounce_depths[i];
+                    
                     int objectID = -1;
-                    float intersect_time = sceneRayCast(r, 0.0001, false, objectID);
+                    float intersect_time = sceneRayCast(r, EPSILON, false, objectID);
                     if (objectID == -1)
                         break;
                     
                     vec4 reflection_direction = vec4(0.0), refraction_direction = vec4(0.0);
                     vec3 reflection_color = vec3(0.0), refraction_color = vec3(0.0);
-                    rayColor += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
+                    
+                    total_color += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
                         reflection_direction, reflection_color, refraction_direction, refraction_color);
                     
-                    if (dot(reflection_direction, reflection_direction) == 0.0)
-                        break;
-                    r.o += intersect_time * r.d;
-                    r.d = reflection_direction;
-                    attenuation_color *= reflection_color;
+                    if (bounce_depth < MAX_BOUNCE_DEPTH) {
+                        vec4 intersect_position = r.o + intersect_time * r.d;
+                        if (dot(reflection_direction, reflection_direction) > EPSILON) {
+                            q_rays[q_len] = Ray(intersect_position, reflection_direction);
+                            q_attenuation_colors[q_len] = attenuation_color * reflection_color;
+                            q_bounce_depths[q_len] = bounce_depth + 1;
+                            ++q_len;
+                        }
+                        if (dot(refraction_direction, refraction_direction) > EPSILON) {
+                            q_rays[q_len] = Ray(intersect_position, refraction_direction);
+                            q_attenuation_colors[q_len] = attenuation_color * refraction_color;
+                            q_bounce_depths[q_len] = bounce_depth + 1;
+                            ++q_len;
+                        }
+                    }
                 }
-                return rayColor;
+                return total_color;
             }`
             + this.adapters.lights.getShaderSource()
             + this.adapters.materials.getShaderSource()
