@@ -207,7 +207,7 @@ class FresnelPhongMaterial extends PhongMaterial {
         super.getBaseFactors(data);
         Object.assign(data, {
             kr : this.getReflectionValue(data),
-            refracionDirection : this.getRefractionDirection(data)
+            refractionDirection : this.getRefractionDirection(data)
         });
     }
     color(data, scene, recursionDepth) {
@@ -227,7 +227,7 @@ class FresnelPhongMaterial extends PhongMaterial {
         // refraction
         if (data.kr < 1) {
             surfaceColor = surfaceColor.plus(
-                scene.color(new Ray(data.position, data.refracionDirection), recursionDepth, 0.0001)
+                scene.color(new Ray(data.position, data.refractionDirection), recursionDepth, 0.0001)
                 .mult_pairs(baseColor).times(1 - data.kr));
         }
         
@@ -246,7 +246,7 @@ class FresnelPhongMaterial extends PhongMaterial {
         }
         if (data.kr < 1 && ldotn <= 0) {
             diffuse  += (1 - data.kr) * -ldotn;
-            specular += (1 - data.kr) * Math.pow(Math.max(L.dot(data.refracionDirection), 0), this.smoothness);
+            specular += (1 - data.kr) * Math.pow(Math.max(L.dot(data.refractionDirection), 0), this.smoothness);
         }
 
         return    light_sample.color.mult_pairs(data.diffusivity.times(diffuse ))
