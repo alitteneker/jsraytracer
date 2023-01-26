@@ -35,8 +35,8 @@ class WebGLLightsAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                uniform int uNumLights;
-                void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor, inout vec2 random_seed);`;
+            uniform int uNumLights;
+            void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor, inout vec2 random_seed);`;
     }
     getShaderSource() {
         return `

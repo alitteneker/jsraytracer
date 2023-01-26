@@ -48,8 +48,8 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                vec3 sceneRayColor(in Ray r, in int maxBounceDepth, inout vec2 random_seed);
-                float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
+            vec3 sceneRayColor(in Ray r, in int maxBounceDepth, inout vec2 random_seed);
+            float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
             + this.adapters.materials.getShaderSourceDeclarations() + "\n";

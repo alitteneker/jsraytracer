@@ -63,15 +63,15 @@ class WebGLMaterialsAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                struct MaterialParameters {
-                    vec3 ambient;
-                    vec3 diffuse;
-                    vec3 specular;
-                    vec3 reflectivity;
-                    float specularFactor;
-                };
-                vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
-                                        inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color);`
+            struct MaterialParameters {
+                vec3 ambient;
+                vec3 diffuse;
+                vec3 specular;
+                vec3 reflectivity;
+                float specularFactor;
+            };
+            vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
+                                    inout vec2 random_seed, inout vec4 reflection_direction, inout vec3 reflection_color);`
     }
     getShaderSource() {
         return `

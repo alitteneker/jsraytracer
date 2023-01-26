@@ -157,7 +157,7 @@ class UnitBox extends AABB {
     }
 }
 
-class Plane extends Geometry {
+class SimplePlane extends Geometry {
     constructor(mdata) {
         super();
         this.base_material_data = mdata || {};
@@ -170,6 +170,12 @@ class Plane extends Geometry {
             normal: Vec.of(0, 0, 1, 0),
             UV: Vec.of(base_data.position[0], base_data.position[1])
         });
+    }
+}
+
+class Plane extends SimplePlane {
+    constructor(mdata) {
+        super(mdata);
     }
     getBoundingBox(transform, inv_transform) {
         const normal = inv_transform.transposed().times(Vec.of(0, 0, 1, 0)).normalized();
@@ -187,10 +193,9 @@ class Plane extends Geometry {
     }
 }
 
-class Square extends Plane {
+class Square extends SimplePlane {
     constructor(mdata) {
-        super();
-        this.base_material_data = mdata || {};
+        super(mdata);
     }
     intersect(ray) {
         const t = super.intersect(ray);
@@ -199,6 +204,28 @@ class Square extends Plane {
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints([[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].map(a => Vec.of(...a, 0, 1)).map(p => transform.times(p)));
+    }
+}
+
+class Circle extends SimplePlane {
+    constructor(mdata) {
+        super(mdata);
+    }
+    intersect(ray) {
+        const t = super.intersect(ray);
+        const p = ray.getPosition(t);
+        return (p.minus(Vec.of(0,0,0,1)).squarednorm() <= 1) ? t : -Infinity;
+    }
+    getTransformedEdgePoints(transform, inv_transform) {
+        const world_axis = transform.times(Vec.axis(2,4)), world_center = transform.column(3), ps = [];
+        for (let i = 0; i < 3; ++i) {
+            const world_edge_dir = transform.times(inv_transform.times(world_axis.cross(Vec.axis(i, 4)).to4(0)).normalized());
+            ps.push(world_center.plus(world_edge_dir), world_center.minus(world_edge_dir));
+        }
+        return ps;
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints(this.getTransformedEdgePoints());
     }
 }
 
@@ -310,7 +337,9 @@ class Cylinder extends Geometry {
         super();
     }
     getBoundingBox(transform, inv_transform) {
-
+        const axis = transform.times(Vec.axis(2,4));
+        const circle_points = Circle.getTransformedEdgePoints(transform, inv_transform);
+        return AABB.fromPoints([...cirle_points.plus(axis), ...circle_points.minus(axis)]);
     }
     intersect(r, minDistance) {
         if (Math.abs(r.origin[2]) > 1 && r.direction[2] != 0)

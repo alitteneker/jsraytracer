@@ -139,51 +139,51 @@ class WebGLRendererAdapter {
     
     getShaderSourceDeclarations() {
         return `
-                #define PI 3.14159265359
-                struct Ray { vec4 o; vec4 d; };` + "\n"
+            #define PI 3.14159265359
+            struct Ray { vec4 o; vec4 d; };` + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n"
             + this.adapters.random.getShaderSourceDeclarations();
     }
     getShaderSource() {
         return `
-                uniform sampler2D uPreviousSamplesTexture;
-                uniform float uSampleWeight;
-        
-                uniform bool uRendererRandomMultisample;
-                uniform float uTime;
-                
-                uniform vec2 uCanvasSize;
-                uniform int uAllowedBounceDepth;
-                
-                out vec4 outTexelColor;
+            uniform sampler2D uPreviousSamplesTexture;
+            uniform float uSampleWeight;
+    
+            uniform bool uRendererRandomMultisample;
+            uniform float uTime;
+            
+            uniform vec2 uCanvasSize;
+            uniform int uAllowedBounceDepth;
+            
+            out vec4 outTexelColor;
 
-                void main() {
+            void main() {
+                vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
+                
+                vec2 random_seed = gl_FragCoord.xy + vec2(uTime);
+
+                vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
+                vec2 pixelSize = 2.0 / uCanvasSize;
+                
+                if (uRendererRandomMultisample)
+                    canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
+                
+                Ray r;
+                computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
+                
+                vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth, random_seed), 1.0);
+                if (uSampleWeight == 0.0)
+                    outTexelColor = sampleColor;
+                else {
                     vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-                    
-                    vec2 random_seed = gl_FragCoord.xy + vec2(uTime);
 
-                    vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
-                    vec2 pixelSize = 2.0 / uCanvasSize;
-                    
-                    if (uRendererRandomMultisample)
-                        canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
-                    
-                    Ray r;
-                    computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
-                    
-                    vec4 sampleColor = vec4(sceneRayColor(r, uAllowedBounceDepth, random_seed), 1.0);
-                    if (uSampleWeight == 0.0)
-                        outTexelColor = sampleColor;
-                    else {
-                        vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-
-                        outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
-                    }
-                }`
-                + this.adapters.scene.getShaderSource()
-                + this.adapters.camera.getShaderSource()
-                + this.adapters.random.getShaderSource();
+                    outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
+                }
+            }`
+            + this.adapters.scene.getShaderSource()
+            + this.adapters.camera.getShaderSource()
+            + this.adapters.random.getShaderSource();
     }
     
     writeShaderData(gl) {

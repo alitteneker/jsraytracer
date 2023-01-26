@@ -49,10 +49,13 @@ class Vec extends Float32Array {
         return Math.sqrt(this.dot(this))
     }
     normalized() {
-        return this.times(1 / this.norm())
+        const norm = this.norm();
+        return (norm > 0.00001) ? this.times(1 / norm) : this;
     }
     normalize() {
-        this.scale(1 / this.norm())
+        const norm = this.norm();
+        if (norm > 0.00001)
+            this.scale(1 / this.norm())
     }
     // Optimized arithmetic unrolls loops for vectors of length <= 4.
     dot(b) {

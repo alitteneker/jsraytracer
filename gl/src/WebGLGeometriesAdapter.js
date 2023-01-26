@@ -1,7 +1,14 @@
 class WebGLGeometriesAdapter {
+    static PLANE_ID        = 0;
+    static SPHERE_ID       = 1;
+    static UNITBOX_ID      = 2;
+    static CIRCLE_ID       = 3;
+    static SQUARE_ID       = 4;
+    static MIN_TRIANGLE_ID = 5;
+    
     constructor() {
         this.id_map = {};
-        this.geometries = [ new Plane(), new Sphere(), new UnitBox() ];
+        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square() ];
         
         this.triangle_data_map = {};
         this.triangle_data = [];
@@ -18,11 +25,16 @@ class WebGLGeometriesAdapter {
     }
     visit(geometry) {
         if (geometry instanceof Plane)
-            return 0;
+            return WebGLGeometriesAdapter.PLANE_ID;
         if (geometry instanceof Sphere)
-            return 1;
+            return WebGLGeometriesAdapter.SPHERE_ID;
         if (geometry instanceof UnitBox)
-            return 2;
+            return WebGLGeometriesAdapter.UNITBOX_ID;
+        if (geometry instanceof Circle)
+            return WebGLGeometriesAdapter.CIRCLE_ID;
+        if (geometry instanceof Square)
+            return WebGLGeometriesAdapter.SQUARE_ID;
+        
         if (geometry.GEOMETRY_UID in this.id_map)
             return this.id_map[geometry.GEOMETRY_UID];
         if (geometry instanceof Triangle) {
@@ -48,17 +60,17 @@ class WebGLGeometriesAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                struct GeometricMaterialData {
-                    vec4 normal;
-                    vec2 UV;
-                };
-                float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
-                void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);`;
+            struct GeometricMaterialData {
+                vec4 normal;
+                vec2 UV;
+            };
+            float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
+            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);`;
     }
     getShaderSource() {
         return `
             // ---- Plane ----
-            #define GEOMETRY_PLANE_TYPE 0
+            #define GEOMETRY_PLANE_TYPE ${WebGLGeometriesAdapter.PLANE_ID}
             float planeIntersect(in Ray r, in float minDistance, in vec4 n, in float delta) {
                 float denom = dot(r.d, n);
                 if (denom == 0.0)
@@ -72,10 +84,38 @@ class WebGLGeometriesAdapter {
                 data.normal = vec4(0, 0, 1, 0);
                 data.UV = vec2(position.x, position.y);
             }
+            
+            
+            // ---- Square ----
+            #define GEOMETRY_SQUARE_TYPE ${WebGLGeometriesAdapter.SQUARE_ID}
+            float squareIntersect(in Ray r, in float minDistance) {
+                float t = planeIntersect(r, minDistance);
+                if (t < minDistance)
+                    return t;
+                vec4 p = r.o + t * r.d;
+                return all(lessThanEqual(abs(p.xy), vec2(0.5))) ? t : (minDistance - 1.0);
+            }
+            void squareMaterialData(in vec4 position, inout GeometricMaterialData data) {
+                planeMaterialData(position, data);
+            }
+            
+            
+            // ---- Circle ----
+            #define GEOMETRY_CIRCLE_TYPE ${WebGLGeometriesAdapter.CIRCLE_ID}
+            float circleIntersect(in Ray r, in float minDistance) {
+                float t = planeIntersect(r, minDistance);
+                if (t < minDistance)
+                    return t;
+                vec4 p = r.o + t * r.d;
+                return (dot(p.xy, p.xy) <= 1.0) ? t : (minDistance - 1.0);
+            }
+            void circleMaterialData(in vec4 position, inout GeometricMaterialData data) {
+                planeMaterialData(position, data);
+            }
 
 
             // ---- Sphere ----
-            #define GEOMETRY_SPHERE_TYPE 1
+            #define GEOMETRY_SPHERE_TYPE ${WebGLGeometriesAdapter.SPHERE_ID}
             float unitSphereIntersect(in Ray r, in float minDistance) {
                 float a = dot(r.d, r.d),
                       b = dot(r.o, r.d),
@@ -99,7 +139,7 @@ class WebGLGeometriesAdapter {
 
 
             // ---- Unit Box ----
-            #define GEOMETRY_UNITBOX_TYPE 2
+            #define GEOMETRY_UNITBOX_TYPE ${WebGLGeometriesAdapter.UNITBOX_ID}
             float unitBoxIntersect(in Ray r, in float minDistance) {
                 float t_min = minDistance - 1.0, t_max = 1e20;
                 vec4 p = vec4(0,0,0,1) - r.o;
@@ -146,7 +186,7 @@ class WebGLGeometriesAdapter {
 
 
             // ---- Triangle ----
-            #define GEOMETRY_TRIANGLE_MIN_INDEX 3
+            #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
 
             #define MAX_TRIANGLES ${Math.max(this.triangles.length, 1)}
             #define MAX_TRIANGLE_DATA ${Math.max(this.triangle_data.length, 1)}
@@ -231,6 +271,10 @@ class WebGLGeometriesAdapter {
                     return unitSphereIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)
                     return planeIntersect(r, minDistance);
+                else if (geometryID == GEOMETRY_CIRCLE_TYPE)
+                    return circleIntersect(r, minDistance);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)
+                    return squareIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)
                     return unitBoxIntersect(r, minDistance);
                 return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
@@ -240,6 +284,10 @@ class WebGLGeometriesAdapter {
                     unitSphereMaterialData(position, data);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)
                     planeMaterialData(position, data);
+                else if (geometryID == GEOMETRY_CIRCLE_TYPE)
+                    circleMaterialData(position, data);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)
+                    squareMaterialData(position, data);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)
                     unitBoxMaterialData(position, r.d, data);
                 else

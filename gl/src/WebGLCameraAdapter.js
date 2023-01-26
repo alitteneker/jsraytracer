@@ -58,7 +58,7 @@ class WebGLCameraAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-                void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout Ray r, inout vec2 random_seed);`;
+            void computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout Ray r, inout vec2 random_seed);`;
     }
     getShaderSource() {
         return `
