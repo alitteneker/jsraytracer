@@ -26,6 +26,7 @@ $(document).ready(function() {
             return;
         const scene_path = scene_select.val();
         
+        console.log("Loading " + scene_path + "...");
         import("../" + scene_path + "/test.js").then(function(module) {
             module.configureTest(function(test) {
                 canvas.attr("width", test.width);

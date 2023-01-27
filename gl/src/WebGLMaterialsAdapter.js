@@ -171,7 +171,7 @@ class WebGLMaterialsAdapter {
                     
                     float diffuse = 0.0, specular = 0.0;
                     if (kr > 0.0 && ldotn >= 0.0) {
-                        diffuse  += kr * max(ldotn, 0.0);
+                        diffuse  += kr * ldotn;
                         specular += kr * pow(max(dot(L, R), 0.0), matParams.specularFactor);
                     }
                     if (kr < 1.0 && ldotn <= 0.0) {

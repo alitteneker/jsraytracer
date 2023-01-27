@@ -48,7 +48,7 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            #define SCENE_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))
+            #define SCENE_MAX_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))
             vec3 sceneRayColor(in Ray r, inout vec2 random_seed);
             float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
@@ -103,25 +103,28 @@ class WebGLSceneAdapter {
             vec3 sceneRayColor(in Ray in_ray, inout vec2 random_seed) {
                 vec3 total_color = vec3(0.0);
                 
-                Ray q_rays[SCENE_BOUNCE_QUEUE_LENGTH];
-                vec3 q_attenuation_colors[SCENE_BOUNCE_QUEUE_LENGTH];
-                int q_bounce_depths[SCENE_BOUNCE_QUEUE_LENGTH];
+                int q_len = 0;
+                Ray q_rays[SCENE_MAX_BOUNCE_QUEUE_LENGTH];
+                vec3 q_attenuation_colors[SCENE_MAX_BOUNCE_QUEUE_LENGTH];
+                int q_remaining_bounces[SCENE_MAX_BOUNCE_QUEUE_LENGTH];
                 
-                int q_len = 1;
-                q_rays[0] = in_ray;
-                q_attenuation_colors[0] = vec3(1.0);
-                q_bounce_depths[0] = 0;
+                if (MAX_BOUNCE_DEPTH > 0) {
+                    q_rays[0] = in_ray;
+                    q_attenuation_colors[0] = vec3(1.0);
+                    q_remaining_bounces[0] = MAX_BOUNCE_DEPTH-1;
+                    q_len = 1;
+                }
                 
                 for (int i = 0; i < q_len; ++i) {
                     Ray r = q_rays[i];
                     vec3 attenuation_color = q_attenuation_colors[i];
-                    int bounce_depth = q_bounce_depths[i];
+                    int remaining_bounces = q_remaining_bounces[i];
                     
                     int objectID = -1;
                     float intersect_time = sceneRayCast(r, EPSILON, false, objectID);
                     if (objectID == -1) {
                         total_color += attenuation_color * uBackgroundColor;
-                        break;
+                        continue;
                     }
                     
                     vec4 reflection_direction = vec4(0.0), refraction_direction = vec4(0.0);
@@ -131,26 +134,26 @@ class WebGLSceneAdapter {
                         reflection_direction, reflection_color, refraction_direction, refraction_color);
                     total_color += attenuation_color * sampleColor;
                     
-                    if (bounce_depth < MAX_BOUNCE_DEPTH) {
+                    if (remaining_bounces > 0) {
                         vec4 intersect_position = r.o + intersect_time * r.d;
                         if (dot(reflection_direction, reflection_direction) > EPSILON && dot(reflection_color, reflection_color) > EPSILON) {
                             q_rays[q_len] = Ray(intersect_position, reflection_direction);
                             q_attenuation_colors[q_len] = attenuation_color * reflection_color;
-                            q_bounce_depths[q_len] = bounce_depth + 1;
+                            q_remaining_bounces[q_len] = remaining_bounces - 1;
                             ++q_len;
                         }
                         
                         if (dot(refraction_direction, refraction_direction) > EPSILON && dot(refraction_color, refraction_color) > EPSILON) {
                             q_rays[q_len] = Ray(intersect_position, refraction_direction);
                             q_attenuation_colors[q_len] = attenuation_color * refraction_color;
-                            q_bounce_depths[q_len] = bounce_depth + 1;
+                            q_remaining_bounces[q_len] = remaining_bounces - 1;
                             ++q_len;
                         }
                     }
                 }
                 
-                // return 1.0 / float(q_len) * vec3(1.0);
-                // return 1.0 / float(SCENE_BOUNCE_QUEUE_LENGTH - q_len) * vec3(1.0);
+                if (q_len == SCENE_MAX_BOUNCE_QUEUE_LENGTH)
+                    return vec3(1.0, 0.0, 0.5);
                 return total_color;
             }`
             + this.adapters.lights.getShaderSource()

@@ -46,7 +46,7 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new Scene(objects, lights, Vec.of(0.5,0.5,0.5)), camera, 16, 2/* 4 */),
+            new Scene(objects, lights, Vec.of(0.5,0.5,0.5)), camera, 16, 4),
         width: 600,
         height: 600
     });
