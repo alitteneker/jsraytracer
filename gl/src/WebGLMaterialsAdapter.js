@@ -144,7 +144,6 @@ class WebGLMaterialsAdapter {
                             float Rp = ((ni * cosi) - (nt * cost)) / ((ni * cosi) + (nt * cost));
                             kr = (Rs * Rs + Rp * Rp) / 2.0;
                         }
-                        //kr = 0.00001;
                     }
                     
                     // compute the direction that refracted light would come from
@@ -156,7 +155,7 @@ class WebGLMaterialsAdapter {
                     }
                 }
 
-                // compute
+                // compute direct illumination
                 vec3 totalColor = matParams.ambient;
                 for (int i = 0; i < uNumLights; ++i) {
                     vec4 lightDirection;
@@ -172,30 +171,29 @@ class WebGLMaterialsAdapter {
                     
                     float diffuse = 0.0, specular = 0.0;
                     if (kr > 0.0 && ldotn >= 0.0) {
-                        diffuse  += kr * ldotn;
+                        diffuse  += kr * max(ldotn, 0.0);
                         specular += kr * pow(max(dot(L, R), 0.0), matParams.specularFactor);
                     }
                     if (kr < 1.0 && ldotn <= 0.0) {
-                        diffuse  += (1.0 - kr) *                              (-ldotn);
+                        diffuse  += (1.0 - kr) * (-ldotn);
                         specular += (1.0 - kr) * pow(max(dot(L, refractionDirection), 0.0), matParams.specularFactor);
                     }
                     totalColor += lightColor * (diffuse * matParams.diffuse + specular * matParams.specular);
                 }
                 
                 // reflection
-                // if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
-                    // out_reflection_direction = R;
-                    // out_reflection_color = vec3(kr); //kr * matParams.reflectivity;
-                // }
+                if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
+                    out_reflection_direction = R;
+                    out_reflection_color = kr *  matParams.reflectivity;
+                }
                 
                 // refraction
                 if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
                     out_refraction_direction = refractionDirection;
-                    out_refraction_color = vec3(1.0 - kr); //(1.0 - kr) * matParams.reflectivity;
+                    out_refraction_color = (1.0 - kr) * matParams.reflectivity;
                 }
                 
-                return vec3(kr);
-                //return totalColor;
+                return totalColor;
             }
 
             // ---- Generic ----

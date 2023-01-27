@@ -26,9 +26,11 @@ div#controls {
     text-align: center;
     line-height: 30px;
     min-height: 30px;
+    display: flex;
 }
 
 #fps-display {
+    /* height: 30px; */
     width: 100%;
     float: left;
     color: white;

@@ -17,7 +17,7 @@ class Scene {
     }
     color(ray, recursionDepth, minDistance = 0) {
         if (!recursionDepth)
-            return this.bg_color;
+            return Vec.of(0,0,0);
         const intersection = this.cast(ray, minDistance);
         if (intersection.object == null)
             return this.bg_color;

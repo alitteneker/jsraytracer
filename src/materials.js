@@ -200,7 +200,7 @@ class PhongMaterial extends Material {
 
 class FresnelPhongMaterial extends PhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=1) {
-        super(baseColor, ambient, diffusivity, specularity, smoothness, 1);
+        super(baseColor, ambient, diffusivity, specularity, smoothness, baseColor);
         this.refractiveIndexRatio = refractiveIndexRatio;
     }
     getBaseFactors(data) {

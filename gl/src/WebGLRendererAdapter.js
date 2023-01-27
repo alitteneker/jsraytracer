@@ -42,14 +42,14 @@ class WebGLRendererAdapter {
         // Compile and link shader program for the tracer
         this.tracerShaderProgram = WebGLRendererAdapter.compileShaderProgramFromSources(gl,
             `#version 300 es
-            precision mediump float;
+            precision highp float;
             in vec4 vertexPosition;
             void main() {
                 gl_Position = vertexPosition;
             }`,
             
             `#version 300 es
-            precision mediump float;` + "\n"
+            precision highp float;` + "\n"
             + this.getShaderSourceDeclarations()
             + this.getShaderSource());
          
@@ -140,7 +140,7 @@ class WebGLRendererAdapter {
     getShaderSourceDeclarations() {
         return `
             #define PI 3.14159265359
-            #define EPSILON 0.000001
+            #define EPSILON 0.0001
             #define MAX_BOUNCE_DEPTH ${this.renderer.maxRecursionDepth}
             struct Ray { vec4 o; vec4 d; };` + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"

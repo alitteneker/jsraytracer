@@ -48,7 +48,7 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            #define SCENE_QUEUE_LENGTH 1 << MAX_BOUNCE_DEPTH
+            #define SCENE_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))
             vec3 sceneRayColor(in Ray r, inout vec2 random_seed);
             float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
@@ -101,11 +101,11 @@ class WebGLSceneAdapter {
                                         reflection_direction, reflection_color, refraction_direction, refraction_color);
             }
             vec3 sceneRayColor(in Ray in_ray, inout vec2 random_seed) {
-                vec3 total_color = uBackgroundColor;
+                vec3 total_color = vec3(0.0);
                 
-                Ray q_rays[SCENE_QUEUE_LENGTH];
-                vec3 q_attenuation_colors[SCENE_QUEUE_LENGTH];
-                int q_bounce_depths[SCENE_QUEUE_LENGTH];
+                Ray q_rays[SCENE_BOUNCE_QUEUE_LENGTH];
+                vec3 q_attenuation_colors[SCENE_BOUNCE_QUEUE_LENGTH];
+                int q_bounce_depths[SCENE_BOUNCE_QUEUE_LENGTH];
                 
                 int q_len = 1;
                 q_rays[0] = in_ray;
@@ -119,24 +119,28 @@ class WebGLSceneAdapter {
                     
                     int objectID = -1;
                     float intersect_time = sceneRayCast(r, EPSILON, false, objectID);
-                    if (objectID == -1)
+                    if (objectID == -1) {
+                        total_color += attenuation_color * uBackgroundColor;
                         break;
+                    }
                     
                     vec4 reflection_direction = vec4(0.0), refraction_direction = vec4(0.0);
                     vec3 reflection_color = vec3(0.0), refraction_color = vec3(0.0);
                     
-                    total_color += attenuation_color * sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
+                    vec3 sampleColor = sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
                         reflection_direction, reflection_color, refraction_direction, refraction_color);
+                    total_color += attenuation_color * sampleColor;
                     
                     if (bounce_depth < MAX_BOUNCE_DEPTH) {
                         vec4 intersect_position = r.o + intersect_time * r.d;
-                        if (dot(reflection_direction, reflection_direction) > EPSILON) {
+                        if (dot(reflection_direction, reflection_direction) > EPSILON && dot(reflection_color, reflection_color) > EPSILON) {
                             q_rays[q_len] = Ray(intersect_position, reflection_direction);
                             q_attenuation_colors[q_len] = attenuation_color * reflection_color;
                             q_bounce_depths[q_len] = bounce_depth + 1;
                             ++q_len;
                         }
-                        if (dot(refraction_direction, refraction_direction) > EPSILON) {
+                        
+                        if (dot(refraction_direction, refraction_direction) > EPSILON && dot(refraction_color, refraction_color) > EPSILON) {
                             q_rays[q_len] = Ray(intersect_position, refraction_direction);
                             q_attenuation_colors[q_len] = attenuation_color * refraction_color;
                             q_bounce_depths[q_len] = bounce_depth + 1;
@@ -144,6 +148,9 @@ class WebGLSceneAdapter {
                         }
                     }
                 }
+                
+                // return 1.0 / float(q_len) * vec3(1.0);
+                // return 1.0 / float(SCENE_BOUNCE_QUEUE_LENGTH - q_len) * vec3(1.0);
                 return total_color;
             }`
             + this.adapters.lights.getShaderSource()

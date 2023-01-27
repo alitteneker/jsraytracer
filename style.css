@@ -15,6 +15,7 @@ div#controls {
     width: 100%;
     text-align: center;
     line-height: 30px;
+    min-height: 30px;
 }
 
 #progress-label {
