@@ -1,3 +1,27 @@
+class WebGLVecStore {
+    constructor(components=3) {
+        this.components = components;
+        this.data_map = {};
+        this.data = [];
+    }
+    size() {
+        return this.data.length;
+    }
+    visit(vec) {
+        vec = vec.slice(0, this.components);
+        const key = vec.to_string();
+        if (key in this.data_map)
+            return this.data_map[key];
+        this.data_map[key] = this.data.length;
+        this.data.push(Array.of(...vec));
+        return this.data_map[key];
+    }
+    to_webgl() {
+        return this.data.flat();
+    }
+}
+
+
 class WebGLRandomHelper {
     constructor() {
     }

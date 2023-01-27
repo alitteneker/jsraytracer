@@ -10,18 +10,8 @@ class WebGLGeometriesAdapter {
         this.id_map = {};
         this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square() ];
         
-        this.triangle_data_map = {};
-        this.triangle_data = [];
+        this.triangle_data = new WebGLVecStore();
         this.triangles = [];
-    }
-    visitTriangleData(vec) {
-        vec = vec.slice(0, 3);
-        const key = vec.to_string();
-        if (key in this.triangle_data_map)
-            return this.triangle_data_map[key];
-        this.triangle_data_map[key] = this.triangle_data.length;
-        this.triangle_data.push(Array.of(...vec));
-        return this.triangle_data_map[key];
     }
     visit(geometry) {
         if (geometry instanceof Plane)
@@ -39,9 +29,9 @@ class WebGLGeometriesAdapter {
             return this.id_map[geometry.GEOMETRY_UID];
         if (geometry instanceof Triangle) {
             this.triangles.push({
-                vertex_indices: (geometry.ps                                             ).map(p => this.visitTriangleData(p)),
-                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.visitTriangleData(v)),
-                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.visitTriangleData(Vec.of(...v, 0)))
+                vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.visit(p)),
+                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.visit(v)),
+                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.visit(Vec.of(...v, 0)))
             });
             this.id_map[geometry.GEOMETRY_UID] = this.geometries.length;
             this.geometries.push(geometry);
@@ -52,7 +42,7 @@ class WebGLGeometriesAdapter {
     writeShaderData(gl, program) {
         // Write triangle data, as all other types need no data written for geometry
         if (this.triangles.length) {
-            gl.uniform3fv(gl.getUniformLocation(program, "ugTriangleData"),          this.triangle_data.flat());
+            gl.uniform3fv(gl.getUniformLocation(program, "ugTriangleData"),          this.triangle_data.to_webgl());
             gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleVertexIndices"), this.triangles.map(t => t.vertex_indices).flat());
             gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleNormalIndices"), this.triangles.map(t => t.normal_indices).flat());
             gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleUVIndices"),     this.triangles.map(t => t.uv_indices).flat());
@@ -189,7 +179,7 @@ class WebGLGeometriesAdapter {
             #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
 
             #define MAX_TRIANGLES ${Math.max(this.triangles.length, 1)}
-            #define MAX_TRIANGLE_DATA ${Math.max(this.triangle_data.length, 1)}
+            #define MAX_TRIANGLE_DATA ${Math.max(this.triangle_data.size(), 1)}
             
             uniform vec3 ugTriangleData         [MAX_TRIANGLE_DATA];
             uniform int  ugTriangleVertexIndices[MAX_TRIANGLES * 3];

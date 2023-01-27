@@ -1,22 +1,14 @@
 class WebGLMaterialsAdapter {
     constructor() {
-        this.solid_colors = [];
-        this.solid_color_map = {};
+        this.solid_colors = new WebGLVecStore();
         this.checkerboard_colors = [];
         
         this.materials = [];
         this.material_id_map = {};
     }
     collapseMaterialColor(mc, scale=Vec.of(1,1,1)) {
-        if (mc instanceof SolidMaterialColor) {
-            const color = mc._color.times(scale);
-            const key = color.to_string();
-            if (!(key in this.solid_color_map)) {
-                this.solid_color_map[key] = this.solid_colors.length;
-                this.solid_colors.push(color);
-            }
-            return this.solid_color_map[key];
-        }
+        if (mc instanceof SolidMaterialColor)
+            return this.solid_colors.visit(mc._color.times(scale));
         if (mc instanceof ScaledMaterialColor)
             return this.collapseMaterialColor(mc._mc, scale.times(mc._scale));
         if (mc instanceof CheckerboardMaterialColor) {
@@ -55,16 +47,20 @@ class WebGLMaterialsAdapter {
         return this.material_id_map[material.MATERIAL_UID];
     }
     writeShaderData(gl, program) {
-        gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.map(x => [...x]).flat());
+        if (this.solid_colors.size())
+            gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.to_webgl());
+        
         if (this.checkerboard_colors.length)
             gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
         
-        gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
-        gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialDiffuseMCs"),            this.materials.map(m => m.diffuse_id));
-        gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialSpecularMCs"),           this.materials.map(m => m.specular_id));
-        gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialReflectivityMCs"),       this.materials.map(m => m.reflectivity_id));
-        gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialSpecularFactors"),       this.materials.map(m => m.specularFactor));
-        gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialRefractiveIndexRatios"), this.materials.map(m => m.refractiveIndexRatio));
+        if (this.materials.length) {
+            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialDiffuseMCs"),            this.materials.map(m => m.diffuse_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialSpecularMCs"),           this.materials.map(m => m.specular_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialReflectivityMCs"),       this.materials.map(m => m.reflectivity_id));
+            gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialSpecularFactors"),       this.materials.map(m => m.specularFactor));
+            gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialRefractiveIndexRatios"), this.materials.map(m => m.refractiveIndexRatio));
+        }
     }
     getShaderSourceDeclarations() {
         return `
@@ -82,7 +78,7 @@ class WebGLMaterialsAdapter {
     }
     getShaderSource() {
         return `
-            uniform vec3 umSolidColors[${this.solid_colors.length}];
+            uniform vec3 umSolidColors[${Math.max(1, this.solid_colors.size())}];
             uniform int umCheckerboardColors[${Math.max(1, 2*this.checkerboard_colors.length)}];
             
             #define MAX_MATERIALS ${Math.max(this.materials.length, 1)}
