@@ -41,11 +41,31 @@ class WebGLGeometriesAdapter {
     }
     writeShaderData(gl, program) {
         // Write triangle data, as all other types need no data written for geometry
-        if (this.triangles.length) {
-            gl.uniform3fv(gl.getUniformLocation(program, "ugTriangleData"),          this.triangle_data.to_webgl());
-            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleVertexIndices"), this.triangles.map(t => t.vertex_indices).flat());
-            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleNormalIndices"), this.triangles.map(t => t.normal_indices).flat());
-            gl.uniform1iv(gl.getUniformLocation(program, "ugTriangleUVIndices"),     this.triangles.map(t => t.uv_indices).flat());
+        {
+            const square_size = Math.max(1, Math.ceil(Math.sqrt(this.triangle_data.size())));
+            const square_data = Float32Array.from(Object.assign(new Array(3 * square_size * square_size).fill(0), this.triangle_data.to_webgl()));
+            
+            gl.activeTexture(gl.TEXTURE1);
+            const triangleDataTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, triangleDataTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB32F, square_size, square_size, 0, gl.RGB, gl.FLOAT, square_data);
+            gl.uniform1i(gl.getUniformLocation(program, "tTriangleData"), 1);
+        }
+        
+        {
+            const square_size = Math.max(1, Math.ceil(Math.sqrt(3 * this.triangles.length)));
+            const square_data = Int32Array.from(Object.assign(new Array(3 * square_size * square_size).fill(0),
+                this.triangles.map(t => [t.vertex_indices, t.normal_indices, t.uv_indices]).flat().flat()));
+            
+            gl.activeTexture(gl.TEXTURE2);
+            const triangleIndicesTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, triangleIndicesTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB32I, square_size, square_size, 0, gl.RGB_INTEGER, gl.INT, square_data);
+            gl.uniform1i(gl.getUniformLocation(program, "tTriangleIndices"), 2);
         }
     }
     getShaderSourceDeclarations() {
@@ -177,29 +197,36 @@ class WebGLGeometriesAdapter {
 
             // ---- Triangle ----
             #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
-
-            #define MAX_TRIANGLES ${Math.max(this.triangles.length, 1)}
-            #define MAX_TRIANGLE_DATA ${Math.max(this.triangle_data.size(), 1)}
             
-            uniform vec3 ugTriangleData         [MAX_TRIANGLE_DATA];
-            uniform int  ugTriangleVertexIndices[MAX_TRIANGLES * 3];
-            uniform int  ugTriangleNormalIndices[MAX_TRIANGLES * 3];
-            uniform int  ugTriangleUVIndices    [MAX_TRIANGLES * 3];
-
+            uniform sampler2D tTriangleData;
+            ivec2 computeGenericIndex(in int index, in ivec2 size) {
+                return ivec2(index % size.x, index / size.x);
+            }
+            vec3 getTriangleData(in int index) {
+                return texelFetch(tTriangleData, computeGenericIndex(index, textureSize(tTriangleData, 0)), 0).rgb;
+            }
+            
+            uniform highp isampler2D tTriangleIndices;
+            ivec3 getIndices(in int triangleID, in int dataOffset) {
+                return texelFetch(tTriangleIndices, computeGenericIndex(triangleID * 3 + dataOffset, textureSize(tTriangleIndices, 0)), 0).rgb;
+            }
             void getTriangleVertices(in int triangleID, out vec4 p1, out vec4 p2, out vec4 p3) {
-                p1 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3    ]], 1);
-                p2 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3 + 1]], 1);
-                p3 = vec4(ugTriangleData[ugTriangleVertexIndices[triangleID * 3 + 2]], 1);
+                ivec3 indices = getIndices(triangleID, 0);
+                p1 = vec4(getTriangleData(indices[0]), 1);
+                p2 = vec4(getTriangleData(indices[1]), 1);
+                p3 = vec4(getTriangleData(indices[2]), 1);
             }
             void getTriangleNormals(in int triangleID, out vec4 n1, out vec4 n2, out vec4 n3) {
-                n1 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3    ]], 0);
-                n2 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3 + 1]], 0);
-                n3 = vec4(ugTriangleData[ugTriangleNormalIndices[triangleID * 3 + 2]], 0);
+                ivec3 indices = getIndices(triangleID, 1);
+                n1 = vec4(getTriangleData(indices[0]), 0);
+                n2 = vec4(getTriangleData(indices[1]), 0);
+                n3 = vec4(getTriangleData(indices[2]), 0);
             }
             void getTriangleUVs(in int triangleID, out vec2 uv1, out vec2 uv2, out vec2 uv3) {
-                uv1 = ugTriangleData[ugTriangleUVIndices[triangleID * 3    ]].xy;
-                uv3 = ugTriangleData[ugTriangleUVIndices[triangleID * 3 + 2]].xy;
-                uv2 = ugTriangleData[ugTriangleUVIndices[triangleID * 3 + 1]].xy;
+                ivec3 indices = getIndices(triangleID, 2);
+                uv1 = vec2(getTriangleData(indices[0]).xy);
+                uv2 = vec2(getTriangleData(indices[1]).xy);
+                uv3 = vec2(getTriangleData(indices[2]).xy);
             }
             float baryBlend(in vec3 bary, in float v1, in float v2, in float v3) {
                 return (bary.x * v1) + (bary.y * v2) + (bary.z * v3);

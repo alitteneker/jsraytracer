@@ -154,6 +154,7 @@ class WebGLSceneAdapter {
                 
                 if (q_len == SCENE_MAX_BOUNCE_QUEUE_LENGTH)
                     return vec3(1.0, 0.0, 0.5);
+                
                 return total_color;
             }`
             + this.adapters.lights.getShaderSource()
