@@ -21,8 +21,8 @@ class WebGLRendererAdapter {
         
         // Create the adapters for the scene, which will also validate the data for the scene
         this.adapters = {
-            camera: new WebGLCameraAdapter(this.webgl_helper, renderer.camera),
-            scene:  new WebGLSceneAdapter(this.webgl_helper, renderer.scene)
+            camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper),
+            scene:  new WebGLSceneAdapter(renderer.scene, this.webgl_helper)
         };
         
         // Build the shader programs to make this render

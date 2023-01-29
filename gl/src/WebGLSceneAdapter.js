@@ -1,31 +1,36 @@
 class WebGLSceneAdapter {
-    constructor(webgl_helper, scene) {
+    constructor(scene, webgl_helper) {
         this.scene = scene;
+        
+        this.indices_texture_unit = webgl_helper.allocateTextureUnit();
+        this.indices_texture = webgl_helper.createDataTexture(4, "INTEGER");
+        
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
             materials:  new WebGLMaterialsAdapter(webgl_helper),
             geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
         this.inv_transforms = [];
-        this.properties = {
-            geometryIDs:  [],
-            materialIDs:  [],
-            transformIDs: []
-        };
         for (let light of scene.lights)
             this.adapters.lights.visit(light);
         
-        let transform_ID_map = {};
+        this.objects = [];
+        const transform_ID_map = {};
         for (let object of scene.objects) {
-            let transform_ID = object.transform.toString();
-            if (transform_ID in transform_ID_map)
-                this.properties.transformIDs.push(transform_ID_map[transform_ID]);
+            const transform_key = object.transform.toString();
+            let transformID = null;
+            if (transform_key in transform_ID_map)
+                transformID = transform_ID_map[transform_key];
             else {
-                this.properties.transformIDs.push(transform_ID_map[transform_ID] = this.inv_transforms.length);
+                transformID = transform_ID_map[transform_key] = this.inv_transforms.length;
                 this.inv_transforms.push(object.inv_transform);
             }
-            this.properties.geometryIDs.push(this.adapters.geometries.visit(object.geometry));
-            this.properties.materialIDs.push(this.adapters.materials.visit(object.material));
+            
+            this.objects.push({
+                transformID: transformID,
+                geometryID: this.adapters.geometries.visit(object.geometry),
+                materialID: this.adapters.materials.visit(object.material)
+            });
         }
     }
     writeShaderData(gl, program, webgl_helper) {
@@ -37,9 +42,13 @@ class WebGLSceneAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
         
         // write geometry ids, material ids, transform ids
-        gl.uniform1iv(gl.getUniformLocation(program, "usObjectGeometryIDs"), this.properties.geometryIDs);
-        gl.uniform1iv(gl.getUniformLocation(program, "usObjectMaterialIDs"), this.properties.materialIDs);
-        gl.uniform1iv(gl.getUniformLocation(program, "usObjectTransformIDs"), this.properties.transformIDs);
+        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectGeometryIDs"),  this.objects.map(o => o.geometryID));
+        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectMaterialIDs"),  this.objects.map(o => o.materialID));
+        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectTransformIDs"), this.objects.map(o => o.transformID));
+        gl.activeTexture(this.indices_texture_unit);
+        webgl_helper.setDataTexturePixels(this.indices_texture, 4, "INTEGER",
+            this.objects.map(o => [o.geometryID, o.materialID, o.transformID, 1]).flat());
+        gl.uniform1i(gl.getUniformLocation(program, "uSceneObjects"), webgl_helper.textureUnitIndex(this.indices_texture_unit));
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
@@ -62,31 +71,33 @@ class WebGLSceneAdapter {
 
             uniform mat4 uObjectInverseTransforms[16];
 
-            // uniform highp isampler2D uSceneObjects;
+            uniform highp isampler2D uSceneObjects;
             
-            #define MAX_OBJECTS ${Math.max(this.scene.objects.length, 1)}
-            uniform int usObjectGeometryIDs [MAX_OBJECTS];
-            uniform int usObjectMaterialIDs [MAX_OBJECTS];
-            uniform int usObjectTransformIDs[MAX_OBJECTS];
+            // #define MAX_OBJECTS ${Math.max(this.scene.objects.length, 1)}
+            // uniform int usObjectGeometryIDs [MAX_OBJECTS];
+            // uniform int usObjectMaterialIDs [MAX_OBJECTS];
+            // uniform int usObjectTransformIDs[MAX_OBJECTS];
             
-            struct SceneObjectIDs {
+            struct SceneObject {
                 int geometry_id;
                 int material_id;
                 int transform_id;
                 int shadowflag;
             };
-            SceneObjectIDs getSceneObjectIDs(in int objectID) {
-                return SceneObjectIDs(
-                    usObjectGeometryIDs[objectID],
-                    usObjectMaterialIDs[objectID],
-                    usObjectTransformIDs[objectID],
-                    1);
+            SceneObject getSceneObjectIDs(in int objectID) {
+                ivec4 indices = itexelFetchByIndex(objectID, uSceneObjects);
+                return SceneObject(indices.r, indices.g, indices.b, indices.a);
+                // return SceneObject(
+                    // usObjectGeometryIDs[objectID],
+                    // usObjectMaterialIDs[objectID],
+                    // usObjectTransformIDs[objectID],
+                    // 1);
             }
 
             // ---- Intersections ----
             float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
                 // TODO: add shadowflag logic
-                SceneObjectIDs ids = getSceneObjectIDs(objectID);
+                SceneObject ids = getSceneObjectIDs(objectID);
                 mat4 objectInverseTransform = uObjectInverseTransforms[ids.transform_id];
                 return geometryIntersect(ids.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
@@ -110,7 +121,7 @@ class WebGLSceneAdapter {
             vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed,
                 inout vec4 reflection_direction, inout vec3 reflection_color, inout vec4 refraction_direction, inout vec3 refraction_color)
             {
-                SceneObjectIDs ids = getSceneObjectIDs(objectID);
+                SceneObject ids = getSceneObjectIDs(objectID);
                 GeometricMaterialData geomatdata;
                 mat4 inverseTransform = uObjectInverseTransforms[ids.transform_id];
                 getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
