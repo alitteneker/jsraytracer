@@ -42,9 +42,6 @@ class WebGLSceneAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
         
         // write geometry ids, material ids, transform ids
-        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectGeometryIDs"),  this.objects.map(o => o.geometryID));
-        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectMaterialIDs"),  this.objects.map(o => o.materialID));
-        // gl.uniform1iv(gl.getUniformLocation(program, "usObjectTransformIDs"), this.objects.map(o => o.transformID));
         gl.activeTexture(this.indices_texture_unit);
         webgl_helper.setDataTexturePixels(this.indices_texture, 4, "INTEGER",
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, 1]).flat());
@@ -72,11 +69,6 @@ class WebGLSceneAdapter {
             uniform mat4 uObjectInverseTransforms[16];
 
             uniform highp isampler2D uSceneObjects;
-            
-            // #define MAX_OBJECTS ${Math.max(this.scene.objects.length, 1)}
-            // uniform int usObjectGeometryIDs [MAX_OBJECTS];
-            // uniform int usObjectMaterialIDs [MAX_OBJECTS];
-            // uniform int usObjectTransformIDs[MAX_OBJECTS];
             
             struct SceneObject {
                 int geometry_id;
