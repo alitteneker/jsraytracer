@@ -1,5 +1,5 @@
 class WebGLCameraAdapter {
-    constructor(camera) {
+    constructor(webgl_helper, camera) {
         this.camera = camera;
         
         this.rotateDelta = Vec.of(0,0);

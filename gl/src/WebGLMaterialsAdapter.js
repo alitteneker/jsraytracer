@@ -1,5 +1,5 @@
 class WebGLMaterialsAdapter {
-    constructor() {
+    constructor(webgl_helper) {
         this.solid_colors = new WebGLVecStore();
         this.checkerboard_colors = [];
         

@@ -1,5 +1,5 @@
 class WebGLLightsAdapter {
-    constructor() {
+    constructor(webgl_helper) {
         this.lights_data = [];
     }
     visit(light) {

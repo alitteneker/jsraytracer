@@ -1,10 +1,10 @@
 class WebGLSceneAdapter {
-    constructor(scene) {
+    constructor(webgl_helper, scene) {
         this.scene = scene;
         this.adapters = {
-            lights:     new WebGLLightsAdapter(),
-            materials:  new WebGLMaterialsAdapter(),
-            geometries: new WebGLGeometriesAdapter()
+            lights:     new WebGLLightsAdapter(webgl_helper),
+            materials:  new WebGLMaterialsAdapter(webgl_helper),
+            geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
         this.inv_transforms = [];
         this.properties = {
@@ -28,7 +28,7 @@ class WebGLSceneAdapter {
             this.properties.materialIDs.push(this.adapters.materials.visit(object.material));
         }
     }
-    writeShaderData(gl, program) {
+    writeShaderData(gl, program, webgl_helper) {
         // write global scene properties
         gl.uniform1i(gl.getUniformLocation(program, "uNumObjects"), this.scene.objects.length);
         gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
@@ -42,9 +42,9 @@ class WebGLSceneAdapter {
         gl.uniform1iv(gl.getUniformLocation(program, "usObjectTransformIDs"), this.properties.transformIDs);
         
         // let our contained adapters do their own thing too
-        this.adapters.lights.writeShaderData(gl, program);
-        this.adapters.materials.writeShaderData(gl, program);
-        this.adapters.geometries.writeShaderData(gl, program);
+        this.adapters.lights.writeShaderData(gl, program, webgl_helper);
+        this.adapters.materials.writeShaderData(gl, program, webgl_helper);
+        this.adapters.geometries.writeShaderData(gl, program, webgl_helper);
     }
     getShaderSourceDeclarations() {
         return `

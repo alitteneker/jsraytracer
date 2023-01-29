@@ -6,12 +6,17 @@ class WebGLGeometriesAdapter {
     static SQUARE_ID       = 4;
     static MIN_TRIANGLE_ID = 5;
     
-    constructor() {
+    constructor(webgl_helper) {
         this.id_map = {};
         this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square() ];
         
         this.triangle_data = new WebGLVecStore();
         this.triangles = [];
+        
+        this.triangle_data_texture_unit    = webgl_helper.allocateTextureUnit();
+        this.triangle_data_texture    = webgl_helper.createDataTexture(3, "FLOAT");
+        this.triangle_indices_texture_unit = webgl_helper.allocateTextureUnit();
+        this.triangle_indices_texture = webgl_helper.createDataTexture(3, "INTEGER");
     }
     visit(geometry) {
         if (geometry instanceof Plane)
@@ -39,34 +44,16 @@ class WebGLGeometriesAdapter {
         }
         throw "Unsupported geometry type";
     }
-    writeShaderData(gl, program) {
+    writeShaderData(gl, program, webgl_helper) {
         // Write triangle data, as all other types need no data written for geometry
-        {
-            const square_size = Math.max(1, Math.ceil(Math.sqrt(this.triangle_data.size())));
-            const square_data = Float32Array.from(Object.assign(new Array(3 * square_size * square_size).fill(0), this.triangle_data.to_webgl()));
-            
-            gl.activeTexture(gl.TEXTURE1);
-            const triangleDataTexture = gl.createTexture();
-            gl.bindTexture(gl.TEXTURE_2D, triangleDataTexture);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB32F, square_size, square_size, 0, gl.RGB, gl.FLOAT, square_data);
-            gl.uniform1i(gl.getUniformLocation(program, "tTriangleData"), 1);
-        }
+        gl.activeTexture(this.triangle_data_texture_unit);
+        webgl_helper.setDataTexturePixels(this.triangle_data_texture, 3, "FLOAT", this.triangle_data.to_webgl());
+        gl.uniform1i(gl.getUniformLocation(program, "tTriangleData"), webgl_helper.textureUnitIndex(this.triangle_data_texture_unit));
         
-        {
-            const square_size = Math.max(1, Math.ceil(Math.sqrt(3 * this.triangles.length)));
-            const square_data = Int32Array.from(Object.assign(new Array(3 * square_size * square_size).fill(0),
-                this.triangles.map(t => [t.vertex_indices, t.normal_indices, t.uv_indices]).flat().flat()));
-            
-            gl.activeTexture(gl.TEXTURE2);
-            const triangleIndicesTexture = gl.createTexture();
-            gl.bindTexture(gl.TEXTURE_2D, triangleIndicesTexture);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB32I, square_size, square_size, 0, gl.RGB_INTEGER, gl.INT, square_data);
-            gl.uniform1i(gl.getUniformLocation(program, "tTriangleIndices"), 2);
-        }
+        gl.activeTexture(this.triangle_indices_texture_unit);
+        webgl_helper.setDataTexturePixels(this.triangle_indices_texture, 3, "INTEGER",
+            this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat());
+        gl.uniform1i(gl.getUniformLocation(program, "tTriangleIndices"), webgl_helper.textureUnitIndex(this.triangle_indices_texture_unit));
     }
     getShaderSourceDeclarations() {
         return `
@@ -199,31 +186,28 @@ class WebGLGeometriesAdapter {
             #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
             
             uniform sampler2D tTriangleData;
-            ivec2 computeGenericIndex(in int index, in ivec2 size) {
-                return ivec2(index % size.x, index / size.x);
-            }
             vec3 getTriangleData(in int index) {
-                return texelFetch(tTriangleData, computeGenericIndex(index, textureSize(tTriangleData, 0)), 0).rgb;
+                return texelFetchByIndex(index, tTriangleData).rgb;
             }
             
             uniform highp isampler2D tTriangleIndices;
-            ivec3 getIndices(in int triangleID, in int dataOffset) {
-                return texelFetch(tTriangleIndices, computeGenericIndex(triangleID * 3 + dataOffset, textureSize(tTriangleIndices, 0)), 0).rgb;
+            ivec3 getTriangleIndices(in int triangleID, in int dataOffset) {
+                return itexelFetchByIndex(triangleID * 3 + dataOffset, tTriangleIndices).rgb;
             }
             void getTriangleVertices(in int triangleID, out vec4 p1, out vec4 p2, out vec4 p3) {
-                ivec3 indices = getIndices(triangleID, 0);
+                ivec3 indices = getTriangleIndices(triangleID, 0);
                 p1 = vec4(getTriangleData(indices[0]), 1);
                 p2 = vec4(getTriangleData(indices[1]), 1);
                 p3 = vec4(getTriangleData(indices[2]), 1);
             }
             void getTriangleNormals(in int triangleID, out vec4 n1, out vec4 n2, out vec4 n3) {
-                ivec3 indices = getIndices(triangleID, 1);
+                ivec3 indices = getTriangleIndices(triangleID, 1);
                 n1 = vec4(getTriangleData(indices[0]), 0);
                 n2 = vec4(getTriangleData(indices[1]), 0);
                 n3 = vec4(getTriangleData(indices[2]), 0);
             }
             void getTriangleUVs(in int triangleID, out vec2 uv1, out vec2 uv2, out vec2 uv3) {
-                ivec3 indices = getIndices(triangleID, 2);
+                ivec3 indices = getTriangleIndices(triangleID, 2);
                 uv1 = vec2(getTriangleData(indices[0]).xy);
                 uv2 = vec2(getTriangleData(indices[1]).xy);
                 uv3 = vec2(getTriangleData(indices[2]).xy);
