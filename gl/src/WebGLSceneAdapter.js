@@ -62,16 +62,33 @@ class WebGLSceneAdapter {
 
             uniform mat4 uObjectInverseTransforms[16];
 
+            // uniform highp isampler2D uSceneObjects;
+            
             #define MAX_OBJECTS ${Math.max(this.scene.objects.length, 1)}
             uniform int usObjectGeometryIDs [MAX_OBJECTS];
             uniform int usObjectMaterialIDs [MAX_OBJECTS];
             uniform int usObjectTransformIDs[MAX_OBJECTS];
+            
+            struct SceneObjectIDs {
+                int geometry_id;
+                int material_id;
+                int transform_id;
+                int shadowflag;
+            };
+            SceneObjectIDs getSceneObjectIDs(in int objectID) {
+                return SceneObjectIDs(
+                    usObjectGeometryIDs[objectID],
+                    usObjectMaterialIDs[objectID],
+                    usObjectTransformIDs[objectID],
+                    1);
+            }
 
             // ---- Intersections ----
             float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
                 // TODO: add shadowflag logic
-                mat4 objectInverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
-                return geometryIntersect(usObjectGeometryIDs[objectID], Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
+                SceneObjectIDs ids = getSceneObjectIDs(objectID);
+                mat4 objectInverseTransform = uObjectInverseTransforms[ids.transform_id];
+                return geometryIntersect(ids.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
             float sceneRayCast(in Ray r, in float minT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
@@ -93,11 +110,12 @@ class WebGLSceneAdapter {
             vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed,
                 inout vec4 reflection_direction, inout vec3 reflection_color, inout vec4 refraction_direction, inout vec3 refraction_color)
             {
+                SceneObjectIDs ids = getSceneObjectIDs(objectID);
                 GeometricMaterialData geomatdata;
-                mat4 inverseTransform = uObjectInverseTransforms[usObjectTransformIDs[objectID]];
-                getGeometricMaterialData(usObjectGeometryIDs[objectID], inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
+                mat4 inverseTransform = uObjectInverseTransforms[ids.transform_id];
+                getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
-                return colorForMaterial(usObjectMaterialIDs[objectID], rp, r, geomatdata, random_seed,
+                return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed,
                                         reflection_direction, reflection_color, refraction_direction, refraction_color);
             }
             vec3 sceneRayColor(in Ray in_ray, inout vec2 random_seed) {
