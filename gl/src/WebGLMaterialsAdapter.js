@@ -35,13 +35,26 @@ class WebGLMaterialsAdapter {
             material_data.specular_id     = this.visitMaterialColor(material.specularity);
             material_data.reflectivity_id = this.visitMaterialColor(material.reflectivity);
             material_data.specularFactor  = material.smoothness;
-            if (material instanceof FresnelPhongMaterial)
+            if (material instanceof FresnelPhongMaterial) {
                 material_data.refractiveIndexRatio = material.refractiveIndexRatio;
-            else
+                if (material instanceof PhongPathTracingMaterial) {
+                    material_data.pathSmoothness = material.pathSmoothness;
+                    material_data.bounceProbability = material.bounceProbability;
+                }
+                else {
+                    material_data.pathSmoothness = Infinity;
+                    material_data.bounceProbability = 1.0;
+                }
+            }
+            else {
                 material_data.refractiveIndexRatio = Infinity;
+                material_data.pathSmoothness = Infinity;
+                material_data.bounceProbability = 1.0;
+            }
         }
         else
             throw "Unsupported material type";
+        
         this.material_id_map[material.MATERIAL_UID] = this.materials.length;
         this.materials.push(material_data);
         return this.material_id_map[material.MATERIAL_UID];
@@ -54,23 +67,27 @@ class WebGLMaterialsAdapter {
             gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
         
         if (this.materials.length) {
-            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialDiffuseMCs"),            this.materials.map(m => m.diffuse_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialSpecularMCs"),           this.materials.map(m => m.specular_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umSimpleMaterialReflectivityMCs"),       this.materials.map(m => m.reflectivity_id));
-            gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialSpecularFactors"),       this.materials.map(m => m.specularFactor));
-            gl.uniform1fv(gl.getUniformLocation(program, "umSimpleMaterialRefractiveIndexRatios"), this.materials.map(m => m.refractiveIndexRatio));
+            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialDiffuseMCs"),            this.materials.map(m => m.diffuse_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialSpecularMCs"),           this.materials.map(m => m.specular_id));
+            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialReflectivityMCs"),       this.materials.map(m => m.reflectivity_id));
+            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialSpecularFactors"),       this.materials.map(m => m.specularFactor));
+            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialRefractiveIndexRatios"), this.materials.map(m => m.refractiveIndexRatio));
+            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialPathSmoothnesses"),      this.materials.map(m => m.pathSmoothness));
+            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialBounceProbabilities"),   this.materials.map(m => m.bounceProbability));
         }
     }
     getShaderSourceDeclarations() {
         return `
-            struct MaterialParameters {
+            struct PhongMaterialParameters {
                 vec3 ambient;
                 vec3 diffuse;
                 vec3 specular;
                 vec3 reflectivity;
                 float specularFactor;
                 float refractiveIndexRatio;
+                float pathSmoothness;
+                float bounceProbability;
             };
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
@@ -81,12 +98,14 @@ class WebGLMaterialsAdapter {
             uniform int umCheckerboardColors[${Math.max(1, 2*this.checkerboard_colors.length)}];
             
             #define MAX_MATERIALS ${Math.max(this.materials.length, 1)}
-            uniform int   umSimpleMaterialAmbientMCs           [MAX_MATERIALS];
-            uniform int   umSimpleMaterialDiffuseMCs           [MAX_MATERIALS];
-            uniform int   umSimpleMaterialSpecularMCs          [MAX_MATERIALS];
-            uniform int   umSimpleMaterialReflectivityMCs      [MAX_MATERIALS];
-            uniform float umSimpleMaterialSpecularFactors      [MAX_MATERIALS];
-            uniform float umSimpleMaterialRefractiveIndexRatios[MAX_MATERIALS];
+            uniform int   umPhongMaterialAmbientMCs           [MAX_MATERIALS];
+            uniform int   umPhongMaterialDiffuseMCs           [MAX_MATERIALS];
+            uniform int   umPhongMaterialSpecularMCs          [MAX_MATERIALS];
+            uniform int   umPhongMaterialReflectivityMCs      [MAX_MATERIALS];
+            uniform float umPhongMaterialSpecularFactors      [MAX_MATERIALS];
+            uniform float umPhongMaterialRefractiveIndexRatios[MAX_MATERIALS];
+            uniform float umPhongMaterialPathSmoothnesses[MAX_MATERIALS];
+            uniform float umPhongMaterialBounceProbabilities[MAX_MATERIALS];
 
             vec3 getMaterialColor(in int color_index, in vec2 UV) {
                 // checkerboard
@@ -96,21 +115,52 @@ class WebGLMaterialsAdapter {
                 }
                 return umSolidColors[color_index];
             }
-            void getMaterialParameters(in int materialID, in GeometricMaterialData geodata, out MaterialParameters matParams) {
-                matParams.ambient              = getMaterialColor(umSimpleMaterialAmbientMCs     [materialID], geodata.UV);
-                matParams.diffuse              = getMaterialColor(umSimpleMaterialDiffuseMCs     [materialID], geodata.UV);
-                matParams.specular             = getMaterialColor(umSimpleMaterialSpecularMCs    [materialID], geodata.UV);
-                matParams.reflectivity         = getMaterialColor(umSimpleMaterialReflectivityMCs[materialID], geodata.UV);
-                matParams.specularFactor       = umSimpleMaterialSpecularFactors      [materialID];
-                matParams.refractiveIndexRatio = umSimpleMaterialRefractiveIndexRatios[materialID];
+            
+            void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
+                matParams.ambient              = getMaterialColor(umPhongMaterialAmbientMCs     [materialID], geodata.UV);
+                matParams.diffuse              = getMaterialColor(umPhongMaterialDiffuseMCs     [materialID], geodata.UV);
+                matParams.specular             = getMaterialColor(umPhongMaterialSpecularMCs    [materialID], geodata.UV);
+                matParams.reflectivity         = getMaterialColor(umPhongMaterialReflectivityMCs[materialID], geodata.UV);
+                matParams.specularFactor       = umPhongMaterialSpecularFactors      [materialID];
+                matParams.refractiveIndexRatio = umPhongMaterialRefractiveIndexRatios[materialID];
+                matParams.pathSmoothness       = umPhongMaterialPathSmoothnesses     [materialID];
+                matParams.bounceProbability    = umPhongMaterialBounceProbabilities  [materialID];
             }
-            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
+            
+            
+            vec4 samplePhongDirectionPDF(in vec4 V, in vec4 R, in float vdotn, in float pathSmoothness, inout vec2 random_seed) {
+                if (!isinf(pathSmoothness))
+                    return R;
+                
+                // spherical coordinates following the PDF for Phong
+                float phi = acos(pow(randf(random_seed), 1.0 / (pathSmoothness + 1.0))),
+                    theta = 2.0 * PI * randf(random_seed);
+
+                // Compute a space transform from local space to world space using the V and R vectors as bases
+                mat4 space_transform = mat4(1.0);
+                if (1.0 - vdotn > EPSILON) {
+                    space_transform[0] = vec4(normalize(cross(V.xyz, R.xyz)).xyz, 0);
+                    space_transform[1] = R;
+                    space_transform[2] = vec4(cross(R.xyz, space_transform[0].xyz).xyz, 0);
+                }
+
+                // convert spherical to local Cartesian, then to world space
+                float sin_phi = sin(phi);
+                return space_transform * vec4(
+                    cos(theta) * sin_phi,
+                    cos(phi),
+                    sin(theta) * sin_phi, 0);
+            }
+            
+            
+            vec3 computePhongMaterialColor(in PhongMaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays)
             {
                 
                 // standardize geometry data
                 vec4 V = normalize(-rd);
                 vec4 N = normalize(normal);
+                
                 float vdotn = dot(V, N);
                 bool backside = false;
                 if (vdotn < 0.0) {
@@ -118,6 +168,7 @@ class WebGLMaterialsAdapter {
                     vdotn = -vdotn;
                     backside = true;
                 }
+                
                 vec4 R = normalize((2.0 * vdotn * N) - V);
                 
                 // Deal with refraction parameters
@@ -176,15 +227,17 @@ class WebGLMaterialsAdapter {
                     totalColor += lightColor * (diffuse * matParams.diffuse + specular * matParams.specular);
                 }
                 
-                // reflection
-                nextRays.reflectionProbability = kr;
-                if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
-                    nextRays.reflectionDirection = R;
-                    nextRays.reflectionColor = matParams.reflectivity;
-                }
-                if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
-                    nextRays.refractionDirection = refractionDirection;
-                    nextRays.refractionColor = matParams.reflectivity;
+                // reflection/refraction
+                if (matParams.bounceProbability > 0.0 && (matParams.bounceProbability >= 1.0 || randf(random_seed) <= matParams.bounceProbability)) {
+                    nextRays.reflectionProbability = kr;
+                    if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
+                        nextRays.reflectionDirection = samplePhongDirectionPDF(V, R, vdotn, matParams.pathSmoothness, random_seed);
+                        nextRays.reflectionColor = matParams.reflectivity;
+                    }
+                    if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
+                        nextRays.refractionDirection = samplePhongDirectionPDF(reflect(V, N), refractionDirection, vdotn, matParams.pathSmoothness, random_seed);
+                        nextRays.refractionColor = matParams.reflectivity;
+                    }
                 }
                 
                 return totalColor;
@@ -194,9 +247,9 @@ class WebGLMaterialsAdapter {
             vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays)
             {
-                MaterialParameters matParams;
-                getMaterialParameters(materialID, geodata, matParams);
-                return computeMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
+                PhongMaterialParameters matParams;
+                getPhongMaterialParameters(materialID, geodata, matParams);
+                return computePhongMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
             }`;
     }
 }
