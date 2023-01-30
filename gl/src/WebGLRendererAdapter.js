@@ -1,5 +1,5 @@
 class WebGLRendererAdapter {
-    static DOUBLE_RECURSIVE = true;
+    static DOUBLE_RECURSIVE = false;
     
     constructor(canvas, renderer) {
         const gl = canvas.getContext('webgl2');
@@ -113,17 +113,33 @@ class WebGLRendererAdapter {
     }
     
     getShaderSourceDeclarations() {
-        return `
+        let ret = `
             #define PI 3.14159265359
             #define EPSILON 0.0001
-            #define MAX_BOUNCE_DEPTH ${this.renderer.maxRecursionDepth}
-            struct Ray { vec4 o; vec4 d; };` + "\n"
+            
+            struct Ray { vec4 o; vec4 d; };
+            struct RecursiveNextRays {
+                float reflectionProbability;
+                vec4 reflectionDirection;
+                vec3 reflectionColor;
+                vec4 refractionDirection;
+                vec3 refractionColor;
+            };
+            vec3 rendererRayColor(in Ray in_ray, inout vec2 random_seed);` + "\n";
+        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
+            ret += `
+                #define MAX_BOUNCE_DEPTH ${this.renderer.maxRecursionDepth}
+                #define MAX_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))` + "\n";
+        else
+            ret += `
+                uniform int uMaxBounceDepth;` + "\n";
+        return ret
             + this.webgl_helper.getShaderSourceDeclarations() + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
     }
     getShaderSource() {
-        return `
+        let ret = `
             uniform sampler2D uPreviousSamplesTexture;
             uniform float uSampleWeight;
     
@@ -144,10 +160,9 @@ class WebGLRendererAdapter {
                 if (uRendererRandomMultisample)
                     canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
                 
-                Ray r;
-                computeCameraRayForTexel(canvasCoord, pixelSize, r, random_seed);
+                Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 
-                vec4 sampleColor = vec4(sceneRayColor(r, random_seed), 1.0);
+                vec4 sampleColor = vec4(rendererRayColor(r, random_seed), 1.0);
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
                 else {
@@ -155,7 +170,95 @@ class WebGLRendererAdapter {
 
                     outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
                 }
-            }`
+            }`;
+            
+        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
+            ret += `
+                vec3 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
+                    vec3 total_color = vec3(0.0);
+                    
+                    int q_len = 0;
+                    Ray q_rays[MAX_BOUNCE_QUEUE_LENGTH];
+                    vec3 q_attenuation_colors[MAX_BOUNCE_QUEUE_LENGTH];
+                    int q_remaining_bounces[MAX_BOUNCE_QUEUE_LENGTH];
+                    
+                    if (MAX_BOUNCE_DEPTH > 0) {
+                        q_rays[0] = in_ray;
+                        q_attenuation_colors[0] = vec3(1.0);
+                        q_remaining_bounces[0] = MAX_BOUNCE_DEPTH-1;
+                        q_len = 1;
+                    }
+                    
+                    for (int i = 0; i < q_len; ++i) {
+                        Ray r = q_rays[i];
+                        vec3 attenuation_color = q_attenuation_colors[i];
+                        int remaining_bounces = q_remaining_bounces[i];
+                        
+                        vec4 intersect_position = vec4(0);
+                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), vec4(0), vec3(0));
+                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_position, nextRays);
+                        
+                        if (remaining_bounces > 0 && intersect_position.w != 0.0) {
+                            if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
+                                && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
+                            {
+                                q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
+                                q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
+                                q_remaining_bounces[q_len] = remaining_bounces - 1;
+                                ++q_len;
+                            }
+                            
+                            if (dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON
+                                && dot(nextRays.refractionColor, nextRays.refractionColor) > EPSILON)
+                            {
+                                q_rays[q_len] = Ray(intersect_position, nextRays.refractionDirection);
+                                q_attenuation_colors[q_len] = (1.0 - nextRays.reflectionProbability) * attenuation_color * nextRays.refractionColor;
+                                q_remaining_bounces[q_len] = remaining_bounces - 1;
+                                ++q_len;
+                            }
+                        }
+                    }
+                    
+                    if (q_len == MAX_BOUNCE_QUEUE_LENGTH)
+                        return vec3(1.0, 0.0, 0.5);
+                    
+                    return total_color;
+                }`;
+        else
+            ret += `
+                vec3 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
+                    vec3 total_color = vec3(0.0);
+                    
+                    Ray r = in_ray;
+                    vec3 attenuation_color = vec3(1);
+                    for (int i = 0; i < uMaxBounceDepth; ++i) {
+                        vec4 intersect_positon = vec4(0);
+                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), vec4(0), vec3(0));
+                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
+                        
+                        if (intersect_positon.w == 0.0)
+                            break;
+                        
+                        float reflection_probability_sample = randf(random_seed);
+                        if (reflection_probability_sample <= nextRays.reflectionProbability
+                            && dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON)
+                        {
+                            r = Ray(intersect_positon, nextRays.reflectionDirection);
+                            attenuation_color *= nextRays.reflectionColor;
+                        }
+                        else if (reflection_probability_sample > nextRays.reflectionProbability
+                            && dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON)
+                        {
+                            r = Ray(intersect_positon, nextRays.refractionDirection);
+                            attenuation_color *= nextRays.refractionColor;
+                        }
+                        else
+                            break;
+                    }
+                    
+                    return total_color;
+                }`;
+        return ret
             + this.webgl_helper.getShaderSource()
             + this.adapters.scene.getShaderSource()
             + this.adapters.camera.getShaderSource();
@@ -165,6 +268,8 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         
         gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
+        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
+            gl.uniform1i(gl.getUniformLocation(this.tracerShaderProgram, "uMaxBounceDepth"), this.renderer.maxRecursionDepth);
         
         this.webgl_helper.writeShaderData(gl, this.tracerShaderProgram);
         this.adapters.scene.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
