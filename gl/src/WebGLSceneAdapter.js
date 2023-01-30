@@ -79,11 +79,6 @@ class WebGLSceneAdapter {
             SceneObject getSceneObjectIDs(in int objectID) {
                 ivec4 indices = itexelFetchByIndex(objectID, uSceneObjects);
                 return SceneObject(indices.r, indices.g, indices.b, indices.a);
-                // return SceneObject(
-                    // usObjectGeometryIDs[objectID],
-                    // usObjectMaterialIDs[objectID],
-                    // usObjectTransformIDs[objectID],
-                    // 1);
             }
 
             // ---- Intersections ----

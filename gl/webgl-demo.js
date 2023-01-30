@@ -127,7 +127,8 @@ $(document).ready(function() {
     let lastDrawTimestamp = null;
     const keySpeed = 1.0, mouseSpeed = 0.02;
     function drawScene(timestamp) {
-        const timeDelta = lastDrawTimestamp ? (timestamp - lastDrawTimestamp) : 1;
+        const currentTimestamp = performance.now();
+        const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
         
         // draw the scene, and request the next frame of animation
         if (adapter) {
@@ -138,12 +139,12 @@ $(document).ready(function() {
                 adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
                 mouseDelta = [0,0];
             }
-            adapter.drawScene(timestamp);
+            adapter.drawScene(currentTimestamp);
             window.requestAnimationFrame(drawScene);
         }
         
         // reset all intermediary input/timing variables
-        lastDrawTimestamp = timestamp;
+        lastDrawTimestamp = currentTimestamp;
     }
 });
 
