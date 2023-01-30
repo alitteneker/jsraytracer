@@ -79,16 +79,6 @@ class WebGLMaterialsAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            struct PhongMaterialParameters {
-                vec3 ambient;
-                vec3 diffuse;
-                vec3 specular;
-                vec3 reflectivity;
-                float specularFactor;
-                float refractiveIndexRatio;
-                float pathSmoothness;
-                float bounceProbability;
-            };
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }
@@ -115,6 +105,52 @@ class WebGLMaterialsAdapter {
                 }
                 return umSolidColors[color_index];
             }
+            
+            void computeRefractionParameters(in vec4 V, in vec4 N, in float vdotn, in float refractiveIndexRatio, in bool backside,
+                out vec4 refractionDirection, out float kr)
+            {
+                if (refractiveIndexRatio > 0.0 && !isinf(refractiveIndexRatio)) {
+                    
+                    // compute the split between reflected light and refracted light
+                    {
+                        float ni = backside ? refractiveIndexRatio : 1.0,
+                              nt = backside ? 1.0 : refractiveIndexRatio;
+                        float cosi = vdotn,
+                              sint = ni / nt * sqrt(max(0.0, 1.0 - cosi * cosi));
+
+                        // Partial reflection/refraction, with a factor of kr being reflected, and (1-kr) being refracted
+                        if (sint < 1.0) {
+                            float cost = sqrt(max(0.0, 1.0 - sint * sint));
+                            float Rs = ((nt * cosi) - (ni * cost)) / ((nt * cosi) + (ni * cost));
+                            float Rp = ((ni * cosi) - (nt * cost)) / ((ni * cosi) + (nt * cost));
+                            kr = (Rs * Rs + Rp * Rp) / 2.0;
+                        }
+                    }
+                    
+                    // compute the direction that refracted light would come from
+                    {
+                        float r = backside ? refractiveIndexRatio : 1.0 / refractiveIndexRatio,
+                              k = 1.0 - r * r * (1.0 - vdotn * vdotn);
+                        if (k >= 0.0)
+                            refractionDirection = -r * V + (r * vdotn - sqrt(k)) * N;
+                    }
+                }
+                else {
+                    kr = 1.0;
+                    refractionDirection = vec4(0.0);
+                }
+            }
+            
+            struct PhongMaterialParameters {
+                vec3 ambient;
+                vec3 diffuse;
+                vec3 specular;
+                vec3 reflectivity;
+                float specularFactor;
+                float refractiveIndexRatio;
+                float pathSmoothness;
+                float bounceProbability;
+            };
             
             void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
                 matParams.ambient              = getMaterialColor(umPhongMaterialAmbientMCs     [materialID], geodata.UV);
@@ -160,8 +196,9 @@ class WebGLMaterialsAdapter {
                 // standardize geometry data
                 vec4 V = normalize(-rd);
                 vec4 N = normalize(normal);
-                
                 float vdotn = dot(V, N);
+                
+                // check if this we have hit the backside of this material, and mark if so
                 bool backside = false;
                 if (vdotn < 0.0) {
                     N = -N;
@@ -172,34 +209,9 @@ class WebGLMaterialsAdapter {
                 vec4 R = normalize((2.0 * vdotn * N) - V);
                 
                 // Deal with refraction parameters
-                float kr = 1.0;
-                vec4 refractionDirection = vec4(0.0);
-                if (matParams.refractiveIndexRatio > 0.0 && !isinf(matParams.refractiveIndexRatio)) {
-                    
-                    // compute the split between reflected light and refracted light
-                    {
-                        float ni = backside ? matParams.refractiveIndexRatio : 1.0,
-                              nt = backside ? 1.0 : matParams.refractiveIndexRatio;
-                        float cosi = vdotn,
-                              sint = ni / nt * sqrt(max(0.0, 1.0 - cosi * cosi));
-
-                        // Partial reflection/refraction, with a factor of kr being reflected, and (1-kr) being refracted
-                        if (sint < 1.0) {
-                            float cost = sqrt(max(0.0, 1.0 - sint * sint));
-                            float Rs = ((nt * cosi) - (ni * cost)) / ((nt * cosi) + (ni * cost));
-                            float Rp = ((ni * cosi) - (nt * cost)) / ((ni * cosi) + (nt * cost));
-                            kr = (Rs * Rs + Rp * Rp) / 2.0;
-                        }
-                    }
-                    
-                    // compute the direction that refracted light would come from
-                    {
-                        float r = backside ? matParams.refractiveIndexRatio : 1.0 / matParams.refractiveIndexRatio,
-                              k = 1.0 - r * r * (1.0 - vdotn * vdotn);
-                        if (k >= 0.0)
-                            refractionDirection = -r * V + (r * vdotn - sqrt(k)) * N;
-                    }
-                }
+                float kr;
+                vec4 refractionDirection;
+                computeRefractionParameters(V, N, vdotn, matParams.refractiveIndexRatio, backside, refractionDirection, kr);
 
                 // compute direct illumination
                 vec3 totalColor = matParams.ambient;

@@ -15,8 +15,12 @@ $(document).ready(function() {
     const apertureSlider = $('#aperture-size');
     
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
-    let adapter = null;
+    let adapter = null, animation_request_id = null;
     scene_select.on("change", function onChange(e) {
+        if (animation_request_id) {
+            window.cancelAnimationFrame(animation_request_id);
+            animation_request_id = null;
+        }
         if (adapter) {
             adapter.destroy();
             adapter = null;
@@ -44,7 +48,7 @@ $(document).ready(function() {
                 mouseDelta = [0,0];
                 
                 console.log("Starting draw scene loop...");
-                window.requestAnimationFrame(drawScene);
+                animation_request_id = window.requestAnimationFrame(drawScene);
             });
         });
     });
@@ -125,7 +129,7 @@ $(document).ready(function() {
     
     // Draw the scene, incorporating mouse/key deltas
     let lastDrawTimestamp = null;
-    const keySpeed = 1.0, mouseSpeed = 0.02;
+    const keySpeed = 3.0, mouseSpeed = 0.08;
     function drawScene(timestamp) {
         const currentTimestamp = performance.now();
         const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
@@ -134,13 +138,13 @@ $(document).ready(function() {
         if (adapter) {
             fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + adapter.drawCount + " samples");
             if (timeDelta > 0 && (mouseDelta.some(x => (x != 0)) || keyDelta.some(x => (x != 0)))) {
-                const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v / timeDelta));
-                const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v / timeDelta));
+                const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v * timeDelta / 1000));
+                const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v * timeDelta / 1000));
                 adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
                 mouseDelta = [0,0];
             }
             adapter.drawScene(currentTimestamp);
-            window.requestAnimationFrame(drawScene);
+            animation_request_id = window.requestAnimationFrame(drawScene);
         }
         
         // reset all intermediary input/timing variables

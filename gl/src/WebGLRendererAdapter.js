@@ -163,10 +163,25 @@ class WebGLRendererAdapter {
                 Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 
                 vec4 sampleColor = vec4(rendererRayColor(r, random_seed), 1.0);
+                
+                if (any(isnan(sampleColor)))
+                    sampleColor = vec4(1.0, 0.0, 0.5, 1.0);
+                if (any(isinf(sampleColor)))
+                    sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
+                if (any(lessThan(sampleColor, vec4(0.0))))
+                    sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
+                
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
                 else {
                     vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
+                    
+                    if (any(isnan(previousSampleColor)))
+                        previousSampleColor = vec4(1.0, 0.0, 0.5, 1.0);
+                    if (any(isinf(previousSampleColor)))
+                        previousSampleColor = vec4(0.0, 1.0, 0.5, 1.0);
+                    if (any(lessThan(previousSampleColor, vec4(0.0))))
+                        previousSampleColor = vec4(0.5, 0.0, 1.0, 1.0);
 
                     outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
                 }
