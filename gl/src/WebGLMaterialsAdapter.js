@@ -129,7 +129,7 @@ class WebGLMaterialsAdapter {
             
             
             vec4 samplePhongDirectionPDF(in vec4 V, in vec4 R, in float vdotn, in float pathSmoothness, inout vec2 random_seed) {
-                if (!isinf(pathSmoothness))
+                if (isinf(pathSmoothness))
                     return R;
                 
                 // spherical coordinates following the PDF for Phong
