@@ -72,9 +72,8 @@ class WebGLMaterialsAdapter {
                 float specularFactor;
                 float refractiveIndexRatio;
             };
-            vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data, inout vec2 random_seed,
-                                  inout vec4 out_reflection_direction, inout vec3 out_reflection_color,
-                                  inout vec4 out_refraction_direction, inout vec3 out_refraction_color);`
+            vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
+                inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }
     getShaderSource() {
         return `
@@ -105,9 +104,9 @@ class WebGLMaterialsAdapter {
                 matParams.specularFactor       = umSimpleMaterialSpecularFactors      [materialID];
                 matParams.refractiveIndexRatio = umSimpleMaterialRefractiveIndexRatios[materialID];
             }
-            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal, inout vec2 random_seed,
-                                    inout vec4 out_reflection_direction, inout vec3 out_reflection_color,
-                                    inout vec4 out_refraction_direction, inout vec3 out_refraction_color) {
+            vec3 computeMaterialColor(in MaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
+                inout vec2 random_seed, inout RecursiveNextRays nextRays)
+            {
                 
                 // standardize geometry data
                 vec4 V = normalize(-rd);
@@ -178,28 +177,26 @@ class WebGLMaterialsAdapter {
                 }
                 
                 // reflection
+                nextRays.reflectionProbability = kr;
                 if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
-                    out_reflection_direction = R;
-                    out_reflection_color = kr *  matParams.reflectivity;
+                    nextRays.reflectionDirection = R;
+                    nextRays.reflectionColor = matParams.reflectivity;
                 }
-                
-                // refraction
                 if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
-                    out_refraction_direction = refractionDirection;
-                    out_refraction_color = (1.0 - kr) * matParams.reflectivity;
+                    nextRays.refractionDirection = refractionDirection;
+                    nextRays.refractionColor = matParams.reflectivity;
                 }
                 
                 return totalColor;
             }
 
             // ---- Generic ----
-            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata, inout vec2 random_seed,
-                inout vec4 reflection_direction, inout vec3 reflection_color, inout vec4 refraction_direction, inout vec3 refraction_color)
+            vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata,
+                inout vec2 random_seed, inout RecursiveNextRays nextRays)
             {
                 MaterialParameters matParams;
                 getMaterialParameters(materialID, geodata, matParams);
-                return computeMaterialColor(matParams, rp, r.d, geodata.normal, random_seed,
-                                            reflection_direction, reflection_color, refraction_direction, refraction_color);
+                return computeMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
             }`;
     }
 }

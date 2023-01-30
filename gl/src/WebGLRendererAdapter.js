@@ -1,4 +1,6 @@
 class WebGLRendererAdapter {
+    static DOUBLE_RECURSIVE = true;
+    
     constructor(canvas, renderer) {
         const gl = canvas.getContext('webgl2');
         if (!gl)

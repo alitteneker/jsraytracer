@@ -55,6 +55,14 @@ class WebGLSceneAdapter {
     getShaderSourceDeclarations() {
         return `
             #define SCENE_MAX_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))
+            struct RecursiveNextRays {
+                float reflectionProbability;
+                vec4 intersectPosition;
+                vec4 reflectionDirection;
+                vec3 reflectionColor;
+                vec4 refractionDirection;
+                vec3 refractionColor;
+            };
             vec3 sceneRayColor(in Ray r, inout vec2 random_seed);
             float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
@@ -105,16 +113,21 @@ class WebGLSceneAdapter {
             }
 
             // ---- Color ----
-            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed,
-                inout vec4 reflection_direction, inout vec3 reflection_color, inout vec4 refraction_direction, inout vec3 refraction_color)
-            {
+            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 SceneObject ids = getSceneObjectIDs(objectID);
                 GeometricMaterialData geomatdata;
                 mat4 inverseTransform = uObjectInverseTransforms[ids.transform_id];
                 getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
-                return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed,
-                                        reflection_direction, reflection_color, refraction_direction, refraction_color);
+                return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
+            }
+            vec3 sceneRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+                int objectID = -1;
+                float intersect_time = sceneRayCast(in_ray, EPSILON, false, objectID);
+                if (objectID == -1)
+                    return uBackgroundColor;
+                nextRays.intersectPosition = in_ray.o + intersect_time * in_ray.d;
+                return sceneObjectColor(objectID, nextRays.intersectPosition, in_ray, random_seed, nextRays);
             }
             vec3 sceneRayColor(in Ray in_ray, inout vec2 random_seed) {
                 vec3 total_color = vec3(0.0);
@@ -136,32 +149,24 @@ class WebGLSceneAdapter {
                     vec3 attenuation_color = q_attenuation_colors[i];
                     int remaining_bounces = q_remaining_bounces[i];
                     
-                    int objectID = -1;
-                    float intersect_time = sceneRayCast(r, EPSILON, false, objectID);
-                    if (objectID == -1) {
-                        total_color += attenuation_color * uBackgroundColor;
-                        continue;
-                    }
-                    
-                    vec4 reflection_direction = vec4(0.0), refraction_direction = vec4(0.0);
-                    vec3 reflection_color = vec3(0.0), refraction_color = vec3(0.0);
-                    
-                    vec3 sampleColor = sceneObjectColor(objectID, r.o + intersect_time * r.d, r, random_seed,
-                        reflection_direction, reflection_color, refraction_direction, refraction_color);
-                    total_color += attenuation_color * sampleColor;
+                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec4(0), vec3(0), vec4(0), vec3(0));
+                    total_color += attenuation_color * sceneRayColorShallow(r, random_seed, nextRays);
                     
                     if (remaining_bounces > 0) {
-                        vec4 intersect_position = r.o + intersect_time * r.d;
-                        if (dot(reflection_direction, reflection_direction) > EPSILON && dot(reflection_color, reflection_color) > EPSILON) {
-                            q_rays[q_len] = Ray(intersect_position, reflection_direction);
-                            q_attenuation_colors[q_len] = attenuation_color * reflection_color;
+                        if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
+                            && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
+                        {
+                            q_rays[q_len] = Ray(nextRays.intersectPosition, nextRays.reflectionDirection);
+                            q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
                             q_remaining_bounces[q_len] = remaining_bounces - 1;
                             ++q_len;
                         }
                         
-                        if (dot(refraction_direction, refraction_direction) > EPSILON && dot(refraction_color, refraction_color) > EPSILON) {
-                            q_rays[q_len] = Ray(intersect_position, refraction_direction);
-                            q_attenuation_colors[q_len] = attenuation_color * refraction_color;
+                        if (dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON
+                            && dot(nextRays.refractionColor, nextRays.refractionColor) > EPSILON)
+                        {
+                            q_rays[q_len] = Ray(nextRays.intersectPosition, nextRays.refractionDirection);
+                            q_attenuation_colors[q_len] = (1.0 - nextRays.reflectionProbability) * attenuation_color * nextRays.refractionColor;
                             q_remaining_bounces[q_len] = remaining_bounces - 1;
                             ++q_len;
                         }
