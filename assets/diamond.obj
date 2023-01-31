@@ -1,6 +1,6 @@
 # Blender v2.63 (sub 0) OBJ File: 'DIAMOND.blend'
 # www.blender.org
-mtllib DIAMOND.mtl
+# mtllib DIAMOND.mtl
 o Diamond_Cone
 v -0.220135 -0.216975 -1.638065
 v -1.313945 -0.216975 -1.002628
@@ -109,7 +109,7 @@ v -1.441569 -0.103416 0.837463
 v -0.442129 -0.116494 1.634351
 v -0.440592 -0.117533 1.636633
 v -0.441729 -0.116494 1.634656
-usemtl Material.002
+# usemtl Material.002
 s off
 f 22 20 17 8
 f 30 32 15 2

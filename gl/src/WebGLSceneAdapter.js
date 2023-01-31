@@ -106,8 +106,8 @@ class WebGLSceneAdapter {
             #define SCENE_MAX_TREE_DEPTH 3 //TODO
             struct BVHNode {
                 int AABB_index;
-                int objects_index;
-                int objects_count;
+                int objects_start_index;
+                int object_cells_count;
             };
             BVHNode getBVHNode(in int node_index) {
                 // TODO
@@ -115,6 +115,9 @@ class WebGLSceneAdapter {
             }
             void getBVHAABB(in int AABB_index, out vec4 center, out vec4 half_size) {
                 // TODO
+            }
+            ivec4 getBVHObjects(in int cell_index) {
+                return ivec4(0,0,0,0); // TODO
             }
             float sceneRayCastBVH(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 int tree_index = 1; // index of root node
@@ -132,13 +135,15 @@ class WebGLSceneAdapter {
                     vec2 aabb_ts = AABBIntersects(r, aabb_center, aabb_half_size, minT, maxT);
                     bool hitNode = aabb_ts.x <= maxT && aabb_ts.y >= minT && aabb_ts.x <= min_found_t;
                     if (hitNode) {
-                        for (int i = 0; i < node.objects_count; ++i) {
-                            int object_id = 0; // TODO: get id of object with index i of from this node's data
-                            
-                            float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
-                            if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                                min_found_t = t;
-                                objectID = object_id;
+                        for (int i = 0; i < node.object_cells_count; ++i) {
+                            ivec4 objectIndices = getBVHObjects(node.objects_start_index + i);
+                            for (int j = 0; j < 4; j) {
+                                int object_id = objectIndices[j];
+                                float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                                    min_found_t = t;
+                                    objectID = object_id;
+                                }
                             }
                         }
                         
@@ -147,7 +152,7 @@ class WebGLSceneAdapter {
                             tree_index = tree_index * 2;
                     }
                     
-                    // if this node has NO children, find the closest ancestor that is a left child, and visit its right sibling next
+                    // if we missed this node or this node has NO children, find the closest ancestor that is a left child, and visit its right sibling next
                     if (!hitNode || tree_index >= (1 << SCENE_MAX_TREE_DEPTH)) {
                         while (tree_index % 2 == 1)
                             tree_index = tree_index / 2;

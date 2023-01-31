@@ -10,7 +10,7 @@ importScripts(
     'renderers.js',
     'lights.js',
     'objloader.js',
-    'BSPScene.js');
+    'BinaryTreeScenes.js');
 
 
 onmessage = function(e) {

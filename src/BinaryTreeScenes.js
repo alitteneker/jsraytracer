@@ -62,6 +62,10 @@ function defaultCompare(a, b) {
     return a < b ? -1 : a > b ? 1 : 0;
 }
 
+function clamp(a, min, max) {
+    return Math.min(Math.max(a, min), max);
+}
+
 class BSPScene extends Scene {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
         super(objects, lights, bg_color);
@@ -75,23 +79,25 @@ class BSPScene extends Scene {
 }
 
 class BSPSceneTreeNode {
-    constructor(objects, depth=0) {
+    constructor(objects, depth=0, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
         this.depth = depth;
         
-        const split = BSPSceneTreeNode.split_objects(objects);
+        const split = BSPSceneTreeNode.split_objects(objects, min, max);
         if (split) {
             this.sep_axis = split.sep_axis;
             this.sep_value = split.sep_value;
             this.spanning_objects = split.spanning_objs;
-            this.lesser_node  = new BSPSceneTreeNode(split.lesser_objs.concat( split.spanning_objs), depth+1);
-            this.greater_node = new BSPSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1);
+            this.lesser_node  = new BSPSceneTreeNode(split.lesser_objs.concat( split.spanning_objs), depth+1,
+                min, Vec.min(max, Vec.axis(split.sep_axis, 4, split.sep_value,  Infinity)));
+            this.greater_node = new BSPSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1,
+                Vec.max(min, Vec.axis(split.sep_axis, 4, split.sep_value, -Infinity)), max);
         }
         else {
             this.sep_axis = -1;
             this.spanning_objects = objects;
         }
     }
-    static split_objects(objects) {
+    static split_objects(objects, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
         if (objects.length < 2)
             return null;
 
@@ -101,7 +107,7 @@ class BSPSceneTreeNode {
             best_greater_objs = [],
             best_spanning_objects = new Array(objects.length + 1);
         for (let i = 0; i < 3; ++i) {
-            const axis_median = median(objects.map(o => [o.getBoundingBox().min[i], o.getBoundingBox().max[i]]).flat());
+            const axis_median = median(objects.map(o => [o.getBoundingBox().min[i], o.getBoundingBox().max[i]]).flat().map(x => clamp(x, min[i], max[i])));
             
             let lesser_objs = [], greater_objs = [], spanning_objects = [];
             for (let o of objects) {
@@ -173,6 +179,9 @@ class BSPSceneTreeNode {
                     sepDist, Math.min(maxBound, ret.distance));
         }
     }
+    maxDepth() {
+        return (this.sep_axis < 0) ? this.depth : Math.max(this.greater_node.maxDepth(), this.lesser_node.maxDepth());
+    }
 }
 
 class BVHScene extends Scene {
@@ -184,6 +193,9 @@ class BVHScene extends Scene {
         let ret = { distance: Infinity, object: null };
         this.kdtree.cast(ray, ret, minDist, maxDist, intersectTransparent);
         return ret;
+    }
+    maxDepth() {
+        return this.kdtree.maxDepth();
     }
 }
 class BVHSceneTreeNode {
@@ -222,9 +234,11 @@ class BVHSceneTreeNode {
             this.spanning_objects = objects;
             this.aabb = AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()));
         }
+        if (!this.aabb)
+            throw("Empty aabb for BVH node");
     }
     cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
-        const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist), epsilon = 0.0000001;
+        const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
         for (let o of this.infinite_objects) {
             const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
             if (distance > minDist && distance < maxDist && distance < ret.distance) {
@@ -247,5 +261,8 @@ class BVHSceneTreeNode {
                 this.lesser_node. cast(ray, ret, minDist, maxDist, intersectTransparent);
             }
         }
+    }
+    maxDepth() {
+        return (this.sep_axis < 0) ? this.depth : Math.max(this.greater_node.maxDepth(), this.lesser_node.maxDepth());
     }
 }

@@ -9,7 +9,7 @@ class WebGLGeometriesAdapter {
     
     constructor(webgl_helper) {
         this.id_map = {};
-        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square() ];
+        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder() ];
         
         this.triangle_data = new WebGLVecStore();
         this.triangles = [];
