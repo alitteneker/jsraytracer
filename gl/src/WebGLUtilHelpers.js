@@ -91,6 +91,9 @@ class WebGLHelper {
             highp float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
+            
+            float safePow(in float x, in float y);
+            
             ivec2  computeGenericIndex(in int index, in ivec2 size);
             ivec2  computeGenericIndex(in int index, in        sampler2D texture);
             ivec2 icomputeGenericIndex(in int index, in highp isampler2D texture);
@@ -108,7 +111,7 @@ class WebGLHelper {
                 highp float dt= dot(seed.xy ,vec2(a,b));
                 highp float sn= mod(dt,3.14);
                 
-                seed += vec2(1.0);
+                seed += vec2(65.60358);
                 
                 return fract(sin(sn) * c);
             }
@@ -118,6 +121,12 @@ class WebGLHelper {
             vec2 randomCirclePoint(inout vec2 seed) {
                 float a = 2.0 * PI * randf(seed), r = sqrt(randf(seed));
                 return vec2(r * cos(a), r * sin(a));
+            }
+            
+            float safePow(in float x, in float y) {
+                if (x < 0.0 || (x == 0.0 && y <= 0.0))
+                    return 0.0;
+                return pow(x, y);
             }
         
             // Texel fetch by index functions

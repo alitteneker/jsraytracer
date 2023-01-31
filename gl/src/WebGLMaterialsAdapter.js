@@ -177,7 +177,7 @@ class WebGLMaterialsAdapter {
                 if (1.0 - vdotn > EPSILON) {
                     space_transform[0] = vec4(normalize(cross(V.xyz, R.xyz)).xyz, 0);
                     space_transform[1] = R;
-                    space_transform[2] = vec4(cross(R.xyz, space_transform[0].xyz).xyz, 0);
+                    space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
                 }
 
                 // convert spherical to local Cartesian, then to world space
@@ -230,11 +230,11 @@ class WebGLMaterialsAdapter {
                     float diffuse = 0.0, specular = 0.0;
                     if (kr > 0.0 && ldotn >= 0.0) {
                         diffuse  += kr * ldotn;
-                        specular += kr * pow(max(dot(L, R), 0.0), matParams.specularFactor);
+                        specular += kr * safePow(max(dot(L, R), 0.0), matParams.specularFactor);
                     }
                     if (kr < 1.0 && ldotn <= 0.0) {
                         diffuse  += (1.0 - kr) * (-ldotn);
-                        specular += (1.0 - kr) * pow(max(dot(L, refractionDirection), 0.0), matParams.specularFactor);
+                        specular += (1.0 - kr) * safePow(max(dot(L, refractionDirection), 0.0), matParams.specularFactor);
                     }
                     totalColor += lightColor * (diffuse * matParams.diffuse + specular * matParams.specular);
                 }

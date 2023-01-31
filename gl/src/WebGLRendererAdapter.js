@@ -33,7 +33,7 @@ class WebGLRendererAdapter {
         
         // Store the addresses of uniforms that will be repeatedly modified
         this.uniforms = {
-            time:                              gl.getUniformLocation(this.tracerShaderProgram,      "uTime"),
+            randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
             doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
             sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
             tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
@@ -144,18 +144,16 @@ class WebGLRendererAdapter {
             uniform float uSampleWeight;
     
             uniform bool uRendererRandomMultisample;
-            uniform float uTime;
+            uniform float uRandomSeed;
             
             uniform vec2 uCanvasSize;
             out vec4 outTexelColor;
 
             void main() {
-                vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-                
-                vec2 random_seed = gl_FragCoord.xy + vec2(uTime);
-
                 vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
                 vec2 pixelSize = 2.0 / uCanvasSize;
+                
+                vec2 random_seed = gl_FragCoord.xy + vec2(uRandomSeed);
                 
                 if (uRendererRandomMultisample)
                     canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
@@ -217,6 +215,11 @@ class WebGLRendererAdapter {
                             if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
                                 && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
                             {
+                                if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
+                                    return vec4(1.0, 0.0, 0.5, 1.0);
+                                if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
+                                    return vec4(0.0, 1.0, 0.5, 1.0);
+                                
                                 q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
                                 q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
                                 q_remaining_bounces[q_len] = remaining_bounces - 1;
@@ -258,6 +261,11 @@ class WebGLRendererAdapter {
                         if (reflection_probability_sample <= nextRays.reflectionProbability
                             && dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON)
                         {
+                            if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
+                                return vec3(1.0, 0.0, 0.5);
+                            if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
+                                return vec3(0.0, 1.0, 0.5);
+                            
                             r = Ray(intersect_positon, nextRays.reflectionDirection);
                             attenuation_color *= nextRays.reflectionColor;
                         }
@@ -308,7 +316,7 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         
         // Write the uniforms that vary between frames
-        this.gl.uniform1f(this.uniforms.time, timestamp);
+        this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
         this.gl.uniform1f(this.uniforms.sampleWeight, this.doRandomSample ? (this.drawCount / (this.drawCount + 1.0)) : 0.0);
         
