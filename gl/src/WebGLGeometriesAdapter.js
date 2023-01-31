@@ -65,7 +65,8 @@ class WebGLGeometriesAdapter {
                 vec2 UV;
             };
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
-            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);`;
+            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);
+            vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`;
     }
     getShaderSource() {
         return `
@@ -160,7 +161,7 @@ class WebGLGeometriesAdapter {
             // ---- Unit Box ----
             #define GEOMETRY_UNITBOX_TYPE ${WebGLGeometriesAdapter.UNITBOX_ID}
             vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance) {
-                float t_min = minDistance - 1.0, t_max = 1e20;
+                float t_min = minDistance - 1.0, t_max = maxDistance + 1.0;
                 vec4 p = center - r.o;
                 for (int i = 0; i < 3; ++i) {
                     if (abs(r.d[i]) > EPSILON) {
@@ -176,7 +177,7 @@ class WebGLGeometriesAdapter {
                         if (t2 < t_max)
                             t_max = t2;
                         if (t_min > t_max || t_max < minDistance || t_min > maxDistance)
-                            return vec2(minDistance - 1.0, minDistance - 1.0);
+                            return vec2(minDistance - 1.0, minDistance - 1.0); //TODO: this needs to be infinite
                     }
                     else if (abs(p[i]) > half_size[i])
                         return vec2(minDistance - 1.0, minDistance - 1.0);
@@ -185,7 +186,7 @@ class WebGLGeometriesAdapter {
             }
             float unitBoxIntersect(in Ray r, in float minDistance) {
                 vec2 t = AABBIntersects(r, vec4(0,0,0,1), vec4(0.5, 0.5, 0.5, 0), minDistance, 1e20);
-                return (t.x >= minDistance) ? t.x : t.y;
+                return (!isinf(t.x) && t.x >= minDistance) ? t.x : t.y;
             }
             void unitBoxMaterialData(in vec4 p, in vec4 rd, inout GeometricMaterialData data) {
                 float norm_dist = 0.0;

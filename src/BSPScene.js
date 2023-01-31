@@ -223,7 +223,7 @@ class BVHSceneTreeNode {
             this.aabb = AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()));
         }
     }
-    cast(ray, ret, minDist, maxDist, intersectTransparent=true, minBound=minDist, maxBound=maxDist) {
+    cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
         const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist), epsilon = 0.0000001;
         for (let o of this.infinite_objects) {
             const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
@@ -232,7 +232,7 @@ class BVHSceneTreeNode {
                 ret.object = o;
             }
         }
-        if (aabb_ts && aabb_ts.min <= maxBound && aabb_ts.max >= minBound) {
+        if (aabb_ts && aabb_ts.min <= maxDist && aabb_ts.max >= minDist && aabb_ts.min <= ret.distance) {
             if (this.sep_axis < 0) {
                 for (let o of this.spanning_objects) {
                     const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
@@ -243,10 +243,8 @@ class BVHSceneTreeNode {
                 }
             }
             if (this.sep_axis >= 0) {
-                minBound = aabb_ts ? Math.max(minBound, aabb_ts.min) : minBound;
-                maxBound = aabb_ts ? Math.min(maxBound, aabb_ts.max, ret.distance) : maxBound;
-                this.greater_node.cast(ray, ret, minDist, maxDist, intersectTransparent, minBound, maxBound);
-                this.lesser_node. cast(ray, ret, minDist, maxDist, intersectTransparent, minBound, maxBound);
+                this.greater_node.cast(ray, ret, minDist, maxDist, intersectTransparent);
+                this.lesser_node. cast(ray, ret, minDist, maxDist, intersectTransparent);
             }
         }
     }
