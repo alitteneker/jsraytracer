@@ -39,4 +39,5 @@ div#controls {
     border-color: black;
     border-style: solid;
     min-height: 30px;
+    font-family: monospace;
 }
