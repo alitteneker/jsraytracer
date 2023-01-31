@@ -199,7 +199,7 @@ class Square extends SimplePlane {
     }
     intersect(ray) {
         const t = super.intersect(ray);
-        const p = ray.getPosition(t);
+        const p = ray.getPoint(t);
         return [p[0], p[1]].every(c => (-0.5 <= c && c <= 0.5)) ? t : -Infinity;
     }
     getBoundingBox(transform, inv_transform) {
@@ -213,10 +213,10 @@ class Circle extends SimplePlane {
     }
     intersect(ray) {
         const t = super.intersect(ray);
-        const p = ray.getPosition(t);
+        const p = ray.getPoint(t);
         return (p.minus(Vec.of(0,0,0,1)).squarednorm() <= 1) ? t : -Infinity;
     }
-    getTransformedEdgePoints(transform, inv_transform) {
+    static getTransformedEdgePoints(transform, inv_transform) {
         const world_axis = transform.times(Vec.axis(2,4)), world_center = transform.column(3), ps = [];
         for (let i = 0; i < 3; ++i) {
             const world_edge_dir = transform.times(inv_transform.times(world_axis.cross(Vec.axis(i, 4)).to4(0)).normalized());
@@ -225,7 +225,7 @@ class Circle extends SimplePlane {
         return ps;
     }
     getBoundingBox(transform, inv_transform) {
-        return AABB.fromPoints(this.getTransformedEdgePoints());
+        return AABB.fromPoints(Circle.getTransformedEdgePoints(transform, inv_transform));
     }
 }
 
@@ -307,7 +307,7 @@ class Sphere extends Geometry {
             h[i] = transform.times(transform.transposed().times(Vec.axis(i, 4)).to4(0).normalized().to4(1))[i] - c[i];
         return new AABB(c, h);
     }
-    intersect(r, minDistance) {
+    static staticIntersect(r, minDistance) {
         const a = r.direction.squarednorm(),
               b = r.direction.dot(r.origin),
               c = r.origin.to3().squarednorm() - 1;
@@ -320,6 +320,9 @@ class Sphere extends Geometry {
         if (t1 >= minDistance && t2 >= minDistance)
             return Math.min(t1, t2);
         return (t2 < minDistance) ? t1 : t2;
+    }
+    intersect(r, minDistance) {
+        return Sphere.staticIntersect(r, minDistance);
     }
     materialData(ray, scalar, base_data) {
         const n = base_data.position.normalized();
@@ -339,13 +342,13 @@ class Cylinder extends Geometry {
     getBoundingBox(transform, inv_transform) {
         const axis = transform.times(Vec.axis(2,4));
         const circle_points = Circle.getTransformedEdgePoints(transform, inv_transform);
-        return AABB.fromPoints([...cirle_points.plus(axis), ...circle_points.minus(axis)]);
+        return AABB.fromPoints(circle_points.map(v => [v.plus(axis), v.minus(axis)]).flat());
     }
     intersect(r, minDistance) {
         if (Math.abs(r.origin[2]) > 1 && r.direction[2] != 0)
             minDistance = Math.max(minDistance, -(r.origin[2] - Math.sign(r.origin[2])) / r.direction[2]);
-        const t = Sphere.intersect(new Ray(...[r.origin, r.direction].map(v => Vec.of(1,1,0,1).times(v))), minDistance);
-        return (Math.abs(ray.origin[2] + t * ray.direction[2]) <= 1) ? t : -Infinity;
+        const t = Sphere.staticIntersect(new Ray(...[r.origin, r.direction].map(v => Vec.of(1,1,0,1).times(v))), minDistance);
+        return (Math.abs(r.origin[2] + t * r.direction[2]) <= 1) ? t : -Infinity;
     }
     materialData(ray, scalar, base_data) {
         const n = base_data.position.normalized();
