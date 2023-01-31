@@ -83,8 +83,8 @@ class BSPSceneTreeNode {
             this.sep_axis = split.sep_axis;
             this.sep_value = split.sep_value;
             this.spanning_objects = split.spanning_objs;
+            this.lesser_node  = new BSPSceneTreeNode(split.lesser_objs.concat( split.spanning_objs), depth+1);
             this.greater_node = new BSPSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1);
-            this.lesser_node = new BSPSceneTreeNode(split.lesser_objs.concat(split.spanning_objs), depth+1);
         }
         else {
             this.sep_axis = -1;
@@ -214,7 +214,7 @@ class BVHSceneTreeNode {
             }
 
             this.greater_node = new BVHSceneTreeNode(split.greater_objs, depth+1);
-            this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs, depth+1);
+            this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs,  depth+1);
             this.aabb = AABB.hull([this.greater_node.aabb, this.lesser_node.aabb]);
         }
         else {

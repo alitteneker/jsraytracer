@@ -5,9 +5,9 @@ class Vec extends Float32Array {
     copy() {
         return Vec.from(this)
     }
-    static axis(axis, dim, dir=1) {
-        const ret = Vec.from(Array(dim).fill(0));
-        ret[axis] = dir;
+    static axis(axis, dim, amt=1, default_val=0) {
+        const ret = Vec.from(Array(dim).fill(default_val));
+        ret[axis] = amt;
         return ret;
     }
     static circlePick() {
@@ -32,6 +32,12 @@ class Vec extends Float32Array {
     }
     times(s) {
         return (s instanceof Vec) ? this.map((x,i) => s[i] * x) : this.map(x => s * x)
+    }
+    static min(a,b) {
+        return a.map((x, i) => Math.min(x, b[i]));
+    }
+    static max(a,b) {
+        return a.map((x, i) => Math.max(x, b[i]));
     }
     randomized(s) {
         return this.map(x => x + s * (Math.random() - .5))

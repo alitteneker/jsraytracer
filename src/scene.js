@@ -25,7 +25,7 @@ class Scene {
     }
 }
 class SceneObject {
-    constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=false) {
+    constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=true) {
         this.geometry = geometry;
         this.material = material;
         
@@ -36,7 +36,7 @@ class SceneObject {
         this.does_cast_shadow = does_cast_shadow;
     }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
-        if (this.does_cast_shadow && !shadowCast)
+        if (!this.does_cast_shadow && !shadowCast)
             return Infinity;
         return this.geometry.intersect(ray.getTransformed(this.inv_transform), minDistance, maxDistance);
     }

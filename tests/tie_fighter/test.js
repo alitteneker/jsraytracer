@@ -34,7 +34,7 @@ export function configureTest(callback) {
     objs.push(new SceneObject(
         new Sphere(),
         new FresnelPhongMaterial(Vec.of(0,1,0), 0.2, 0.4, 0.5, 100, 1.3),
-        sphere_transform, Mat4.inverse(sphere_transform), {}, true));
+        sphere_transform, Mat4.inverse(sphere_transform), {}, false));
 
     loadObjFile(
         "../assets/Tie_Fighter.obj",

@@ -44,7 +44,7 @@ class WebGLSceneAdapter {
         // write geometry ids, material ids, transform ids
         gl.activeTexture(this.indices_texture_unit);
         webgl_helper.setDataTexturePixels(this.indices_texture, 4, "INTEGER",
-            this.objects.map(o => [o.geometryID, o.materialID, o.transformID, 1]).flat());
+            this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(!o.does_cast_shadow)]).flat());
         gl.uniform1i(gl.getUniformLocation(program, "uSceneObjects"), webgl_helper.textureUnitIndex(this.indices_texture_unit));
         
         // let our contained adapters do their own thing too
@@ -73,19 +73,20 @@ class WebGLSceneAdapter {
                 int geometry_id;
                 int material_id;
                 int transform_id;
-                int shadowflag;
+                bool castsShadow;
             };
             SceneObject getSceneObjectIDs(in int objectID) {
                 ivec4 indices = itexelFetchByIndex(objectID, uSceneObjects);
-                return SceneObject(indices.r, indices.g, indices.b, indices.a);
+                return SceneObject(indices.r, indices.g, indices.b, bool(indices.a));
             }
 
             // ---- Intersections ----
             float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
-                // TODO: add shadowflag logic
-                SceneObject ids = getSceneObjectIDs(objectID);
-                mat4 objectInverseTransform = uObjectInverseTransforms[ids.transform_id];
-                return geometryIntersect(ids.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
+                SceneObject obj = getSceneObjectIDs(objectID);
+                if (shadowFlag && !obj.castsShadow)
+                    return minDistance - 1.0;
+                mat4 objectInverseTransform = uObjectInverseTransforms[obj.transform_id];
+                return geometryIntersect(obj.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
             float sceneRayCast(in Ray r, in float minT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
