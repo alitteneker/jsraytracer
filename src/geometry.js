@@ -233,13 +233,17 @@ class Triangle extends Geometry {
     constructor(ps, psdata={}) {
         super()
         
-        this.normal = ps[1].minus(ps[0]).cross(ps[2].minus(ps[0])).normalized().to4(0);
+        this.v0 = ps[1].minus(ps[0]).to3();
+        this.v1 = ps[2].minus(ps[0]).to3();
+        
+        const heron = this.v0.cross(this.v1);
+        
+        this.area = heron.norm() / 2.0;
+        this.normal = heron.normalized().to4(0);
         this.delta = this.normal.dot(ps[0]);
         this.ps = ps;
         this.psdata = psdata;
         
-        this.v0 = ps[1].minus(ps[0]).to3();
-        this.v1 = ps[2].minus(ps[0]).to3();
         this.d00 = this.v0.squarednorm();
         this.d11 = this.v1.squarednorm();
         this.d01 = this.v0.dot(this.v1);

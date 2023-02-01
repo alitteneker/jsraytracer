@@ -35,7 +35,11 @@ class WebGLGeometriesAdapter {
         
         if (geometry.GEOMETRY_UID in this.id_map)
             return this.id_map[geometry.GEOMETRY_UID];
+        
         if (geometry instanceof Triangle) {
+            // Very small triangles frequently cause precision issues in WebGL, so simply skip them as a band aid
+            if (geometry.area < 0.00001)
+                return -1;
             this.triangles.push({
                 vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.visit(p)),
                 normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.visit(v)),
@@ -264,12 +268,23 @@ class WebGLGeometriesAdapter {
                 return vec3(1.0 - v - w, v, w);
             }
             float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
-                vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 1.0);
+                vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 0.0);
+                if (dot(normal, normal) == 0.0 || any(isnan(normal)) || any(isinf(normal)))
+                    return minDistance - 1.0;
+                
                 float distance = planeIntersect(r, minDistance, normal, dot(p1, normal));
+                
+                if (isnan(distance) || isinf(distance))
+                    return minDistance - 1.0;
+                
                 if (distance < minDistance)
                     return distance;
                 vec3 bary = triangleToBarycentric(r.o + (distance * r.d), p1, p2, p3);
-                if (bary.x >= 0.0 && bary.x <= 1.0 && bary.y >= 0.0 && bary.y <= 1.0 && bary.z >= 0.0 && bary.z <= 1.0)
+                
+                if (any(isnan(bary)) || any(isinf(bary)))
+                    return minDistance - 1.0;
+                
+                if (all(greaterThanEqual(bary, vec3(0.0))) && all(lessThanEqual(bary, vec3(1.0))))
                     return distance;
                 return minDistance - 1.0;
             }
@@ -293,7 +308,8 @@ class WebGLGeometriesAdapter {
 
             // ---- Generics ----
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
-                if      (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
+                if      (geometryID < 0) return minDistance - 1.0;
+                else if (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_CYLINDER_TYPE) return cylinderIntersect(  r, minDistance);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)    return planeIntersect(     r, minDistance);
                 else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect(    r, minDistance);

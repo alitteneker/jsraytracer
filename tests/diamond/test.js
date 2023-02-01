@@ -3,8 +3,8 @@ export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         /*Mat4.translation([0,4,0])
             .times(Mat4.rotation(-0.4, Vec.of(1,0,0))));/**/
-        Mat4.translation([0,1,0])
-            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));/**/
+        Mat4.translation([0,4,-3])
+            .times(Mat4.rotation(-0.5, Vec.of(1,0,0))));/**/
 
     const lights = [
         new SimplePointLight(
@@ -13,9 +13,9 @@ export function configureTest(callback) {
             7000
         ),
         new SimplePointLight(
-            Vec.of(-10, 5, -50, 1),
-            Vec.of(1.0, 1.0, 0.1),
-            7000
+            Vec.of(-10, 50, -100, 1),
+            Vec.of(1.0, 1.0, 0.8),
+            75000
         )];
         
     const objs = []
@@ -30,15 +30,15 @@ export function configureTest(callback) {
         "../assets/diamond.obj",
         new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.9, 100, 1.3),
 
-        Mat4.translation([-0.2,1.5,-7])
-            .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
-            .times(Mat4.rotation(0.5, Vec.of(1,0,0)))
+        Mat4.translation([-0.2,1.5,-10])
+            .times(Mat4.rotation(-0.4, Vec.of(0,1,0)))
+            .times(Mat4.rotation(0.4, Vec.of(1,0,0)))
             .times(Mat4.scale(1)),
 
         function(triangles) {
 
             callback({
-                renderer: new SimpleRenderer(new BVHScene(objs.concat(triangles), lights), camera, 4),
+                renderer: new SimpleRenderer(new BVHScene(objs.concat(triangles), lights, Vec.of(0.9, 0.9, 0.9)), camera, 4),
                 width: 600,
                 height: 600
             });
