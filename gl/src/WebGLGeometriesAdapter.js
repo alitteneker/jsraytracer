@@ -14,10 +14,8 @@ class WebGLGeometriesAdapter {
         this.triangle_data = new WebGLVecStore();
         this.triangles = [];
         
-        this.triangle_data_texture_unit    = webgl_helper.allocateTextureUnit();
-        this.triangle_data_texture    = webgl_helper.createDataTexture(3, "FLOAT");
-        this.triangle_indices_texture_unit = webgl_helper.allocateTextureUnit();
-        this.triangle_indices_texture = webgl_helper.createDataTexture(3, "INTEGER");
+        [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.allocateDataTextureUnit(3, "FLOAT");
+        [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.allocateDataTextureUnit(3, "INTEGER");
     }
     visit(geometry) {
         if (geometry instanceof Plane)

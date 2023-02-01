@@ -5,8 +5,6 @@ class WebGLSceneAdapter {
         this.scene = scene;
         
         [this.indices_texture_unit, this.indices_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
-        // this.indices_texture_unit = webgl_helper.allocateTextureUnit();
-        // this.indices_texture = webgl_helper.createDataTexture(4, "INTEGER");
         
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
@@ -44,7 +42,7 @@ class WebGLSceneAdapter {
         // write transforms
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
         
-        // write geometry ids, material ids, transform ids
+        // write geometry ids, material ids, transform ids, shadow flags
         webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(!o.does_cast_shadow)]).flat());
         
