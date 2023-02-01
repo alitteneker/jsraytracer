@@ -53,14 +53,10 @@ class WebGLGeometriesAdapter {
     }
     writeShaderData(gl, program, webgl_helper) {
         // Write triangle data, as all other types need no data written for geometry
-        gl.activeTexture(this.triangle_data_texture_unit);
-        webgl_helper.setDataTexturePixels(this.triangle_data_texture, 3, "FLOAT", this.triangle_data.to_webgl());
-        gl.uniform1i(gl.getUniformLocation(program, "tTriangleData"), webgl_helper.textureUnitIndex(this.triangle_data_texture_unit));
-        
-        gl.activeTexture(this.triangle_indices_texture_unit);
-        webgl_helper.setDataTexturePixels(this.triangle_indices_texture, 3, "INTEGER",
+        webgl_helper.setDataTexturePixelsUnit(this.triangle_data_texture, 3, "FLOAT", this.triangle_data_texture_unit, "tTriangleData", program,
+            this.triangle_data.flat());
+        webgl_helper.setDataTexturePixelsUnit(this.triangle_indices_texture, 3, "INTEGER", this.triangle_indices_texture_unit, "tTriangleIndices", program,
             this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat());
-        gl.uniform1i(gl.getUniformLocation(program, "tTriangleIndices"), webgl_helper.textureUnitIndex(this.triangle_indices_texture_unit));
     }
     getShaderSourceDeclarations() {
         return `
@@ -219,7 +215,7 @@ class WebGLGeometriesAdapter {
                 return texelFetchByIndex(index, tTriangleData).rgb;
             }
             
-            uniform highp isampler2D tTriangleIndices;
+            uniform isampler2D tTriangleIndices;
             ivec3 getTriangleIndices(in int triangleID, in int dataOffset) {
                 return itexelFetchByIndex(triangleID * 3 + dataOffset, tTriangleIndices).rgb;
             }
@@ -269,21 +265,10 @@ class WebGLGeometriesAdapter {
             }
             float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
                 vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 0.0);
-                if (dot(normal, normal) == 0.0 || any(isnan(normal)) || any(isinf(normal)))
-                    return minDistance - 1.0;
-                
                 float distance = planeIntersect(r, minDistance, normal, dot(p1, normal));
-                
-                if (isnan(distance) || isinf(distance))
-                    return minDistance - 1.0;
-                
                 if (distance < minDistance)
                     return distance;
                 vec3 bary = triangleToBarycentric(r.o + (distance * r.d), p1, p2, p3);
-                
-                if (any(isnan(bary)) || any(isinf(bary)))
-                    return minDistance - 1.0;
-                
                 if (all(greaterThanEqual(bary, vec3(0.0))) && all(lessThanEqual(bary, vec3(1.0))))
                     return distance;
                 return minDistance - 1.0;

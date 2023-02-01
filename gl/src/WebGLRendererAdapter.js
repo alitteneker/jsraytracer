@@ -64,10 +64,9 @@ class WebGLRendererAdapter {
                 gl_Position = vertexPosition;
             }`,
             
-            `#version 300 es
-            precision highp float;` + "\n"
-            + this.getShaderSourceDeclarations()
-            + this.getShaderSource());
+            "#version 300 es \n"
+                + this.getShaderSourceDeclarations()
+                + this.getShaderSource());
         
         // Create a framebuffer to finally render from
         this.framebuffer = gl.createFramebuffer();
@@ -113,8 +112,8 @@ class WebGLRendererAdapter {
     }
     
     getShaderSourceDeclarations() {
-        let ret = `
-            #define PI 3.14159265359
+        let ret = this.webgl_helper.getShaderSourceDeclarations() + "\n"
+        +  `#define PI 3.14159265359
             #define EPSILON 0.0001
             
             struct Ray { vec4 o; vec4 d; };
@@ -134,7 +133,6 @@ class WebGLRendererAdapter {
             ret += `
                 uniform int uMaxBounceDepth;` + "\n";
         return ret
-            + this.webgl_helper.getShaderSourceDeclarations() + "\n"
             + this.adapters.scene.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
     }

@@ -4,7 +4,7 @@ export function configureTest(callback) {
         /*Mat4.translation([0,4,0])
             .times(Mat4.rotation(-0.4, Vec.of(1,0,0))));/**/
         Mat4.translation([0,4,-3])
-            .times(Mat4.rotation(-0.5, Vec.of(1,0,0))));/**/
+            .times(Mat4.rotation(-0.6, Vec.of(1,0,0))));/**/
 
     const lights = [
         new SimplePointLight(
@@ -13,7 +13,7 @@ export function configureTest(callback) {
             7000
         ),
         new SimplePointLight(
-            Vec.of(-10, 50, -100, 1),
+            Vec.of(-10, 10, -100, 1),
             Vec.of(1.0, 1.0, 0.8),
             75000
         )];
@@ -22,17 +22,17 @@ export function configureTest(callback) {
     objs.push(new SceneObject(
         new Plane(),
         new PhongMaterial(
-            new CheckerboardMaterialColor(Vec.of(0.5,0.1,0.1), Vec.of(0.1,0.1,0.5)),
+            new CheckerboardMaterialColor(Vec.of(0.5,0.5,0.5), Vec.of(0.1,0.1,0.1)),
                 0.1, 0.4, 0.6, 2, 0.5),
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
 
     loadObjFile(
         "../assets/diamond.obj",
-        new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.9, 100, 1.3),
+        new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.8, 100, 1.3),
 
         Mat4.translation([-0.2,1.5,-10])
             .times(Mat4.rotation(-0.4, Vec.of(0,1,0)))
-            .times(Mat4.rotation(0.4, Vec.of(1,0,0)))
+            .times(Mat4.rotation(0.1, Vec.of(1,0,0)))
             .times(Mat4.scale(1)),
 
         function(triangles) {

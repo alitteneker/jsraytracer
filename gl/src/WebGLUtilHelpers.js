@@ -16,7 +16,7 @@ class WebGLVecStore {
         this.data.push(Array.of(...vec));
         return this.data_map[key];
     }
-    to_webgl() {
+    flat() {
         return this.data.flat();
     }
 }
@@ -86,30 +86,48 @@ class WebGLHelper {
         const [square_size, square_data] = this.coerceToDataTextureData(channels, type, data);
         this.setTexturePixels(texture_id, channels, type, square_size, square_size, square_data);
     }
+    allocateDataTextureUnit(channels, type, data=null) {
+        const texture_unit = this.allocateTextureUnit();
+        const texture_id = this.createDataTexture(channels, type, data);
+        return [texture_unit, texture_id];
+    }
+    setDataTexturePixelsUnit(texture_id, channels, type, texture_unit=null, uniform_name=null, shader_program=null, data=null) {
+        if (texture_unit)
+            this.gl.activeTexture(texture_unit);
+        this.setDataTexturePixels(texture_id, channels, type, data);
+        if (texture_unit)
+            this.gl.activeTexture(null);
+        if (texture_unit && uniform_name && shader_program)
+            this.gl.uniform1i(this.gl.getUniformLocation(shader_program, uniform_name), this.textureUnitIndex(texture_unit));
+    }
     getShaderSourceDeclarations() {
         return `
-            highp float randf(inout vec2 seed);
+            precision highp int;
+            precision highp float;
+            precision highp isampler2D;
+        
+            float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
             
             float safePow(in float x, in float y);
             
             ivec2  computeGenericIndex(in int index, in ivec2 size);
-            ivec2  computeGenericIndex(in int index, in        sampler2D texture);
-            ivec2 icomputeGenericIndex(in int index, in highp isampler2D texture);
-            vec4   texelFetchByIndex(  in int index, in        sampler2D texture);
-            ivec4 itexelFetchByIndex(  in int index, in highp isampler2D texture);`;
+            ivec2  computeGenericIndex(in int index, in  sampler2D texture);
+            ivec2 icomputeGenericIndex(in int index, in isampler2D texture);
+            vec4   texelFetchByIndex(  in int index, in  sampler2D texture);
+            ivec4 itexelFetchByIndex(  in int index, in isampler2D texture);`;
     }
     getShaderSource() {
         return `
             // Random functions
-            highp float randf(inout vec2 seed) {
-                const highp float a = 12.9898;
-                const highp float b = 78.233;
-                const highp float c = 43758.5453;
+            float randf(inout vec2 seed) {
+                const float a = 12.9898;
+                const float b = 78.233;
+                const float c = 43758.5453;
                 
-                highp float dt= dot(seed.xy ,vec2(a,b));
-                highp float sn= mod(dt,3.14);
+                float dt= dot(seed.xy ,vec2(a,b));
+                float sn= mod(dt,3.14);
                 
                 seed += vec2(65.60358);
                 
@@ -136,13 +154,13 @@ class WebGLHelper {
             ivec2 computeGenericIndex(in int index, in sampler2D texture) {
                 return computeGenericIndex(index, textureSize(texture, 0));
             }
-            ivec2 icomputeGenericIndex(in int index, in highp isampler2D texture) {
+            ivec2 icomputeGenericIndex(in int index, in isampler2D texture) {
                 return computeGenericIndex(index, textureSize(texture, 0));
             }
             vec4 texelFetchByIndex(in int index, in sampler2D texture) {
                 return texelFetch(texture, computeGenericIndex(index, texture), 0);
             }
-            ivec4 itexelFetchByIndex(in int index, in highp isampler2D texture) {
+            ivec4 itexelFetchByIndex(in int index, in isampler2D texture) {
                 return texelFetch(texture, icomputeGenericIndex(index, texture), 0);
             }`;
     }

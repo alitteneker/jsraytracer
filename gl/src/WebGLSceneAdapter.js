@@ -4,8 +4,9 @@ class WebGLSceneAdapter {
             scene = new BVHScene(scene.objects, scene.lights, scene.bg_color);
         this.scene = scene;
         
-        this.indices_texture_unit = webgl_helper.allocateTextureUnit();
-        this.indices_texture = webgl_helper.createDataTexture(4, "INTEGER");
+        [this.indices_texture_unit, this.indices_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        // this.indices_texture_unit = webgl_helper.allocateTextureUnit();
+        // this.indices_texture = webgl_helper.createDataTexture(4, "INTEGER");
         
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
@@ -44,10 +45,8 @@ class WebGLSceneAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
         
         // write geometry ids, material ids, transform ids
-        gl.activeTexture(this.indices_texture_unit);
-        webgl_helper.setDataTexturePixels(this.indices_texture, 4, "INTEGER",
+        webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(!o.does_cast_shadow)]).flat());
-        gl.uniform1i(gl.getUniformLocation(program, "uSceneObjects"), webgl_helper.textureUnitIndex(this.indices_texture_unit));
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
@@ -69,7 +68,7 @@ class WebGLSceneAdapter {
 
             uniform mat4 uObjectInverseTransforms[16];
 
-            uniform highp isampler2D uSceneObjects;
+            uniform isampler2D uSceneObjects;
             
             struct SceneObject {
                 int geometry_id;
@@ -103,53 +102,71 @@ class WebGLSceneAdapter {
             }
             
             
-            #define SCENE_MAX_TREE_DEPTH 3 //TODO
+/*             #define SCENE_MAX_TREE_DEPTH 3
+            uniform isampler2D uSceneBVHNodes;
+            uniform sampler2D uSceneBVHAABBs;
+            
             struct BVHNode {
-                int AABB_index;
                 int objects_start_index;
                 int object_cells_count;
             };
             BVHNode getBVHNode(in int node_index) {
-                // TODO
-                return BVHNode(0,0,0);
+                ivec4 texel = itexelFetchByIndex(node_index / 2, uSceneBVHNodes);
+                return ((node_index % 2) == 0) ? BVHNode(texel.x, texel.y) : BVHNode(texel.z, texel.w);
             }
-            void getBVHAABB(in int AABB_index, out vec4 center, out vec4 half_size) {
-                // TODO
+            void getBVHAABB(in int node_index, out vec4 center, out vec4 half_size) {
+                center    = texelFetchByIndex(node_index * 2,     uSceneBVHAABBs);
+                half_size = texelFetchByIndex(node_index * 2 + 1, uSceneBVHAABBs);
             }
             ivec4 getBVHObjects(in int cell_index) {
-                return ivec4(0,0,0,0); // TODO
+                return itexelFetchByIndex(cell_index, uSceneBVHNodes);
             }
             float sceneRayCastBVH(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 int tree_index = 1; // index of root node
                 float min_found_t = minT - 1.0;
                 float local_minT = minT, local_maxT = maxT;
                 
-                // TODO: deal with infinitely large objects
+                // deal with infinitely large objects
+                BVHNode root_node = getBVHNode(1);
+                for (int i = 0; i < root_node.object_cells_count; ++i) {
+                    ivec4 objectIndices = getBVHObjects(root_node.objects_start_index + i);
+                    for (int j = 0; j < 4; j) {
+                        int object_id = objectIndices[j];
+                        float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                        if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                            min_found_t = t;
+                            objectID = object_id;
+                        }
+                    }
+                }
                 
                 while (tree_index > 0) {
                     BVHNode node = getBVHNode(tree_index);
+                    bool hitNode = false;
                     
-                    vec4 aabb_center, aabb_half_size;
-                    getBVHAABB(node.AABB_index, aabb_center, aabb_half_size);
-                    
-                    vec2 aabb_ts = AABBIntersects(r, aabb_center, aabb_half_size, minT, maxT);
-                    bool hitNode = aabb_ts.x <= maxT && aabb_ts.y >= minT && aabb_ts.x <= min_found_t;
-                    if (hitNode) {
-                        for (int i = 0; i < node.object_cells_count; ++i) {
-                            ivec4 objectIndices = getBVHObjects(node.objects_start_index + i);
-                            for (int j = 0; j < 4; j) {
-                                int object_id = objectIndices[j];
-                                float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
-                                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                                    min_found_t = t;
-                                    objectID = object_id;
+                    if (node.objects_start_index >= 0) {
+                        vec4 aabb_center, aabb_half_size;
+                        getBVHAABB(tree_index, aabb_center, aabb_half_size);
+                        
+                        vec2 aabb_ts = AABBIntersects(r, aabb_center, aabb_half_size, minT, maxT);
+                        hitNode = aabb_ts.x <= maxT && aabb_ts.y >= minT && aabb_ts.x <= min_found_t;
+                        if (hitNode) {
+                            for (int i = 0; i < node.object_cells_count; ++i) {
+                                ivec4 objectIndices = getBVHObjects(node.objects_start_index + i);
+                                for (int j = 0; j < 4; j) {
+                                    int object_id = objectIndices[j];
+                                    float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                                    if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                                        min_found_t = t;
+                                        objectID = object_id;
+                                    }
                                 }
                             }
+                            
+                            // if this node has children, visit this node's left child next
+                            if (tree_index < (1 << SCENE_MAX_TREE_DEPTH))
+                                tree_index = tree_index * 2;
                         }
-                        
-                        // if this node has children, visit this node's left child next
-                        if (tree_index < (1 << SCENE_MAX_TREE_DEPTH))
-                            tree_index = tree_index * 2;
                     }
                     
                     // if we missed this node or this node has NO children, find the closest ancestor that is a left child, and visit its right sibling next
@@ -162,7 +179,8 @@ class WebGLSceneAdapter {
                 }
                 
                 return min_found_t;
-            }
+            } */
+            
             float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag) {
                 int objectID = -1;
                 return sceneRayCast(r, minDistance, shadowFlag, objectID);

@@ -61,7 +61,7 @@ class WebGLMaterialsAdapter {
     }
     writeShaderData(gl, program) {
         if (this.solid_colors.size())
-            gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.to_webgl());
+            gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.flat());
         
         if (this.checkerboard_colors.length)
             gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
