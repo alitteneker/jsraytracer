@@ -4,7 +4,10 @@ class WebGLSceneAdapter {
             scene = new BVHScene(scene.objects, scene.lights, scene.bg_color);
         this.scene = scene;
         
-        [this.indices_texture_unit, this.indices_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        [this.indices_texture_unit,  this.indices_texture]  = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        [this.bvh_objs_texture_unit, this.bvh_objs_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.allocateDataTextureUnit(4, "FLOAT");
         
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
@@ -45,6 +48,14 @@ class WebGLSceneAdapter {
         // write geometry ids, material ids, transform ids, shadow flags
         webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(!o.does_cast_shadow)]).flat());
+        
+        // Write BVH data
+        webgl_helper.setDataTexturePixelsUnit(this.bvh_aabb_texture, 4, "FLOAT",   this.bvh_aabb_texture_unit, "uSceneBVHAABBs", program,
+            /* TODO */null);
+        webgl_helper.setDataTexturePixelsUnit(this.bvh_node_texture, 4, "INTEGER", this.bvh_node_texture_unit, "uSceneBVHNodes", program,
+            /* TODO */null);
+        webgl_helper.setDataTexturePixelsUnit(this.bvh_objs_texture, 4, "INTEGER", this.bvh_objs_texture_unit, "uSceneBVHSceneObjects", program,
+            /* TODO */null);
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
@@ -102,6 +113,7 @@ class WebGLSceneAdapter {
             
 /*             #define SCENE_MAX_TREE_DEPTH 3
             uniform isampler2D uSceneBVHNodes;
+            uniform isampler2D uSceneBVHSceneObjects;
             uniform sampler2D uSceneBVHAABBs;
             
             struct BVHNode {
@@ -109,15 +121,15 @@ class WebGLSceneAdapter {
                 int object_cells_count;
             };
             BVHNode getBVHNode(in int node_index) {
-                ivec4 texel = itexelFetchByIndex(node_index / 2, uSceneBVHNodes);
+                ivec4 texel = itexelFetchByIndex((node_index-1) / 2, uSceneBVHNodes);
                 return ((node_index % 2) == 0) ? BVHNode(texel.x, texel.y) : BVHNode(texel.z, texel.w);
             }
             void getBVHAABB(in int node_index, out vec4 center, out vec4 half_size) {
-                center    = texelFetchByIndex(node_index * 2,     uSceneBVHAABBs);
-                half_size = texelFetchByIndex(node_index * 2 + 1, uSceneBVHAABBs);
+                center    = texelFetchByIndex((node_index-1) * 2,     uSceneBVHAABBs);
+                half_size = texelFetchByIndex((node_index-1) * 2 + 1, uSceneBVHAABBs);
             }
-            ivec4 getBVHObjects(in int cell_index) {
-                return itexelFetchByIndex(cell_index, uSceneBVHNodes);
+            ivec4 getBVHSceneObjects(in int cell_index) {
+                return itexelFetchByIndex(cell_index, uSceneBVHSceneObjects);
             }
             float sceneRayCastBVH(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 int tree_index = 1; // index of root node
@@ -127,7 +139,7 @@ class WebGLSceneAdapter {
                 // deal with infinitely large objects
                 BVHNode root_node = getBVHNode(1);
                 for (int i = 0; i < root_node.object_cells_count; ++i) {
-                    ivec4 objectIndices = getBVHObjects(root_node.objects_start_index + i);
+                    ivec4 objectIndices = getBVHSceneObjects(root_node.objects_start_index + i);
                     for (int j = 0; j < 4; j) {
                         int object_id = objectIndices[j];
                         float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
@@ -150,13 +162,15 @@ class WebGLSceneAdapter {
                         hitNode = aabb_ts.x <= maxT && aabb_ts.y >= minT && aabb_ts.x <= min_found_t;
                         if (hitNode) {
                             for (int i = 0; i < node.object_cells_count; ++i) {
-                                ivec4 objectIndices = getBVHObjects(node.objects_start_index + i);
+                                ivec4 objectIndices = getBVHSceneObjects(node.objects_start_index + i);
                                 for (int j = 0; j < 4; j) {
                                     int object_id = objectIndices[j];
-                                    float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
-                                    if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                                        min_found_t = t;
-                                        objectID = object_id;
+                                    if (object_id >= 0) {
+                                        float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                                        if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                                            min_found_t = t;
+                                            objectID = object_id;
+                                        }
                                     }
                                 }
                             }

@@ -95,8 +95,6 @@ class WebGLHelper {
         if (texture_unit)
             this.gl.activeTexture(texture_unit);
         this.setDataTexturePixels(texture_id, channels, type, data);
-        if (texture_unit)
-            this.gl.activeTexture(null);
         if (texture_unit && uniform_name && shader_program)
             this.gl.uniform1i(this.gl.getUniformLocation(shader_program, uniform_name), this.textureUnitIndex(texture_unit));
     }
