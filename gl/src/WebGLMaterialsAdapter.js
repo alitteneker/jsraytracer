@@ -6,6 +6,7 @@ class WebGLMaterialsAdapter {
         this.materials = [];
         this.material_id_map = {};
     }
+    destroy() {}
     collapseMaterialColor(mc, scale=Vec.of(1,1,1)) {
         if (mc instanceof SolidMaterialColor)
             return this.solid_colors.visit(mc._color.times(scale));

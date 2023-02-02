@@ -51,6 +51,15 @@ class WebGLRendererAdapter {
     destroy() {
         if (this.tracerShaderProgram)
             this.gl.deleteProgram(this.tracerShaderProgram);
+        
+        for (let t of this.textures)
+            this.gl.deleteTexture(t);
+        if (this.framebuffer)
+            this.gl.deleteFramebuffer(this.framebuffer);
+        
+        this.webgl_helper.destroy(this.gl);
+        this.adapters.scene.destroy(this.gl);
+        this.adapters.camera.destroy(this.gl);
     }
     
     buildShaders(gl, canvas) {

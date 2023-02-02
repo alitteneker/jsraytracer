@@ -17,6 +17,10 @@ class WebGLGeometriesAdapter {
         [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.allocateDataTextureUnit(3, "FLOAT");
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.allocateDataTextureUnit(3, "INTEGER");
     }
+    destroy(gl) {
+        gl.deleteTexture(this.triangle_data_texture);
+        gl.deleteTexture(this.triangle_indices_texture);
+    }
     visit(geometry) {
         if (geometry instanceof Plane)
             return WebGLGeometriesAdapter.PLANE_ID;

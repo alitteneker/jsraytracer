@@ -22,6 +22,7 @@ class WebGLCameraAdapter {
         else 
             throw "Unsupported camera type";
     }
+    destroy() {}
     writeShaderData(gl, program) {
         gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"), this.tanFov);
         gl.uniform1f(gl.getUniformLocation(program, "uAspect"), this.aspect);

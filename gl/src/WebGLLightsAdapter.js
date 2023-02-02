@@ -2,6 +2,7 @@ class WebGLLightsAdapter {
     constructor(webgl_helper) {
         this.lights_data = [];
     }
+    destroy() {}
     visit(light) {
         const light_data = {};
         

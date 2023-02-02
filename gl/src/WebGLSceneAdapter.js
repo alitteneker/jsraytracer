@@ -1,7 +1,7 @@
 class WebGLSceneAdapter {
     static USE_SCENE_BVH = true;
     constructor(scene, webgl_helper) {
-        [this.indices_texture_unit,  this.indices_texture]  = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
+        [this.indices_texture_unit,  this.indices_texture ] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
         [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
         [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.allocateDataTextureUnit(4, "FLOAT");
         
@@ -65,6 +65,15 @@ class WebGLSceneAdapter {
         bvh_data[0] = max_nodes + 1;
         bvh_data.push(-1, ...this.scene.kdtree.infinite_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
         BVHVisitorFn(this.scene.kdtree);
+    }
+    destroy(gl) {
+        gl.deleteTexture(this.indices_texture);
+        gl.deleteTexture(this.bvh_node_texture);
+        gl.deleteTexture(this.bvh_aabb_texture);
+        
+        this.adapters.lights.destroy(gl);
+        this.adapters.geometries.destroy(gl);
+        this.adapters.materials.destroy(gl);
     }
     writeShaderData(gl, program, webgl_helper) {
         // write global scene properties

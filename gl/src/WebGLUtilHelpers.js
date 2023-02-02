@@ -37,6 +37,7 @@ class WebGLHelper {
         
         this.texture_units = [];
     }
+    destroy() {}
     allocateTextureUnit() {
         const ret = this.gl.TEXTURE0 + this.texture_units.length;
         this.texture_units.push(ret);
