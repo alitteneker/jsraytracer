@@ -8,6 +8,11 @@ export function configureTest(callback) {
         Vec.of(-15, 5, 12, 1),
         Vec.of(1, 1, 1),
         5000
+    ),
+    new SimplePointLight(
+        Vec.of(1, 5, -8, 1),
+        Vec.of(0.8, 0.8, 1),
+        1000
     )];
     
     const objs = []
@@ -20,7 +25,8 @@ export function configureTest(callback) {
 
     loadObjFile(
         "../assets/bunny2.obj",
-        new PhongMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100, 0.5),
+        //new PhongMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100, 0.5),
+        new FresnelPhongMaterial(Vec.of(0.8,1,0.8), 0.1, 0.4, 0.6, 10, 1.3),
 
         Mat4.translation([-0.6, 1, -4]),
 //              .times(Mat4.rotation(0, Vec.of(0,1,0))),
