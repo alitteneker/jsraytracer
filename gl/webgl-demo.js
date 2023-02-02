@@ -10,6 +10,7 @@ $(document).ready(function() {
     });
     
     const canvas = $('#glcanvas');
+    const loading_spinner = $("#loading-img");
     const fps_div = $('#fps-display');
     const focusSlider = $('#focus-distance');
     const apertureSlider = $('#aperture-size');
@@ -29,6 +30,8 @@ $(document).ready(function() {
         if (scene_select.value === "")
             return;
         const scene_path = scene_select.val();
+
+        loading_spinner.css('visibility', 'visible');
         
         console.log("Loading " + scene_path + "...");
         import("../" + scene_path + "/test.js").then(function(module) {
@@ -36,7 +39,7 @@ $(document).ready(function() {
                 canvas.attr("width", test.width);
                 canvas.attr("height", test.height);
                 
-                console.log("Building adapters from scene...");
+                console.log("Scene loaded. Building WebGL adapters...");
                 adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
                 // Set the initial slider values for the camera settings to the display
@@ -49,6 +52,7 @@ $(document).ready(function() {
                 
                 console.log("Starting draw scene loop...");
                 animation_request_id = window.requestAnimationFrame(drawScene);
+                loading_spinner.css('visibility', 'hidden');
             });
         });
     });
