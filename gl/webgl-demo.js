@@ -2,13 +2,6 @@
 
 $(document).ready(function() {
     
-    // Populate the list of scenes with the default test list
-    const scene_select = $("#test-select");
-    fetch("../tests/list.json").then(response => response.json()).then(function(json) {
-        for (let o of json.sort())
-            scene_select.append(`<option value="tests/${o}">${o}</option>`);
-    });
-    
     const canvas = $('#glcanvas');
     const console_output = $('#console_output');
     const loading_spinner = $("#loading-img");
@@ -16,7 +9,7 @@ $(document).ready(function() {
 
     const focusSlider = $('#focus-distance');
     const apertureSlider = $('#aperture-size');
-
+    
     window["myconsole"] = {
         log: function(...args) {
             console.log(...args);
@@ -27,6 +20,18 @@ $(document).ready(function() {
             console_output.append('<p class="error">' + args.join("\t") + "</p>");
         }
     };
+    if (window["myerrors"].length) {
+        for (let error_dict of window["myerrors"])
+            window["myconsole"].error(error_dict.error, "@" + error_dict.url + ":" + error_dict.lineNo);
+        return;
+    }
+    
+    // Populate the list of scenes with the default test list
+    const scene_select = $("#test-select");
+    fetch("../tests/list.json").then(response => response.json()).then(function(json) {
+        for (let o of json.sort())
+            scene_select.append(`<option value="tests/${o}">${o}</option>`);
+    });
     
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
     let adapter = null, animation_request_id = null;

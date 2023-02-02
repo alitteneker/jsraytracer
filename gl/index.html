@@ -4,6 +4,12 @@
         <meta charset="utf-8">
         <title>WebGL Demo</title>
         <link rel="stylesheet" href="./style.css" type="text/css">
+        <script>
+            window["myerrors"] = [];
+            window.onerror = function(msg, url, lineNo, columnNo, error) {
+                window["myerrors"].push({ error: error, url: url, lineNo: lineNo, columnNo: columnNo });
+            };
+        </script>
         <script src="./jquery-3.6.0.min.js"></script>
         <script type="module" src="./webgl-demo.js" defer></script>
 
