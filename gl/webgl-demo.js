@@ -52,20 +52,25 @@ $(document).ready(function() {
                 canvas.attr("width", test.width);
                 canvas.attr("height", test.height);
                 
-                myconsole.log("Scene loaded. Building WebGL adapters...");
-                adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
+                try {
+                    myconsole.log("Scene loaded. Building WebGL adapters...");
+                    adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
-                // Set the initial slider values for the camera settings to the display
-                focusSlider.val(adapter.adapters.camera.focus_distance);
-                apertureSlider.val(adapter.adapters.camera.aperture_size);
-                changeLensSettings();
-                
-                // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
-                mouseDelta = [0,0];
-                
-                myconsole.log("Starting draw scene loop...");
-                animation_request_id = window.requestAnimationFrame(drawScene);
-                loading_spinner.css('visibility', 'hidden');
+                    // Set the initial slider values for the camera settings to the display
+                    focusSlider.val(adapter.adapters.camera.focus_distance);
+                    apertureSlider.val(adapter.adapters.camera.aperture_size);
+                    changeLensSettings();
+                    
+                    // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
+                    mouseDelta = [0,0];
+                    
+                    myconsole.log("Starting draw scene loop...");
+                    animation_request_id = window.requestAnimationFrame(drawScene);
+                } catch(error) {
+                    myconsole.error(error);
+                } finally {
+                    loading_spinner.css('visibility', 'hidden');
+                }
             });
         });
     });
