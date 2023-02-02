@@ -220,7 +220,7 @@ class WebGLMaterialsAdapter {
                     vec3 lightColor;
                     sampleLight(i, rp, lightDirection, lightColor, random_seed);
                     
-                    float shadowIntersection = sceneRayCast(Ray(rp, lightDirection), EPSILON, true);
+                    float shadowIntersection = sceneRayCast(Ray(rp, lightDirection), EPSILON, 1.0, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     

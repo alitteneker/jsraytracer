@@ -90,7 +90,7 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag);
+            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
             vec3 sceneRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
@@ -124,7 +124,7 @@ class WebGLSceneAdapter {
                 mat4 objectInverseTransform = uObjectInverseTransforms[obj.transform_id];
                 return geometryIntersect(obj.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
-            float sceneRayCast(in Ray r, in float minT, in bool shadowFlag, inout int objectID) {
+            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
                 for (int i = 0; i < uNumObjects; ++i) {
                     float t = sceneObjectIntersect(i, r, minT, shadowFlag);
@@ -209,9 +209,9 @@ class WebGLSceneAdapter {
                 return min_found_t;
             }
             
-            float sceneRayCast(in Ray r, in float minDistance, in bool shadowFlag) {
+            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
                 int objectID = -1;
-                return sceneRayCast(r, minDistance, shadowFlag, objectID);
+                return sceneRayCast(r, minT, maxT, shadowFlag, objectID);
             }
 
             // ---- Scene Color ----
@@ -225,7 +225,7 @@ class WebGLSceneAdapter {
             }
             vec3 sceneRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
                 int objectID = -1;
-                float intersect_time = sceneRayCast(in_ray, EPSILON, false, objectID);
+                float intersect_time = sceneRayCast(in_ray, EPSILON, 1E20, false, objectID);
                 if (objectID == -1)
                     return uBackgroundColor;
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
