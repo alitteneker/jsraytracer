@@ -25,7 +25,10 @@ class Scene {
     }
 }
 class SceneObject {
+    static _OBJECT_UID_GEN = 0;
     constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=true) {
+        this.OBJECT_UID = SceneObject._OBJECT_UID_GEN++;
+
         this.geometry = geometry;
         this.material = material;
         

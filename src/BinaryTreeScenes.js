@@ -199,7 +199,9 @@ class BVHScene extends Scene {
     }
 }
 class BVHSceneTreeNode {
+    static _NODE_UID_GEN=0;
     constructor(objects=[], depth=0) {
+        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
         this.depth = depth;
 
         this.infinite_objects = [];
@@ -232,7 +234,7 @@ class BVHSceneTreeNode {
         else {
             this.sep_axis = -1;
             this.spanning_objects = objects;
-            this.aabb = AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()));
+            this.aabb = this.spanning_objects.length > 0 ? AABB.hull(this.spanning_objects.map(o => o.getBoundingBox())) : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
         }
         if (!this.aabb)
             throw("Empty aabb for BVH node");
