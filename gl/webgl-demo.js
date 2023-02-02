@@ -10,10 +10,23 @@ $(document).ready(function() {
     });
     
     const canvas = $('#glcanvas');
+    const console_output = $('#console_output');
     const loading_spinner = $("#loading-img");
     const fps_div = $('#fps-display');
+
     const focusSlider = $('#focus-distance');
     const apertureSlider = $('#aperture-size');
+
+    window["myconsole"] = {
+        log: function(...args) {
+            console.log(...args);
+            console_output.append('<p class="log">' + args.join("\t") + "</p>");
+        },
+        error: function(...args) {
+            console.error(...args);
+            console_output.append('<p class="error">' + args.join("\t") + "</p>");
+        }
+    };
     
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
     let adapter = null, animation_request_id = null;
@@ -33,13 +46,13 @@ $(document).ready(function() {
 
         loading_spinner.css('visibility', 'visible');
         
-        console.log("Loading " + scene_path + "...");
+        myconsole.log("Loading " + scene_path + "...");
         import("../" + scene_path + "/test.js").then(function(module) {
             module.configureTest(function(test) {
                 canvas.attr("width", test.width);
                 canvas.attr("height", test.height);
                 
-                console.log("Scene loaded. Building WebGL adapters...");
+                myconsole.log("Scene loaded. Building WebGL adapters...");
                 adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
                 
                 // Set the initial slider values for the camera settings to the display
@@ -50,7 +63,7 @@ $(document).ready(function() {
                 // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
                 mouseDelta = [0,0];
                 
-                console.log("Starting draw scene loop...");
+                myconsole.log("Starting draw scene loop...");
                 animation_request_id = window.requestAnimationFrame(drawScene);
                 loading_spinner.css('visibility', 'hidden');
             });

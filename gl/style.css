@@ -6,11 +6,26 @@
     margin-left: auto;
     margin-right: auto;
     touch-action: none;
+    margin-top: 10px;
 }
 
 output {
     width: 50px;
     display: inline-block;
+}
+
+#console_output {
+    font-family: monospace;
+    max-height: 150px;
+    overflow: auto;
+    border-width: 1px;
+    border-color: grey;
+    border-style: solid;
+    padding: 10px;
+}
+
+#console_output .error {
+    color: red;
 }
 
 input[type=range] {

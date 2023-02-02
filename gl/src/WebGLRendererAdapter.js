@@ -28,7 +28,7 @@ class WebGLRendererAdapter {
         };
         
         // Build the shader programs to make this render
-        console.log("Building shader...");
+        myconsole.log("Building shader...");
         this.buildShaders(gl, canvas);
         
         // Store the addresses of uniforms that will be repeatedly modified
@@ -41,7 +41,7 @@ class WebGLRendererAdapter {
         };
         
         // Write data to shaders
-        console.log("Writing shader data...");
+        myconsole.log("Writing shader data...");
         this.writeShaderData(gl);
         
         // Store some useful initial variable values
