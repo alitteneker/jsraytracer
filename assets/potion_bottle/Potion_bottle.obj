@@ -1,6 +1,8 @@
 # 3ds Max Wavefront OBJ Exporter v0.97b - (c)2007 guruware
 # File Created: 20.01.2015 11:34:14
 
+mtllib Potion_bottle.mtl
+
 #
 # object Sphere002
 #
@@ -701,6 +703,8 @@ vt 0.6065 0.5738 0.0000
 vt 0.6795 0.5501 0.0000
 vt 0.6468 0.5738 0.0000
 # 184 texture coords
+
+usemtl bottle_blue
 
 g Sphere002
 s 64

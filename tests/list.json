@@ -3,6 +3,7 @@
     "AHollowTetrahedron",
     "refraction_simple",
     "BoxBall",
+    "bottle",
     "BoxBall_path",
     "BoxBall_DOF",
     "refraction",

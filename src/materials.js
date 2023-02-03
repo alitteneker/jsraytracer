@@ -60,6 +60,23 @@ class CheckerboardMaterialColor extends MaterialColor {
             ? this.color1.color(data) : this.color2.color(data);
     }
 }
+class TextureMaterialColor extends MaterialColor {
+    constructor(bitmap) {
+        super();
+        this._bitmap = bitmap;
+        
+        const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+        const context = canvas.getContext("2d");
+        context.drawImage(bitmap, 0, 0);
+        this._imgdata = context.getImageData(0, 0, bitmap.width, bitmap.height);
+    }
+    color(data) {
+        const x = Math.round(data.UV[0] / this._bitmap.width);
+        const y = Math.round(data.UV[1] / this._bitmap.height);
+        
+        return Vec.from([0,1,2,3].map(c => this._imgdata.data[(y * width + x) * 4 + i]));
+    }
+}
 
 // Materials color an object, and can take as parameters MaterialColors
 class Material {

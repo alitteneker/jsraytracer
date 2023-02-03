@@ -1,0 +1,14 @@
+
+newmtl bottle_blue
+map_Kd bottle_mana.jpg
+Ks 0.100000 0.100000 0.100000
+Ns 1000
+d 1.000000
+illum 2
+
+newmtl bottle_red
+map_Kd bottle_health.jpg
+Ks 0.100000 0.100000 0.100000
+Ns 1000
+d 1.000000
+illum 2
