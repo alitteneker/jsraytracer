@@ -1,5 +1,7 @@
 function makeMaterialColor(a, b, defaultVal=Vec.of(0,0,0)) {
-    if (a && b || !a != !b)
+    if (a instanceof MaterialColor)
+        return b ? new ScaledMaterialColor(a, b) : a;
+    if (a || b)
         return MaterialColor.coerce(a,b);
     return MaterialColor.coerce(defaultVal);
 }
@@ -12,7 +14,7 @@ function makeMaterial(data, isPath) {
           refractionIndex = data.Ni || Infinity;
     // TODO: add support for illum
     return new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
-        Vec.of(0,0,0), ambient, diffuse, specular, smoothness, refractionIndex);
+        Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);
 }
 
 function loadTexture(filename, callback) {
@@ -24,17 +26,19 @@ function loadTexture(filename, callback) {
         });
 }
 
-function loadTextures(filenames, callback) {
+function loadTextures(prefix, filenames, callback) {
     if (filenames.length == 0)
         callback({});
     let toDoCount = filenames.length;
     let textures = {};
     for (let filename of filenames) {
-        loadTexture(filename, function(bitmap) {
-            textures[filename] = new TextureMaterialColor(bitmap);
-            if (--toDoCount)
-                callback(textures);
-        });
+        (function(f) {
+            loadTexture(prefix+f, function(bitmap) {
+                textures[f] = TextureMaterialColor.fromBitmap(bitmap);
+                if (--toDoCount == 0)
+                    callback(textures);
+            });
+        })(filename);
     }
 }
 
@@ -48,9 +52,9 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
 
         let t = l.match(/\S+/g) || [];
         if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks" || t[0] == "map_Ns")
-            texture_names.push(prefix + t[t.length-1]);
+            texture_names.push(t[t.length-1]);
     }
-    loadTextures(texture_names, function(textures) {
+    loadTextures(prefix, texture_names, function(textures) {
         const ret = {};
 
         let curr = null, name = null;
@@ -81,8 +85,11 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
                 || t[0] == "d" || t[0] == "Tr")
                 curr[t[0]] = t[1];
 
-            else if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks")
+            else if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks") {
+                if (!textures[t[t.length-1]])
+                    throw "Unknown texture: " + t[t.length-1];
                 curr[t[0]] = textures[t[t.length-1]]; // TODO: there are lots of other options to do with textures
+            }
             
             else
                 throw "Unsupported material parameter: " + t[0];

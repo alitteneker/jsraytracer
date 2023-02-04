@@ -20,8 +20,9 @@ export function configureTest(callback) {
         "../assets/potion_bottle/Potion_bottle.obj",
         new PhongMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100, 0.6),
 
-        Mat4.translation([-0.2,-1,-7])
-            .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
+        Mat4.translation([-0.2,0,-7])
+            .times(Mat4.rotation(0.2, Vec.of(0,1,0)))
+            .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
             .times(Mat4.scale(0.05)),
 
         function(triangles) {

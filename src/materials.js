@@ -9,7 +9,7 @@ class MaterialColor {
             return mc;
         if (mc instanceof Vec)
             return new SolidMaterialColor(mc);
-        if (typeof mc === "number")
+        if (typeof mc === "number" || mc instanceof Array)
             return new ScaledMaterialColor(MaterialColor.coerce(baseColor), mc);
         throw "Type provided that cannot be coerced to MaterialColor";
     }
@@ -43,7 +43,7 @@ class ScaledMaterialColor extends MaterialColor {
     }
     toSolidColor() {
         const solid_mc = this._mc.toSolidColor();
-        if (this._scale == 1)
+        if (this._scale == 1 || (this._scale instanceof Array && this._scale.every(c => c == 1)))
             return solid_mc;
         return new SolidMaterialColor(solid_mc._color.times(this._scale));
     }
@@ -61,20 +61,55 @@ class CheckerboardMaterialColor extends MaterialColor {
     }
 }
 class TextureMaterialColor extends MaterialColor {
-    constructor(bitmap) {
+    constructor(imgdata, mode="bilinear", clampU=true, clampV=true) {
         super();
-        this._bitmap = bitmap;
+        this._imgdata = imgdata;
+        this.width  = imgdata.width;
+        this.height = imgdata.height;
         
+        this.mode = mode;
+        this.clampU = clampU;
+        this.clampV = clampV;
+    }
+    static fromBitmap(bitmap) {
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
         const context = canvas.getContext("2d");
         context.drawImage(bitmap, 0, 0);
-        this._imgdata = context.getImageData(0, 0, bitmap.width, bitmap.height);
+        return new TextureMaterialColor(context.getImageData(0, 0, bitmap.width, bitmap.height));
+    }
+    static normalizeUV(c, doClamp) {
+        if (doClamp) return clamp(c, 0, 1);
+        else         return ((c % 1) + 1) % 1;
     }
     color(data) {
-        const x = Math.round(data.UV[0] / this._bitmap.width);
-        const y = Math.round(data.UV[1] / this._bitmap.height);
+        let U = TextureMaterialColor.normalizeUV(data.UV[0], this.clampU);
+        let V = TextureMaterialColor.normalizeUV(data.UV[1], this.clampV);
         
-        return Vec.from([0,1,2,3].map(c => this._imgdata.data[(y * width + x) * 4 + i]));
+        const fx =        U  * this.width  - 0.5;
+        const fy = (1.0 - V) * this.height - 0.5;
+        
+        const xs = [], ys = [];
+        if (this.mode == "bilinear") {
+            const mx = Math.floor(fx), my = Math.floor(fy);
+            xs.push([mx, 1 - (fx % 1)], [mx + 1, fx % 1]);
+            ys.push([my, 1 - (fy % 1)], [my + 1, fy % 1]);
+        }
+        else if (this.mode == "nearest") {
+            xs.push([Math.round(fx), 1]);
+            ys.push([Math.round(fy), 1]);
+        }
+        else
+            throw "Unsupported texture mode " + this.mode;
+        
+        let ret = [0,0,0,0];
+        for (let [px, bx] of xs) {
+            for (let [py, by] of ys) {
+                const index = clamp(py, 0, this.height-1) * this.width + clamp(px, 0, this.width-1);
+                for (let i = 0; i < 4; ++i)
+                    ret[i] += bx * by * (this._imgdata.data[index * 4 + i] / 255);
+            }
+        }
+        return Vec.from(ret);
     }
 }
 
