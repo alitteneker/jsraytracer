@@ -29,10 +29,10 @@ class WebGLHelper {
         
         this.channels_map = [ null, "R", "RG", "RGB", "RGBA" ];
         this.type_map = {
-            "INTEGER"  : { type: "INT",   internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
-            "NORM_INT" : { type: "INT",   internal_format: "32I", format: "",         array_type: Int32Array   },
-            "FLOAT"    : { type: "FLOAT", internal_format: "32F", format: "",         array_type: Float32Array }
-            // TODO: image data types
+            "INTEGER"   : { type: "INT",           internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
+            "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
+            "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: Uint8Array   },
+
         };
         
         this.texture_units = [];
@@ -56,6 +56,11 @@ class WebGLHelper {
         }
         this.setTexturePixels(texture_id, channels, type, width, height, data);
         return texture_id;
+    }
+    createTextureAndUnit(channels=4, type="FLOAT", width=1, height=1, filter=false, data=null) {
+        const texture_unit = this.allocateTextureUnit();
+        const texture_id = this.createTexture(channels, type, width, height, filter, data);
+        return [texture_unit, texture_id];
     }
     coerceToDataTextureData(channels, type, data) {
         if (!this.channels_map[channels] || !this.type_map[type])
@@ -87,7 +92,7 @@ class WebGLHelper {
         const [square_size, square_data] = this.coerceToDataTextureData(channels, type, data);
         this.setTexturePixels(texture_id, channels, type, square_size, square_size, square_data);
     }
-    allocateDataTextureUnit(channels, type, data=null) {
+    createDataTextureAndUnit(channels, type, data=null) {
         const texture_unit = this.allocateTextureUnit();
         const texture_id = this.createDataTexture(channels, type, data);
         return [texture_unit, texture_id];
@@ -166,7 +171,9 @@ class WebGLHelper {
     writeShaderData() {}
     
     // Create/compile vertex and fragment shaders with the specified sources
-    static compileShaderProgramFromSources(gl, vsSource, fsSource) {
+    static compileShaderProgramFromSources(gl, vsSource, fsSource, callback=null) {
+        const parallel_compile_ext = null;//gl.getExtension('KHR_parallel_shader_compile');
+        
         const vertexShader   = WebGLHelper.compileShaderOfTypeFromSource(gl, gl.VERTEX_SHADER,   vsSource);
         const fragmentShader = WebGLHelper.compileShaderOfTypeFromSource(gl, gl.FRAGMENT_SHADER, fsSource);
 
@@ -177,8 +184,29 @@ class WebGLHelper {
         gl.linkProgram( shaderProgram);
 
         // If creating the shader program failed, throw an error
-        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS))
-            throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram);
+        function checkToUseProgram() {
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS))
+                    throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(vertexShader);
+                if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS))
+                    throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(fragmentShader);
+                throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram);
+            }
+            if (callback)
+                callback(shaderProgram);
+        }
+
+        if (parallel_compile_ext) {
+            function checkCompletion() {
+                if (gl.getProgramParameter(shaderProgram, parallel_compile_ext.COMPLETION_STATUS_KHR))
+                    checkToUseProgram();
+                else
+                    requestAnimationFrame(checkCompletion);
+            }
+            requestAnimationFrame(checkCompletion);
+        }
+        else
+            checkToUseProgram();
         
         return shaderProgram;
     }
@@ -188,9 +216,6 @@ class WebGLHelper {
         const shader = gl.createShader(type);
         gl.shaderSource(shader, source);
         gl.compileShader(shader);
-        
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
-            throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(shader);
 
         return shader;
     }

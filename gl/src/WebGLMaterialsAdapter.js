@@ -1,40 +1,60 @@
 class WebGLMaterialsAdapter {
+    static SPECIAL_COLOR_CHECKERBOARD = 1;
+    static SPECIAL_COLOR_TEXTURE = 2;
     constructor(webgl_helper) {
+        this.webgl_helper = webgl_helper;
+        
         this.solid_colors = new WebGLVecStore();
-        this.checkerboard_colors = [];
+        
+        this.textures = [];
+        this.texture_id_map = {};
+        this.special_colors = [];
         
         this.materials = [];
         this.material_id_map = {};
     }
     destroy() {}
-    collapseMaterialColor(mc, scale=Vec.of(1,1,1)) {
+    collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
         if (mc instanceof SolidMaterialColor)
             return this.solid_colors.visit(mc._color.times(scale));
-        if (mc instanceof ScaledMaterialColor)
-            return this.collapseMaterialColor(mc._mc, scale.times(mc._scale));
-        if (mc instanceof CheckerboardMaterialColor) {
-            this.checkerboard_colors.push([
-                this.collapseMaterialColor(new ScaledMaterialColor(mc.color1.toSolidColor()._color, scale)),
-                this.collapseMaterialColor(new ScaledMaterialColor(mc.color2.toSolidColor()._color, scale))
+        else if (mc instanceof ScaledMaterialColor)
+            return this.collapseMaterialColor(mc._mc, webgl_helper, scale.times(mc._scale));
+        else if (mc instanceof CheckerboardMaterialColor) {
+            this.special_colors.push([
+                WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD,
+                this.solid_colors.visit(mc.color1.toSolidColor()._color.times(scale)),
+                this.solid_colors.visit(mc.color2.toSolidColor()._color.times(scale))
             ]);
-            return -this.checkerboard_colors.length;
+            return -this.special_colors.length;
         }
-        else
-            throw "Unsupported material color type";
+        else if (mc instanceof TextureMaterialColor) {
+            if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
+                this.texture_id_map[mc.MATERIALCOLOR_UID] = this.textures.length;
+                const td = { mc: mc };
+                [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata.data);
+                this.textures.push(td);
+            }
+            this.special_colors.push([
+                WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
+                this.texture_id_map[mc.MATERIALCOLOR_UID],
+                this.solid_colors.visit(scale)]);
+            return -this.special_colors.length;
+        }
+        throw "Unsupported material color type";
     }
-    visitMaterialColor(mc) {
-        return this.collapseMaterialColor(mc);
+    visitMaterialColor(mc, webgl_helper) {
+        return this.collapseMaterialColor(mc, webgl_helper);
     }
-    visit(material) {
+    visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)
             return this.material_id_map[material.MATERIAL_UID];
         
         const material_data = {};
         if (material instanceof PhongMaterial) {
-            material_data.ambient_id      = this.visitMaterialColor(material.ambient);
-            material_data.diffuse_id      = this.visitMaterialColor(material.diffusivity);
-            material_data.specular_id     = this.visitMaterialColor(material.specularity);
-            material_data.reflectivity_id = this.visitMaterialColor(material.reflectivity);
+            material_data.ambient_id      = this.visitMaterialColor(material.ambient,      webgl_helper);
+            material_data.diffuse_id      = this.visitMaterialColor(material.diffusivity,  webgl_helper);
+            material_data.specular_id     = this.visitMaterialColor(material.specularity,  webgl_helper);
+            material_data.reflectivity_id = this.visitMaterialColor(material.reflectivity, webgl_helper);
             material_data.specularFactor  = material.smoothness;
             if (material instanceof FresnelPhongMaterial) {
                 material_data.refractiveIndexRatio = material.refractiveIndexRatio;
@@ -60,12 +80,10 @@ class WebGLMaterialsAdapter {
         this.materials.push(material_data);
         return this.material_id_map[material.MATERIAL_UID];
     }
-    writeShaderData(gl, program) {
-        if (this.solid_colors.size())
-            gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"), this.solid_colors.flat());
-        
-        if (this.checkerboard_colors.length)
-            gl.uniform1iv(gl.getUniformLocation(program, "umCheckerboardColors"), this.checkerboard_colors.flat());
+    writeShaderData(gl, program, webgl_helper) {
+        if (this.solid_colors.size())    gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"),   this.solid_colors.flat());
+        if (this.special_colors.length)  gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
+        if (this.textures.length)        gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),      this.textures.map(t => webgl_helper.textureUnitIndex(t.texture_unit)));
         
         if (this.materials.length) {
             gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
@@ -80,13 +98,22 @@ class WebGLMaterialsAdapter {
     }
     getShaderSourceDeclarations() {
         return `
+            #define MATERIALCOLOR_SPECIAL_CHECKERBOARD ${WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD}
+            #define MATERIALCOLOR_SPECIAL_TEXTURE      ${WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE}
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }
     getShaderSource() {
+        function makeStaticTextureShaderSource(i) {
+            return `
+                case ${i}:
+                    return umSolidColors[special_color.z] * texture(umTextures[${i}], UV).xyz;`;
+        }
         return `
-            uniform vec3 umSolidColors[${Math.max(1, this.solid_colors.size())}];
-            uniform int umCheckerboardColors[${Math.max(1, 2*this.checkerboard_colors.length)}];
+            uniform sampler2D umTextures[${Math.max(1, this.textures.length)}];
+            
+            uniform vec3  umSolidColors[${   Math.max(1, this.solid_colors.size())}];
+            uniform ivec3 umSpecialColors[${ Math.max(1, this.special_colors.length)}];
             
             #define MAX_MATERIALS ${Math.max(this.materials.length, 1)}
             uniform int   umPhongMaterialAmbientMCs           [MAX_MATERIALS];
@@ -95,15 +122,23 @@ class WebGLMaterialsAdapter {
             uniform int   umPhongMaterialReflectivityMCs      [MAX_MATERIALS];
             uniform float umPhongMaterialSpecularFactors      [MAX_MATERIALS];
             uniform float umPhongMaterialRefractiveIndexRatios[MAX_MATERIALS];
-            uniform float umPhongMaterialPathSmoothnesses[MAX_MATERIALS];
-            uniform float umPhongMaterialBounceProbabilities[MAX_MATERIALS];
+            uniform float umPhongMaterialPathSmoothnesses     [MAX_MATERIALS];
+            uniform float umPhongMaterialBounceProbabilities  [MAX_MATERIALS];
 
             vec3 getMaterialColor(in int color_index, in vec2 UV) {
-                // checkerboard
+                // Special color
                 if (color_index < 0) {
-                    int checkerboard_cell = (mod(floor(UV.x) + floor(UV.y), 2.0) < 1.0) ? 0 : 1;
-                    return umSolidColors[umCheckerboardColors[-2 * (color_index + 1) + checkerboard_cell]];
+                    ivec3 special_color = umSpecialColors[-color_index - 1];
+                    if (special_color.x == MATERIALCOLOR_SPECIAL_CHECKERBOARD)
+                        return umSolidColors[(mod(floor(UV.x) + floor(UV.y), 2.0) < 1.0) ? special_color.y : special_color.z];
+                    if (special_color.x == MATERIALCOLOR_SPECIAL_TEXTURE) {
+                        switch (special_color.y) {
+                            ${ new Array(this.textures.length).fill(0).map((_,i) => makeStaticTextureShaderSource(i)).join('') }
+                            default: break;
+                        }
+                    }
                 }
+                // Solid color
                 return umSolidColors[color_index];
             }
             

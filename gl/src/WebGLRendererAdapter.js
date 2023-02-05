@@ -1,7 +1,7 @@
 class WebGLRendererAdapter {
     static DOUBLE_RECURSIVE = false;
     
-    constructor(canvas, renderer) {
+    constructor(canvas, renderer, callback=null) {
         const gl = canvas.getContext('webgl2');
         if (!gl)
             throw 'Unable to initialize WebGL. Your browser or machine may not support it.';

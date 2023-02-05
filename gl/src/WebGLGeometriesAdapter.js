@@ -14,8 +14,8 @@ class WebGLGeometriesAdapter {
         this.triangle_data = new WebGLVecStore();
         this.triangles = [];
         
-        [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.allocateDataTextureUnit(3, "FLOAT");
-        [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.allocateDataTextureUnit(3, "INTEGER");
+        [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
+        [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
     }
     destroy(gl) {
         gl.deleteTexture(this.triangle_data_texture);

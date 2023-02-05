@@ -1,5 +1,6 @@
 // MaterialColor is for specifying a simple color, either solid, textured, or whatever.
 class MaterialColor {
+    static _MATERIALCOLOR_UID_GEN = 0;
     static coerce(baseColor, mc) {
         if (baseColor !== undefined && mc === undefined) {
             mc = baseColor;
@@ -12,6 +13,9 @@ class MaterialColor {
         if (typeof mc === "number" || mc instanceof Array)
             return new ScaledMaterialColor(MaterialColor.coerce(baseColor), mc);
         throw "Type provided that cannot be coerced to MaterialColor";
+    }
+    constructor() {
+        this.MATERIALCOLOR_UID = MaterialColor._MATERIALCOLOR_UID_GEN++;
     }
     color(data) {
         throw 'MaterialColor subclass has not implemented color';

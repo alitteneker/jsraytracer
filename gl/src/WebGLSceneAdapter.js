@@ -1,9 +1,9 @@
 class WebGLSceneAdapter {
     static USE_SCENE_BVH = true;
     constructor(scene, webgl_helper) {
-        [this.indices_texture_unit,  this.indices_texture ] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
-        [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.allocateDataTextureUnit(4, "INTEGER");
-        [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.allocateDataTextureUnit(4, "FLOAT");
+        [this.indices_texture_unit,  this.indices_texture ] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
+        [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
+        [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
         
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
@@ -29,8 +29,8 @@ class WebGLSceneAdapter {
             object_id_index_map[object.OBJECT_UID] = this.objects.length;
             this.objects.push({
                 transformID: transformID,
-                geometryID: this.adapters.geometries.visit(object.geometry),
-                materialID: this.adapters.materials.visit(object.material)
+                geometryID: this.adapters.geometries.visit(object.geometry, webgl_helper),
+                materialID: this.adapters.materials.visit(object.material, webgl_helper)
             });
         }
 
@@ -63,7 +63,7 @@ class WebGLSceneAdapter {
         };
         bvh_node_indices[this.scene.kdtree.NODE_UID] = 1;
         bvh_data[0] = max_nodes + 1;
-        bvh_data.push(-1, ...this.scene.kdtree.infinite_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
+        bvh_data.push(-1, ...this.scene.infinite_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
         BVHVisitorFn(this.scene.kdtree);
     }
     destroy(gl) {

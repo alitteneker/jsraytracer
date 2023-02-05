@@ -29,7 +29,7 @@ export function configureTest(callback) {
         function(triangles) {
             callback({
                 renderer: new IncrementalMultisamplingRenderer(
-                    new BVHScene(objs.concat(triangles), lights), camera, 16, 4),
+                    new BVHScene(objs.concat(triangles), lights, Vec.of(0,0,0), Infinity, 3), camera, 8, 4),
                 width: 600,
                 height: 600
             });

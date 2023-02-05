@@ -185,25 +185,10 @@ class BSPSceneTreeNode {
 }
 
 class BVHScene extends Scene {
-    constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
+    constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0), maxDepth=Infinity, minNodeSize=0) {
         super(objects, lights, bg_color);
-        this.kdtree = new BVHSceneTreeNode(Array.from(objects));
-    }
-    cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
-        let ret = { distance: Infinity, object: null };
-        this.kdtree.cast(ray, ret, minDist, maxDist, intersectTransparent);
-        return ret;
-    }
-    maxDepth() {
-        return this.kdtree.maxDepth();
-    }
-}
-class BVHSceneTreeNode {
-    static _NODE_UID_GEN=0;
-    constructor(objects=[], depth=0) {
-        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
-        this.depth = depth;
-
+        objects = Array.from(objects);
+        
         this.infinite_objects = [];
         for (let i = 0; i < objects.length; ++i) {
             const bb = objects[i].getBoundingBox();
@@ -214,33 +199,10 @@ class BVHSceneTreeNode {
             }
         }
         
-        const split = BSPSceneTreeNode.split_objects(objects);
-        if (split) {
-            this.sep_axis = split.sep_axis;
-            this.sep_value = split.sep_value;
-            this.spanning_objects = split.spanning_objs;
-
-            for (let o of this.spanning_objects) {
-                if (o.getBoundingBox().center[this.sep_axis] > this.sep_value)
-                    split.greater_objs.push(o);
-                else
-                    split.lesser_objs.push(o);
-            }
-
-            this.greater_node = new BVHSceneTreeNode(split.greater_objs, depth+1);
-            this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs,  depth+1);
-            this.aabb = AABB.hull([this.greater_node.aabb, this.lesser_node.aabb]);
-        }
-        else {
-            this.sep_axis = -1;
-            this.spanning_objects = objects;
-            this.aabb = this.spanning_objects.length > 0 ? AABB.hull(this.spanning_objects.map(o => o.getBoundingBox())) : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
-        }
-        if (!this.aabb)
-            throw("Empty aabb for BVH node");
+        this.kdtree = new BVHSceneTreeNode(objects, 0, maxDepth, minNodeSize);
     }
-    cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
-        const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
+    cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
+        let ret = { distance: Infinity, object: null };
         for (let o of this.infinite_objects) {
             const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
             if (distance > minDist && distance < maxDist && distance < ret.distance) {
@@ -248,6 +210,57 @@ class BVHSceneTreeNode {
                 ret.object = o;
             }
         }
+        this.kdtree.cast(ray, ret, minDist, maxDist, intersectTransparent);
+        return ret;
+    }
+    maxDepth() {
+        return this.kdtree.maxDepth();
+    }
+}
+class BVHSceneTreeNode {
+    static _NODE_UID_GEN=0;
+    constructor(objects=[], depth, maxDepth, minNodeSize) {
+        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
+        this.depth = depth;
+        
+        if (depth >= maxDepth || objects.length < minNodeSize) {
+            this.sep_axis = -1;
+            this.spanning_objects = objects;
+            this.aabb = this.spanning_objects.length > 0
+                ? AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()))
+                : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
+        }
+        else {
+            const split = BSPSceneTreeNode.split_objects(objects);
+            if (split) {
+                this.sep_axis = split.sep_axis;
+                this.sep_value = split.sep_value;
+                this.spanning_objects = split.spanning_objs;
+
+                for (let o of this.spanning_objects) {
+                    if (o.getBoundingBox().center[this.sep_axis] > this.sep_value)
+                        split.greater_objs.push(o);
+                    else
+                        split.lesser_objs.push(o);
+                }
+
+                this.greater_node = new BVHSceneTreeNode(split.greater_objs, depth+1);
+                this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs,  depth+1);
+                this.aabb = AABB.hull([this.greater_node.aabb, this.lesser_node.aabb]);
+            }
+            else {
+                this.sep_axis = -1;
+                this.spanning_objects = objects;
+                this.aabb = this.spanning_objects.length > 0
+                    ? AABB.hull(this.spanning_objects.map(o => o.getBoundingBox()))
+                    : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
+            }
+        }
+        if (!this.aabb)
+            throw("Empty aabb for BVH node");
+    }
+    cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
+        const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
         if (aabb_ts && aabb_ts.min <= maxDist && aabb_ts.max >= minDist && aabb_ts.min <= ret.distance) {
             if (this.sep_axis < 0) {
                 for (let o of this.spanning_objects) {
