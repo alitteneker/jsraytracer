@@ -31,7 +31,7 @@ class WebGLMaterialsAdapter {
             if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
                 this.texture_id_map[mc.MATERIALCOLOR_UID] = this.textures.length;
                 const td = { mc: mc };
-                [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata.data);
+                [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
                 this.textures.push(td);
             }
             this.special_colors.push([
@@ -107,7 +107,7 @@ class WebGLMaterialsAdapter {
         function makeStaticTextureShaderSource(i) {
             return `
                 case ${i}:
-                    return umSolidColors[special_color.z] * texture(umTextures[${i}], UV).xyz;`;
+                    return texture(umTextures[${i}], vec2(UV.x, 1.0-UV.y)).xyz * umSolidColors[special_color.z];`;
         }
         return `
             uniform sampler2D umTextures[${Math.max(1, this.textures.length)}];

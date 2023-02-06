@@ -21,7 +21,9 @@ class WebGLVecStore {
     }
 }
 
-
+function isPowerOf2(value) {
+  return (value & (value - 1)) === 0;
+}
 
 class WebGLHelper {
     constructor(gl) {
@@ -31,7 +33,7 @@ class WebGLHelper {
         this.type_map = {
             "INTEGER"   : { type: "INT",           internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
             "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
-            "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: Uint8Array   },
+            "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: ImageData    },
 
         };
         
@@ -47,14 +49,20 @@ class WebGLHelper {
     textureUnitIndex(index) {
         return index - this.gl.TEXTURE0;
     }
-    createTexture(channels=4, type="FLOAT", width=1, height=1, filter=false, data=null) {
+    createTexture(channels=4, type="FLOAT", width=1, height=1, interp=false, data=null) {
         const texture_id = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, texture_id);
-        if (!filter) {
+        this.setTexturePixels(texture_id, channels, type, width, height, data);
+        if (interp) {
+            if (isPowerOf2(width) && isPowerOf2(height))
+                this.gl.generateMipmap(this.gl.TEXTURE_2D);
+            else
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        }
+        else {
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
             this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         }
-        this.setTexturePixels(texture_id, channels, type, width, height, data);
         return texture_id;
     }
     createTextureAndUnit(channels=4, type="FLOAT", width=1, height=1, filter=false, data=null) {
