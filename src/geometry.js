@@ -25,6 +25,9 @@ class AABB extends Geometry {
         this.min = min;
         this.max = max;
     }
+    static empty() {
+        return new AABB(Vec.of(0,0,0), Vec.of(0,0,0), Vec.of( Infinity,  Infinity,  Infinity), Vec.of(-Infinity, -Infinity, -Infinity));
+    }
     static fromMinMax(min, max) {
         const center = min.mix(max, 0.5), half_size = max.minus(min).times(0.5);
         for (let i = 0; i < 3; ++i) {
@@ -87,6 +90,14 @@ class AABB extends Geometry {
         return AABB.fromMinMax(
             Vec.of(-Infinity, -Infinity, -Infinity, 1),
             Vec.of( Infinity,  Infinity,  Infinity, 1));
+    }
+    volume() {
+        return 8 * this.half_size[0] * this.half_size[1] * this.half_size[2];
+    }
+    surfaceArea() {
+        return 4 * (this.half_size[0] * this.half_size[1]
+                  + this.half_size[0] * this.half_size[2]
+                  + this.half_size[1] * this.half_size[2]);
     }
     getCorners() {
         const a = this.min, b = this.max;
