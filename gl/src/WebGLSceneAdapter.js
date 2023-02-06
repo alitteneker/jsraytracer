@@ -54,9 +54,9 @@ class WebGLSceneAdapter {
                 BVHVisitorFn(node.greater_node);
                 BVHVisitorFn(node.lesser_node);
             }
-            else if (node.spanning_objects.length) {
+            else if (node.objects.length) {
                 bvh_data[node_index] = bvh_data.length;
-                bvh_data.push(...node.spanning_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
+                bvh_data.push(...node.objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
             }
             else
                 bvh_data[node_index] = max_nodes;
