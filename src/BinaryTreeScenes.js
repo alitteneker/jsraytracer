@@ -1,71 +1,3 @@
-function quickSelectStep(arr, k, left=0, right=arr.length-1, compare=defaultCompare) {
-
-    while (right > left) {
-        if (right - left > 600) {
-            var n = right - left + 1;
-            var m = k - left + 1;
-            var z = Math.log(n);
-            var s = 0.5 * Math.exp(2 * z / 3);
-            var sd = 0.5 * Math.sqrt(z * s * (n - s) / n) * (m - n / 2 < 0 ? -1 : 1);
-            var newLeft = Math.max(left, Math.floor(k - m * s / n + sd));
-            var newRight = Math.min(right, Math.floor(k + (n - m) * s / n + sd));
-            quickSelectStep(arr, k, newLeft, newRight, compare);
-        }
-
-        var t = arr[k];
-        var i = left;
-        var j = right;
-
-        swap(arr, left, k);
-        if (compare(arr[right], t) > 0) swap(arr, left, right);
-
-        while (i < j) {
-            swap(arr, i, j);
-            i++;
-            j--;
-            while (compare(arr[i], t) < 0) i++;
-            while (compare(arr[j], t) > 0) j--;
-        }
-
-        if (compare(arr[left], t) === 0) swap(arr, left, j);
-        else {
-            j++;
-            swap(arr, j, right);
-        }
-
-        if (j <= k) left = j + 1;
-        if (k <= j) right = j - 1;
-    }
-}
-
-function quickSelect(arr, k) {
-    quickSelectStep(arr, k);
-    return arr[k];
-}
-
-function median(arr) {
-    if (arr.length == 0)
-        return NaN;
-    const len2 = Math.floor(arr.length / 2);
-    if (arr.length % 2 == 1)
-        return quickSelect(arr, len2);
-    return (quickSelect(arr, len2) + quickSelect(arr, len2 + 1)) / 2;
-}
-
-function swap(arr, i, j) {
-    var tmp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = tmp;
-}
-
-function defaultCompare(a, b) {
-    return a < b ? -1 : a > b ? 1 : 0;
-}
-
-function clamp(a, min, max) {
-    return Math.min(Math.max(a, min), max);
-}
-
 class BSPScene extends Scene {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
         super(objects, lights, bg_color);
@@ -185,7 +117,7 @@ class BSPSceneTreeNode {
 }
 
 class BVHScene extends Scene {
-    constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0), maxDepth=Infinity, minNodeSize=3) {
+    constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0), maxDepth=Infinity, minNodeSize=1) {
         super(objects, lights, bg_color);
         objects = Array.from(objects);
         
@@ -216,6 +148,9 @@ class BVHScene extends Scene {
     maxDepth() {
         return this.kdtree.maxDepth();
     }
+    nodeCount() {
+        return this.kdtree.nodeCount();
+    }
 }
 class BVHSceneTreeNode {
     static _NODE_UID_GEN=0;
@@ -224,15 +159,16 @@ class BVHSceneTreeNode {
         this.depth = depth;
         
         if (depth >= maxDepth || objects.length <= minNodeSize) {
-            this.sep_axis = -1;
+            this.isLeaf = true;
             this.objects = objects;
             this.aabb = this.objects.length > 0
                 ? AABB.hull(this.objects.map(o => o.getBoundingBox()))
-                : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
+                : AABB.empty();
         }
         else {
             const split = BVHSceneTreeNode.split_objects(objects);
             if (split) {
+                this.isLeaf = false;
                 this.sep_axis = split.sep_axis;
                 this.sep_value = split.sep_value;
                 this.aabb = split.bounds;
@@ -241,11 +177,11 @@ class BVHSceneTreeNode {
                 this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs,  depth+1, maxDepth, minNodeSize);
             }
             else {
-                this.sep_axis = -1;
+                this.isLeaf = true;
                 this.objects = objects;
                 this.aabb = this.objects.length > 0
                     ? AABB.hull(this.objects.map(o => o.getBoundingBox()))
-                    : new AABB(Vec.of(0,0,0), Vec.of(0,0,0));
+                    : AABB.empty();
             }
         }
         if (!this.aabb)
@@ -317,7 +253,7 @@ class BVHSceneTreeNode {
     cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
         const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
         if (aabb_ts && aabb_ts.min <= maxDist && aabb_ts.max >= minDist && aabb_ts.min <= ret.distance) {
-            if (this.sep_axis < 0) {
+            if (this.isLeaf) {
                 for (let o of this.objects) {
                     const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
                     if (distance > minDist && distance < maxDist && distance < ret.distance) {
@@ -326,13 +262,16 @@ class BVHSceneTreeNode {
                     }
                 }
             }
-            if (this.sep_axis >= 0) {
+            else {
                 this.greater_node.cast(ray, ret, minDist, maxDist, intersectTransparent);
                 this.lesser_node. cast(ray, ret, minDist, maxDist, intersectTransparent);
             }
         }
     }
     maxDepth() {
-        return (this.sep_axis < 0) ? this.depth : Math.max(this.greater_node.maxDepth(), this.lesser_node.maxDepth());
+        return (this.isLeaf) ? this.depth : Math.max(this.greater_node.maxDepth(), this.lesser_node.maxDepth());
+    }
+    nodeCount() {
+        return 1 + (this.isLeaf ? 0 : (this.greater_node.nodeCount() + this.lesser_node.nodeCount()));
     }
 }

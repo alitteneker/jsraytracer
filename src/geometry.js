@@ -26,7 +26,7 @@ class AABB extends Geometry {
         this.max = max;
     }
     static empty() {
-        return new AABB(Vec.of(0,0,0), Vec.of(0,0,0), Vec.of( Infinity,  Infinity,  Infinity), Vec.of(-Infinity, -Infinity, -Infinity));
+        return new AABB(Vec.of(0,0,0,1), Vec.of(0,0,0,0), Vec.of( Infinity,  Infinity,  Infinity, 1), Vec.of(-Infinity, -Infinity, -Infinity, 1));
     }
     static fromMinMax(min, max) {
         const center = min.mix(max, 0.5), half_size = max.minus(min).times(0.5);
