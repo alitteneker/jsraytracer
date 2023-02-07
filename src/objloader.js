@@ -12,7 +12,7 @@ function makeMaterial(data, isPath) {
           specular = makeMaterialColor(data.map_Ks, data.Ks),
           smoothness      = data.Ns || 0,
           refractionIndex = data.Ni || Infinity;
-    // TODO: add support for illum
+    // TODO: add support for illum, Tr/Tf, bump?
     if (isPath || isFinite(refractionIndex))
         new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
             Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);

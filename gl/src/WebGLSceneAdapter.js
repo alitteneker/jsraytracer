@@ -10,6 +10,8 @@ class WebGLSceneAdapter {
             materials:  new WebGLMaterialsAdapter(webgl_helper),
             geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
+        
+        // deal with lights
         for (let light of scene.lights)
             this.adapters.lights.visit(light);
         

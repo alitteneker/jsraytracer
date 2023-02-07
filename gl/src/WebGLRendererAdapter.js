@@ -340,9 +340,9 @@ class WebGLRendererAdapter {
             this.drawCount = 0;
     }
     
-    changeLensSettings(focusDistance, apertureSize) {
+    changeLensSettings(focusDistance, apertureSize, FOV) {
         this.gl.useProgram(this.tracerShaderProgram);
-        if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, this.gl, this.tracerShaderProgram))
+        if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, FOV, this.gl, this.tracerShaderProgram))
             this.drawCount = 0;
     }
 

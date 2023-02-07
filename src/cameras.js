@@ -12,6 +12,7 @@ class PerspectiveCamera extends Camera {
     constructor(fov, aspect, transform) {
         super(transform);
         this.position = this.transform.column(3);
+        this.FOV = fov;
         this.tan_fov = Math.tan(fov / 2);
         this.aspect = aspect;
     }

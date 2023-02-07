@@ -7,6 +7,7 @@ $(document).ready(function() {
     const loading_spinner = $("#loading-img");
     const fps_div = $('#fps-display');
 
+    const fovSlider = $('#fov-range');
     const focusSlider = $('#focus-distance');
     const apertureSlider = $('#aperture-size');
     
@@ -62,11 +63,13 @@ $(document).ready(function() {
                         renderer_adapter = adapter;
                 
                         // Set the initial slider values for the camera settings to the display
-                        if (renderer_adapter.adapters.camera.focus_distance != 0.0)
+                        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
                             focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
                         else
-                            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
+                            focusSlider.val(renderer_adapter.adapters.camera.camera_transform.column(3).minus(
+                                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
                         apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
+                        fovSlider.val(renderer_adapter.adapters.camera.FOV);
                         changeLensSettings();
                         
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
@@ -148,14 +151,18 @@ $(document).ready(function() {
     
     // setup listeners to change the camera focus settings whenever the sliders change
     function changeLensSettings() {
-        const focusValue = Number.parseFloat(focusSlider.val()), apertureValue = Number.parseFloat(apertureSlider.val());
+        const focusValue    = Number.parseFloat(focusSlider.val()),
+              apertureValue = Number.parseFloat(apertureSlider.val()),
+              fovValue      = Number.parseFloat(fovSlider.val());
         if (renderer_adapter)
-            renderer_adapter.changeLensSettings(focusValue, apertureValue);
+            renderer_adapter.changeLensSettings(focusValue, apertureValue, fovValue);
         $('#focus-output').text(focusValue.toFixed(2));
         $('#aperture-output').text(apertureValue.toFixed(2));
+        $('#fov-output').text(fovValue.toFixed(2));
     }
     focusSlider.on('input', changeLensSettings);
     apertureSlider.on('input', changeLensSettings);
+    fovSlider.on('input', changeLensSettings);
     
     
     

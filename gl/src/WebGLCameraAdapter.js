@@ -6,7 +6,8 @@ class WebGLCameraAdapter {
         this.translateDelta = Vec.of(0,0,0);
         
         if (camera instanceof PerspectiveCamera) {
-            this.tanFov = camera.tan_fov;
+            this.FOV = camera.FOV;
+            this.tan_fov = camera.tan_fov;
             this.aspect = camera.aspect; // should aspect instead reflect canvas size/dimensions?
             this.camera_transform = this.base_camera_transform = this.camera.transform;
             
@@ -24,10 +25,10 @@ class WebGLCameraAdapter {
     }
     destroy() {}
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"), this.tanFov);
-        gl.uniform1f(gl.getUniformLocation(program, "uAspect"), this.aspect);
+        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov);
+        gl.uniform1f(gl.getUniformLocation(program, "uAspect"),        this.aspect);
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
-        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"), this.aperture_size);
+        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"),  this.aperture_size);
         
         this.writeCameraTransform(gl, program, this.camera_transform);
     }
@@ -47,11 +48,12 @@ class WebGLCameraAdapter {
         this.writeCameraTransform(gl, program, this.camera_transform);
         return true;
     }
-    changeLensSettings(focusDistance, apertureSize, gl, program) {
-        if (this.focus_distance == focusDistance && this.aperture_size == apertureSize)
+    changeLensSettings(focusDistance, apertureSize, FOV, gl, program) {
+        if (this.FOV == FOV && this.focus_distance == focusDistance && this.aperture_size == apertureSize)
             return false;
+        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov = Math.tan((this.FOV = FOV) / 2));
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance = focusDistance);
-        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"), this.aperture_size = apertureSize);
+        gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"),  this.aperture_size  = apertureSize);
         return true;
     }
     writeCameraTransform(gl, program, transform) {
