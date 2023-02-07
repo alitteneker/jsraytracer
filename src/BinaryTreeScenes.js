@@ -198,6 +198,9 @@ class BVHSceneTreeNode {
             best_cost = Infinity;
         
         for (let axis = 0; axis < 3; ++axis) {
+            if (bounds.half_size[axis] < 0.000001)
+                continue;
+            
             let bins = [];
             for (let i = 0; i < binsPerAxis; ++i)
                 bins.push({
@@ -206,7 +209,7 @@ class BVHSceneTreeNode {
                 });
             
             for (let object of objects) {
-                const bin_index = Math.floor(binsPerAxis * ((object.getBoundingBox().center[axis] - bounds.min[axis]) / (2 * bounds.half_size[axis])));
+                let bin_index = Math.floor(binsPerAxis * ((object.getBoundingBox().center[axis] - bounds.min[axis]) / (2 * bounds.half_size[axis])));
                 if (bin_index == binsPerAxis) bin_index = binsPerAxis-1;
                 const bin = bins[bin_index];
                 bin.count++;

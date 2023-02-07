@@ -29,6 +29,9 @@ class WebGLHelper {
     constructor(gl) {
         this.gl = gl;
         
+        gl.getExtension('EXT_color_buffer_float');
+        gl.getExtension('EXT_float_blend');
+        
         this.channels_map = [ null, "R", "RG", "RGB", "RGBA" ];
         this.type_map = {
             "INTEGER"   : { type: "INT",           internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
@@ -178,9 +181,26 @@ class WebGLHelper {
     }
     writeShaderData() {}
     
+    static compileMultipleShaderProgramsFromSources(gl, sources, callback=null) {
+        let todoCount = sources.length;
+        const ret = new Array(sources.length);
+        sources.forEach((source, i) => {
+            if (!source.vertex || !source.fragment)
+                throw "Undefined source or fragment shader";
+            ret[i] = WebGLHelper.compileShaderProgramFromSources(gl, source.vertex, source.fragment, program => {
+                ret[i] = program;
+                if (--todoCount == 0 && callback)
+                    callback(ret);
+            });
+        });
+        return ret;
+    }
+    
     // Create/compile vertex and fragment shaders with the specified sources
+    // As shader compilation may take a long time, potentially locking the browser for the duration,
+    // this provides async support for the KHR_parallel_shader_compile extension.
     static compileShaderProgramFromSources(gl, vsSource, fsSource, callback=null) {
-        const parallel_compile_ext = null;//gl.getExtension('KHR_parallel_shader_compile');
+        const parallel_compile_ext = callback && gl.getExtension('KHR_parallel_shader_compile');
         
         const vertexShader   = WebGLHelper.compileShaderOfTypeFromSource(gl, gl.VERTEX_SHADER,   vsSource);
         const fragmentShader = WebGLHelper.compileShaderOfTypeFromSource(gl, gl.FRAGMENT_SHADER, fsSource);

@@ -10,12 +10,12 @@ class WebGLSceneAdapter {
             materials:  new WebGLMaterialsAdapter(webgl_helper),
             geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
-        this.inv_transforms = [];
         for (let light of scene.lights)
             this.adapters.lights.visit(light);
         
         // deal with scene objects
         this.objects = [];
+        this.inv_transforms = [];
         const transform_ID_map = {}, object_id_index_map = {};
         for (let object of scene.objects) {
             const transform_key = object.transform.toString();
@@ -32,7 +32,7 @@ class WebGLSceneAdapter {
                 transformID: transformID,
                 geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
                 materialID:  this.adapters.materials.visit(object.material, webgl_helper),
-                shadowFlag:  object.does_cast_shadow
+                does_cast_shadow:  object.does_cast_shadow
             });
         }
 

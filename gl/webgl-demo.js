@@ -34,15 +34,15 @@ $(document).ready(function() {
     });
     
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
-    let adapter = null, animation_request_id = null;
+    let renderer_adapter = null, animation_request_id = null;
     scene_select.on("change", function onChange(e) {
         if (animation_request_id) {
             window.cancelAnimationFrame(animation_request_id);
             animation_request_id = null;
         }
-        if (adapter) {
-            adapter.destroy();
-            adapter = null;
+        if (renderer_adapter) {
+            renderer_adapter.destroy();
+            renderer_adapter = null;
         }
         
         if (scene_select.value === "")
@@ -58,22 +58,27 @@ $(document).ready(function() {
                 canvas.attr("height", test.height);
                 
                 try {
-                    myconsole.log("Scene loaded. Building WebGL adapters...");
-                    adapter = new WebGLRendererAdapter(canvas.get(0), test.renderer);
+                    WebGLRendererAdapter.build(canvas.get(0), test.renderer, function(adapter) {
+                        renderer_adapter = adapter;
                 
-                    // Set the initial slider values for the camera settings to the display
-                    focusSlider.val(adapter.adapters.camera.focus_distance);
-                    apertureSlider.val(adapter.adapters.camera.aperture_size);
-                    changeLensSettings();
-                    
-                    // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
-                    mouseDelta = [0,0];
-                    
-                    myconsole.log("Starting draw scene loop...");
-                    animation_request_id = window.requestAnimationFrame(drawScene);
+                        // Set the initial slider values for the camera settings to the display
+                        if (renderer_adapter.adapters.camera.focus_distance != 0.0)
+                            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
+                        else
+                            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
+                        apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
+                        changeLensSettings();
+                        
+                        // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
+                        mouseDelta = [0,0];
+                        
+                        myconsole.log("Starting draw scene loop...");
+                        animation_request_id = window.requestAnimationFrame(drawScene);
+
+                        loading_spinner.css('visibility', 'hidden');
+                    });
                 } catch(error) {
                     myconsole.error(error);
-                } finally {
                     loading_spinner.css('visibility', 'hidden');
                 }
             });
@@ -131,7 +136,7 @@ $(document).ready(function() {
     }
     function pointerMove(e) {
         const mousePos = [event.clientX, event.clientY];
-        if (adapter && isMouseDown)
+        if (renderer_adapter && isMouseDown)
             mouseDelta = [0,1].map(i => mouseDelta[i] + mousePos[i] - lastMousePos[i]);
         lastMousePos = mousePos;
     }
@@ -144,8 +149,8 @@ $(document).ready(function() {
     // setup listeners to change the camera focus settings whenever the sliders change
     function changeLensSettings() {
         const focusValue = Number.parseFloat(focusSlider.val()), apertureValue = Number.parseFloat(apertureSlider.val());
-        if (adapter)
-            adapter.changeLensSettings(focusValue, apertureValue);
+        if (renderer_adapter)
+            renderer_adapter.changeLensSettings(focusValue, apertureValue);
         $('#focus-output').text(focusValue.toFixed(2));
         $('#aperture-output').text(apertureValue.toFixed(2));
     }
@@ -162,15 +167,15 @@ $(document).ready(function() {
         const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
         
         // draw the scene, and request the next frame of animation
-        if (adapter) {
-            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + adapter.drawCount + " samples");
+        if (renderer_adapter) {
+            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + renderer_adapter.drawCount + " samples");
             if (timeDelta > 0 && (mouseDelta.some(x => (x != 0)) || keyDelta.some(x => (x != 0)))) {
                 const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v * timeDelta / 1000));
                 const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v * timeDelta / 1000));
-                adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+                renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
                 mouseDelta = [0,0];
             }
-            adapter.drawScene(currentTimestamp);
+            renderer_adapter.drawScene(currentTimestamp);
             animation_request_id = window.requestAnimationFrame(drawScene);
         }
         

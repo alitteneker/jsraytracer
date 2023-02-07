@@ -1,12 +1,14 @@
 class WebGLRendererAdapter {
     static DOUBLE_RECURSIVE = false;
     
-    constructor(canvas, renderer, callback=null) {
+    constructor(canvas, renderer) {
         const gl = canvas.getContext('webgl2');
         if (!gl)
             throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
-        gl.getExtension('EXT_color_buffer_float');
-        gl.getExtension('EXT_float_blend');
+        
+        // Store some useful initial variable values
+        this.doRandomSample = true;
+        this.drawCount = 0;
         
         // store the canvas and renderer for future usage
         this.canvas = canvas;
@@ -26,27 +28,33 @@ class WebGLRendererAdapter {
             camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper),
             scene:  new WebGLSceneAdapter(renderer.scene, this.webgl_helper)
         };
+    }
+    
+    static build(canvas, renderer, callback) {
+        myconsole.log("Building adapters...");
+        const ret = new WebGLRendererAdapter(canvas, renderer);
         
         // Build the shader programs to make this render
         myconsole.log("Building shader...");
-        this.buildShaders(gl, canvas);
-        
-        // Store the addresses of uniforms that will be repeatedly modified
-        this.uniforms = {
-            randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
-            doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
-            sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
-            tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
-            passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture")
-        };
-        
-        // Write data to shaders
-        myconsole.log("Writing shader data...");
-        this.writeShaderData(gl);
-        
-        // Store some useful initial variable values
-        this.doRandomSample = true;
-        this.drawCount = 0;
+        ret.buildShaders(ret.gl, canvas, () => {
+            
+            // Write data to shaders
+            myconsole.log("Writing shader data...");
+            ret.writeShaderData(ret.gl);
+            
+            if (callback)
+                callback(ret);
+        });
+    }
+    
+    visit(renderer) {
+        this.renderer = renderer;
+        this.adapters.camera.visit(renderer.camera, this.webgl_helper);
+        this.adapters.scene .visit(renderer.scene,  this.webgl_helper);
+    }
+    reset() {
+        this.adapters.scene.reset( this.gl, this.webgl_helper);
+        this.adapters.camera.reset(this.gl, this.webgl_helper);
     }
     destroy() {
         if (this.tracerShaderProgram)
@@ -57,25 +65,12 @@ class WebGLRendererAdapter {
         if (this.framebuffer)
             this.gl.deleteFramebuffer(this.framebuffer);
         
-        this.webgl_helper.destroy(this.gl);
-        this.adapters.scene.destroy(this.gl);
+        this.webgl_helper.destroy(   this.gl);
+        this.adapters.scene.destroy( this.gl);
         this.adapters.camera.destroy(this.gl);
     }
     
-    buildShaders(gl, canvas) {
-
-        // Compile and link shader program for the tracer
-        this.tracerShaderProgram = WebGLHelper.compileShaderProgramFromSources(gl,
-            `#version 300 es
-            precision highp float;
-            in vec4 vertexPosition;
-            void main() {
-                gl_Position = vertexPosition;
-            }`,
-            
-            "#version 300 es \n"
-                + this.getShaderSourceDeclarations()
-                + this.getShaderSource());
+    buildShaders(gl, canvas, callback) {
         
         // Create a framebuffer to finally render from
         this.framebuffer = gl.createFramebuffer();
@@ -89,35 +84,68 @@ class WebGLRendererAdapter {
                  1.0, -1.0,
                 -1.0, -1.0
             ]), gl.STATIC_DRAW);
-        
-        // Because we're rendering to a texture, we also need a simple pass-through shader
-        this.passthroughShaderProgram = WebGLHelper.compileShaderProgramFromSources(gl,
-            `#version 300 es
-            precision mediump float;
-            in vec4 vertexPosition;
-            out vec2 textureCoord;
-            void main() {
-                textureCoord = (vertexPosition.xy+1.0)/2.0;
-                gl_Position = vertexPosition;
-            }`,
-            
-            `#version 300 es
-            precision mediump float;
-            
-            uniform sampler2D uPreviousSamplesTexture;
-            in vec2 textureCoord;
-            
-            out vec4 outTexelColor;
-            void main() {
-                outTexelColor = vec4(texture(uPreviousSamplesTexture, textureCoord).rgb, 1.0);
-            }`);
 
-        // Tell WebGL how to pull out the positions from the position buffer into the vertexPosition attribute.
-        for (let shaderName of ['tracer', 'passthrough']) {
-            const attrib = this[shaderName + 'VertexAttrib'] = gl.getAttribLocation(this[shaderName + 'ShaderProgram'], 'vertexPosition');
-            gl.vertexAttribPointer(attrib, 2, gl.FLOAT, false, 0, 0);
-            gl.enableVertexAttribArray(attrib);
-        }
+        WebGLHelper.compileMultipleShaderProgramsFromSources(gl,
+            // Compile and link shader program for the tracer
+            [{
+                vertex: `#version 300 es
+                    precision highp float;
+                    in vec4 vertexPosition;
+                    void main() {
+                        gl_Position = vertexPosition;
+                    }`,
+            
+                fragment: "#version 300 es \n"
+                    + this.getShaderSourceDeclarations()
+                    + this.getShaderSource()
+            },
+            
+            // Because we're rendering to a texture, we also need a simple pass-through shader
+            {
+                vertex: `#version 300 es
+                    precision mediump float;
+                    in vec4 vertexPosition;
+                    out vec2 textureCoord;
+                    void main() {
+                        textureCoord = (vertexPosition.xy+1.0)/2.0;
+                        gl_Position = vertexPosition;
+                    }`,
+                    
+                fragment: `#version 300 es
+                    precision mediump float;
+                    
+                    uniform sampler2D uPreviousSamplesTexture;
+                    in vec2 textureCoord;
+                    
+                    out vec4 outTexelColor;
+                    void main() {
+                        outTexelColor = vec4(texture(uPreviousSamplesTexture, textureCoord).rgb, 1.0);
+                    }`
+            }], 
+            ([tracerShaderProgram, passthroughShaderProgram]) => {
+                this.tracerShaderProgram = tracerShaderProgram;
+                this.passthroughShaderProgram = passthroughShaderProgram;
+                        
+                        // Tell WebGL how to pull out the positions from the position buffer into the vertexPosition attribute.
+                        for (let shaderName of ['tracer', 'passthrough']) {
+                            const attrib = this[shaderName + 'VertexAttrib'] = gl.getAttribLocation(this[shaderName + 'ShaderProgram'], 'vertexPosition');
+                            gl.vertexAttribPointer(attrib, 2, gl.FLOAT, false, 0, 0);
+                            gl.enableVertexAttribArray(attrib);
+                        }
+                        
+                        // Store the addresses of uniforms that will be repeatedly modified
+                        this.uniforms = {
+                            randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
+                            doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
+                            sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
+                            tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
+                            passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture")
+                        };
+                        
+                        if (callback)
+                            callback();
+            
+            });
     }
     
     getShaderSourceDeclarations() {
