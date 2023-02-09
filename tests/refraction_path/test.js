@@ -32,6 +32,7 @@ export function configureTest(callback) {
             Vec.of(3, 10, -20, 1),
             //Vec.of(12, 1, -40, 1),
             Vec.of(1, 1, 1),
+            //10000
             10000
         )
     ];
@@ -41,7 +42,7 @@ export function configureTest(callback) {
         new Plane(),
         new PhongPathTracingMaterial(
             new CheckerboardMaterialColor(Vec.of(0.8,0.8,0.8), Vec.of(0.5,0.5,0.5)),
-                0.1, 0.4, 0,0, Infinity, 1.0),
+                0.1, 0.8, 0, 0, Infinity, 0, 1.0),
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     objects.push(new SceneObject(
         new Sphere(),

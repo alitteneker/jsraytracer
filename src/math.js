@@ -1,4 +1,11 @@
 Math.fmod = function (a,b) { return Number((a - (Math.floor(a / b) * b)).toPrecision(8)); };
+Math.range = function(start, stop, step = 1) {
+    if (start !== undefined && stop === undefined) {
+        stop = start;
+        start = 0;
+    }
+    return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
+}
 
 function quickSelectStep(arr, k, left=0, right=arr.length-1, compare=defaultCompare) {
 

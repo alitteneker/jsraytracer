@@ -51,7 +51,7 @@ export function configureTest(callback) {
         Mat4.translation([-2, 1.3, -1])));
 
     callback({
-        renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+        renderer: new IncrementalMultisamplingRenderer(
             new Scene(objects, lights), camera, 128, 4),
         width:  600,
         height: 600

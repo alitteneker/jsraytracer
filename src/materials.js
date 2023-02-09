@@ -362,33 +362,55 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     samplePathDirection(data) {
         const EPSILON = 0.00001;
 
-        let V = data.V, R = data.R;
+        let R = data.R, N = data.N;
 
         // Allow some probability of doing a refraction ray, if the index of refraction allows it
         if (Math.random() > this.getReflectionValue(data)) {
-            V = V.minus(data.N.times(2 * data.vdotn));
             R = this.getRefractionDirection(data);
+            N = N.times(-1);
         }
+        if (this.pathSmoothness == 0)
+            R = N;
 
         let space_transform = Mat4.identity();
-        if(1.0 - data.vdotn > EPSILON) {
-            const i = V.cross(R).normalized().to4(),
-                j = R,
-                k = R.cross(i).to4();
-            space_transform.set_col(0, i);
-            space_transform.set_col(1, j);
-            space_transform.set_col(2, k);
+        for (let axis of [0,1,2].map(i => Vec.axis(i,4))) {
+            if(1.0 - axis.dot(R) > EPSILON) {
+                const i = axis.cross(R).normalized().to4(),
+                      j = R,
+                      k = R.cross(i).to4();
+                space_transform.set_col(0, i);
+                space_transform.set_col(1, j);
+                space_transform.set_col(2, k);
+                break;
+            }
         }
 
         // spherical coordinates following the PDF for Phong
-        const phi = Math.acos(Math.pow(Math.random(), 1.0 / (this.pathSmoothness + 1))),
-            theta = 2 * Math.PI * Math.random();
+        const theta = 2.0 * Math.PI * Math.random();
+        const sin_theta = Math.sin(theta), cos_theta = Math.cos(theta);
+        
+        const up      = space_transform.times(Vec.of(        0, 1,         0, 0));
+        const forward = space_transform.times(Vec.of(cos_theta, 0,  sin_theta, 0));
+        const right   = space_transform.times(Vec.of(sin_theta, 0, -cos_theta, 0));
+        
+        let phiN = (1.0 - right.dot(N) > EPSILON) ? N.cross(right).normalized().to4(0) : up;
+        if (phiN.dot(forward) < -EPSILON)
+            phiN = phiN.times(-1);
+        const maxPhi = Math.acos(Math.max(up.dot(phiN), 0));
+        const minRand = Math.pow(Math.cos(maxPhi - EPSILON), this.pathSmoothness + 1);
+        const phi = Math.acos(Math.pow((1.0-minRand) * Math.random() + minRand, 1.0 / (this.pathSmoothness + 1)));
 
         // convert spherical to local Cartesian, then to world space
-        const sin_phi = Math.sin(phi);
-        return space_transform.times(Vec.of(
-            Math.cos(theta) * sin_phi,
-            Math.cos(phi),
-            Math.sin(theta) * sin_phi, 0));
+        const sin_phi = Math.sin(phi), cos_phi = Math.cos(phi);
+        let ret = space_transform.times(Vec.of(
+            cos_theta * sin_phi,
+                        cos_phi,
+            sin_theta * sin_phi, 0));
+        
+        if (ret.dot(N) < 0)
+            return up;
+        
+        return ret;
     }
+    
 }
