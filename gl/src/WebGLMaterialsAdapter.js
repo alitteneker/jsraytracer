@@ -223,19 +223,23 @@ class WebGLMaterialsAdapter {
                 float theta = 2.0 * PI * randf(random_seed);
                 float sin_theta = sin(theta), cos_theta = cos(theta);
                 
-                vec4 up      = space_transform * vec4(        0, 1,          0, 0);
-                vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
-                vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
+                // phi is harder: many possibly options may point away from the normal (through the material) if we're not careful
+                float minRand = 0.0;
+                if (pathSmoothness > 0.0) {
+                    vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
+                    vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
+                    
+                    // So, to combat this, we first compute the maximum value phi can have before something breaks
+                    vec4 phiN = (1.0 - dot(right, N) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
+                    if (dot(phiN, forward) < -EPSILON)
+                        phiN = -1.0 * phiN;
+                    float maxPhi = acos(max(dot(R, phiN), 0.0));
+                    
+                    // then we use that to compute the minimum usable random value allowable
+                    minRand = pow(cos(maxPhi - EPSILON), pathSmoothness + 1.0);
+                }
                 
-                // phi is harder: many possibly options may point away from the normal (through the material), if we're not careful
-                // So, to combat this, we first compute the maximum value phi can have before something breaks
-                vec4 phiN = (1.0 - dot(right, N) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : up;
-                if (dot(phiN, forward) < -EPSILON)
-                    phiN = -1.0 * phiN;
-                float maxPhi = acos(max(dot(up, phiN), 0.0));
-                
-                // then we use that to compute the minimum usable random value allowable, and finally generate a random number in the given range
-                float minRand = pow(cos(maxPhi - EPSILON), pathSmoothness + 1.0);
+                // finally generate a random number in the given range
                 float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (pathSmoothness + 1.0)));
 
                 // convert spherical to local Cartesian, then to world space
@@ -245,9 +249,9 @@ class WebGLMaterialsAdapter {
                                 cos_phi,
                     sin_theta * sin_phi, 0);
                 
-                // Even with all that care, numerical error occasionally creeps in and breaks things
+                // Even with all that care, numerical error occasionally creeps in and breaks things, simply return the source if so
                 if (dot(ret, N) < 0.0)
-                    return up;
+                    return R;
                 
                 return ret;
             }

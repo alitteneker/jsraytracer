@@ -12,15 +12,15 @@ export function configureTest(callback) {
     new SimplePointLight(
         Vec.of(1, 5, -8, 1),
         Vec.of(0.8, 0.8, 1),
-        1000
+        5000
     )];
     
     const objs = []
     objs.push(new SceneObject(
         new Plane(),
         new PhongPathTracingMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.3, 0.4, 0.6, 100, Infinity, 0),
+            new CheckerboardMaterialColor(Vec.of(0.8,0.8,0.8), Vec.of(0.2,0.2,0.2)),
+                        0.3, 0.4, 0.6, 100, Infinity, 0, 1.0),
         Mat4.translation([0,1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
 
     loadObjFile(
@@ -34,7 +34,7 @@ export function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new IncrementalMultisamplingRenderer(new BVHScene(objs.concat(triangles), lights), camera, 128, 5),
+                renderer: new IncrementalMultisamplingRenderer(new BVHScene(objs.concat(triangles), lights), camera, 128, 4),
                 width: 600,
                 height: 600
             });

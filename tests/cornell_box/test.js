@@ -5,7 +5,7 @@ export function configureTest(callback) {
 
     const lights = [];
     lights.push(new RandomSampleAreaLight(
-        new SquareLightArea(Mat4.translation([0,9.9,0])
+        new SquareLightArea(Mat4.translation([0,9.6,0])
             .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
             .times(Mat4.scale([1,1,1]))),
         Vec.of(1,1,1), 1500, 4));
@@ -23,7 +23,7 @@ export function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(),
         new PhongMaterial(Vec.of(1,1,1), 0.1, 0.4),
-        Mat4.translation([0,0,-12])));
+        Mat4.translation([0,0,-5])));
     // left wall
     objects.push(new SceneObject(
         new Plane(),
@@ -34,24 +34,42 @@ export function configureTest(callback) {
         new Plane(),
         new PhongMaterial(Vec.of(0,1,0), 0.1, 0.4),
         Mat4.translation([-5,0,0]).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)))));
+        
     // ceiling
+    const ceilingmaterial = new PhongMaterial(Vec.of(1,1,1), 0.1, 0.4);
     objects.push(new SceneObject(
         new Plane(),
-        new PhongMaterial(Vec.of(1,1,1), 0.1, 0.4),
-        Mat4.translation([0,10,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
+        ceilingmaterial,
+        Mat4.translation([0,12,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
+    objects.push(new SceneObject(
+        new UnitBox(),
+        ceilingmaterial,
+        Mat4.translation([0,10,3]).times(Mat4.scale([10,1,4]))));
+    objects.push(new SceneObject(
+        new UnitBox(),
+        ceilingmaterial,
+        Mat4.translation([0,10,-3]).times(Mat4.scale([10,1,4]))));
+    objects.push(new SceneObject(
+        new UnitBox(),
+        ceilingmaterial,
+        Mat4.translation([3,10,0]).times(Mat4.scale([4,1,2]))));
+    objects.push(new SceneObject(
+        new UnitBox(),
+        ceilingmaterial,
+        Mat4.translation([-3,10,0]).times(Mat4.scale([4,1,2]))));
 
     // objects
     objects.push(new SceneObject(
         new Sphere(),
         new PhongMaterial(Vec.of(1,1,1), 0.2, 0.4, Vec.of(1,1,1), 1000),
-        Mat4.translation([1, 2, -5]).times(Mat4.scale(2))));
+        Mat4.translation([1, 2, -1]).times(Mat4.scale(2))));
     objects.push(new SceneObject(
         new Sphere(),
         new PhongMaterial(Vec.of(1,1,1), 0.2, 0.4, 0.6, 100),
-        Mat4.translation([-2, 1.3, -1])));
+        Mat4.translation([-2, 1, 1.5])));
 
     callback({
-        renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+        renderer: new IncrementalMultisamplingRenderer(
             new Scene(objects, lights), camera, 128, 7),
         width: 600,
         height: 600
