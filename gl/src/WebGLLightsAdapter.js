@@ -37,6 +37,11 @@ class WebGLLightsAdapter {
     getShaderSourceDeclarations() {
         return `
             uniform int uNumLights;
+            struct LightStruct {
+                int type;
+                vec3 color;
+                mat4 transform;
+            };
             void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor, inout vec2 random_seed);`;
     }
     getShaderSource() {
@@ -52,17 +57,24 @@ class WebGLLightsAdapter {
                     return 0.0;
                 return 1.0 / (4.0 * PI * norm_squared);
             }
+            LightStruct getLight(in int lightID) {
+                return LightStruct(uLightTypes[lightID],
+                                   uLightColors[lightID],
+                                   uLightTransforms[lightID]);
+            }
             void sampleLight(in int lightID, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor, inout vec2 random_seed) {
-                int lightType = uLightTypes[lightID];
-                vec3 lightColor = uLightColors[lightID];
+                LightStruct light = getLight(lightID);
                 
                 vec4 lightPosition = vec4(0,0,0,1);
-                if (lightType == 1)
+                if (light.type == 1)
                     lightPosition = vec4(2.0 * rand2f(random_seed) - 1.0, 0, 1);
-                lightPosition = uLightTransforms[lightID] * lightPosition;
+                lightPosition = light.transform * lightPosition;
                 
                 outLightDirection = lightPosition - position;
-                outLightColor = lightColor * lightFalloff(outLightDirection);
+                outLightColor = light.color;// * lightFalloff(outLightDirection);
+                
+                if (light.type == 1)
+                    outLightColor *= abs(dot(normalize(outLightDirection), normalize(light.transform * vec4(0,0,1,0))));
             }`;
     }
 }

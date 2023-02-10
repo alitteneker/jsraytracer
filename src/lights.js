@@ -32,6 +32,9 @@ class LightArea {
     sample() {
         throw "LightArea subclass has not implemented sample";
     }
+    normal() {
+        throw "LightArea subclass has not implemented normal";
+    }
 }
 class SquareLightArea extends LightArea {
     constructor(transform) {
@@ -43,6 +46,9 @@ class SquareLightArea extends LightArea {
             2 * (Math.random() - 0.5),
             2 * (Math.random() - 0.5),
             0, 1));
+    }
+    normal() {
+        return this.transform.times(Vec.of(0,0,1,0)).normalized();
     }
 }
 class RandomSampleAreaLight extends Light {
@@ -58,7 +64,7 @@ class RandomSampleAreaLight extends Light {
             const delta = this.area.sample().minus(sample_position);
             yield {
                 direction: delta,
-                color: this.color.times(this.intensity * Light.falloff(delta))
+                color: this.color.times(this.intensity * Light.falloff(delta) * Math.abs(delta.normalized(), this.area.normal()))
             };
         }
     }
