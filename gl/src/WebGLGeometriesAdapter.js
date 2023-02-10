@@ -76,7 +76,7 @@ class WebGLGeometriesAdapter {
             #define GEOMETRY_PLANE_TYPE ${WebGLGeometriesAdapter.PLANE_ID}
             float planeIntersect(in Ray r, in float minDistance, in vec4 n, in float delta) {
                 float denom = dot(r.d, n);
-                if (denom == 0.0)
+                if (abs(denom) < EPSILON)
                     return minDistance - 1.0;
                 return (delta - dot(r.o, n)) / denom;
             }

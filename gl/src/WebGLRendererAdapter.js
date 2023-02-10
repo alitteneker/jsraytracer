@@ -156,10 +156,12 @@ class WebGLRendererAdapter {
             struct Ray { vec4 o; vec4 d; };
             struct RecursiveNextRays {
                 float reflectionProbability;
-                vec4 reflectionDirection;
-                vec3 reflectionColor;
-                vec4 refractionDirection;
-                vec3 refractionColor;
+                vec4  reflectionDirection;
+                vec3  reflectionColor;
+                
+                float refractionProbability;
+                vec4  refractionDirection;
+                vec3  refractionColor;
             };
             vec3 rendererRayColor(in Ray in_ray, inout vec2 random_seed);` + "\n";
         if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
@@ -243,7 +245,7 @@ class WebGLRendererAdapter {
                         int remaining_bounces = q_remaining_bounces[i];
                         
                         vec4 intersect_position = vec4(0);
-                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), vec4(0), vec3(0));
+                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
                         total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_position, nextRays);
                         
                         if (remaining_bounces > 0 && intersect_position.w != 0.0) {
@@ -265,7 +267,7 @@ class WebGLRendererAdapter {
                                 && dot(nextRays.refractionColor, nextRays.refractionColor) > EPSILON)
                             {
                                 q_rays[q_len] = Ray(intersect_position, nextRays.refractionDirection);
-                                q_attenuation_colors[q_len] = (1.0 - nextRays.reflectionProbability) * attenuation_color * nextRays.refractionColor;
+                                q_attenuation_colors[q_len] = nextRays.refractionProbability * attenuation_color * nextRays.refractionColor;
                                 q_remaining_bounces[q_len] = remaining_bounces - 1;
                                 ++q_len;
                             }
@@ -286,14 +288,17 @@ class WebGLRendererAdapter {
                     vec3 attenuation_color = vec3(1);
                     for (int i = 0; i < uMaxBounceDepth; ++i) {
                         vec4 intersect_positon = vec4(0);
-                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), vec4(0), vec3(0));
+                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
                         total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
                         
                         if (intersect_positon.w == 0.0)
                             break;
                         
-                        float reflection_probability_sample = randf(random_seed);
-                        if (reflection_probability_sample <= nextRays.reflectionProbability
+                        bool do_next_ray = false;
+                        float next_ray_probability_sample = randf(random_seed);
+                        
+                        next_ray_probability_sample -= nextRays.reflectionProbability;
+                        if (next_ray_probability_sample <= 0.0
                             && dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON)
                         {
                             if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
@@ -303,16 +308,26 @@ class WebGLRendererAdapter {
                             
                             r = Ray(intersect_positon, nextRays.reflectionDirection);
                             attenuation_color *= nextRays.reflectionColor;
+                            do_next_ray = true;
                         }
-                        else if (reflection_probability_sample > nextRays.reflectionProbability
-                            && dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON)
-                        {
-                            r = Ray(intersect_positon, nextRays.refractionDirection);
-                            attenuation_color *= nextRays.refractionColor;
+                        
+                        else {
+                            next_ray_probability_sample -= nextRays.refractionProbability;
+                            if (next_ray_probability_sample <= 0.0
+                                && dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON)
+                            {
+                                r = Ray(intersect_positon, nextRays.refractionDirection);
+                                attenuation_color *= nextRays.refractionColor;
+                                do_next_ray = true;
+                            }
                         }
-                        else
+                        
+                        if (!do_next_ray)
                             break;
                     }
+                    
+                    // return (r.o.xyz / 30.0) + 0.5;
+                    // return 0.5 * (r.d.xyz + 1.0);
                     
                     return total_color;
                 }`;

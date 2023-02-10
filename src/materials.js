@@ -369,12 +369,14 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
             R = this.getRefractionDirection(data);
             N = N.times(-1);
         }
+        if (!isFinite(this.pathSmoothness))
+            return R;
         if (this.pathSmoothness == 0)
             R = N;
 
         let space_transform = Mat4.identity();
         for (let axis of [0,1,2].map(i => Vec.axis(i,4))) {
-            if(1.0 - axis.dot(R) > EPSILON) {
+            if(1.0 - Math.abs(axis.dot(R)) > EPSILON) {
                 const i = axis.cross(R).normalized().to4(),
                       j = R,
                       k = R.cross(i).to4();
@@ -389,15 +391,18 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
         const theta = 2.0 * Math.PI * Math.random();
         const sin_theta = Math.sin(theta), cos_theta = Math.cos(theta);
         
-        const up      = space_transform.times(Vec.of(        0, 1,         0, 0));
-        const forward = space_transform.times(Vec.of(cos_theta, 0,  sin_theta, 0));
-        const right   = space_transform.times(Vec.of(sin_theta, 0, -cos_theta, 0));
-        
-        let phiN = (1.0 - right.dot(N) > EPSILON) ? N.cross(right).normalized().to4(0) : up;
-        if (phiN.dot(forward) < -EPSILON)
-            phiN = phiN.times(-1);
-        const maxPhi = Math.acos(Math.max(up.dot(phiN), 0));
-        const minRand = Math.pow(Math.cos(maxPhi - EPSILON), this.pathSmoothness + 1);
+        let minRand = 0.0;
+        if (this.pathSmoothness > 0.0) {
+            const up      = space_transform.times(Vec.of(        0, 1,         0, 0));
+            const forward = space_transform.times(Vec.of(cos_theta, 0,  sin_theta, 0));
+            const right   = space_transform.times(Vec.of(sin_theta, 0, -cos_theta, 0));
+            
+            let phiN = (1.0 - Math.abs(right.dot(N)) > EPSILON) ? N.cross(right).normalized().to4(0) : up;
+            if (phiN.dot(forward) < -EPSILON)
+                phiN = phiN.times(-1);
+            const maxPhi = Math.acos(Math.max(up.dot(phiN), 0));
+            minRand = Math.pow(Math.cos(maxPhi - EPSILON), this.pathSmoothness + 1);
+        }
         const phi = Math.acos(Math.pow((1.0-minRand) * Math.random() + minRand, 1.0 / (this.pathSmoothness + 1)));
 
         // convert spherical to local Cartesian, then to world space

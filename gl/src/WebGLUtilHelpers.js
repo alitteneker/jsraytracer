@@ -124,6 +124,7 @@ class WebGLHelper {
             float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
+            vec3 randomSpherePoint(inout vec2 seed);
             
             float safePow(in float x, in float y);
             
@@ -154,6 +155,21 @@ class WebGLHelper {
             vec2 randomCirclePoint(inout vec2 seed) {
                 float a = 2.0 * PI * randf(seed), r = sqrt(randf(seed));
                 return vec2(r * cos(a), r * sin(a));
+            }
+            vec3 randomSpherePoint(inout vec2 seed) {
+                float theta = 2.0 * PI * randf(seed),
+                    phi = acos(2.0 * randf(seed) - 1.0);
+                float sin_phi = sin(phi);
+                return vec3(
+                    cos(theta) * sin_phi,
+                                 cos(phi),
+                    sin(theta) * sin_phi);
+            }
+            vec3 randomHemispherePoint(in vec3 N, inout vec2 seed) {
+                vec3 dir = randomSpherePoint(seed);
+                if (dot(dir, N) < 0.0)
+                    return -dir;
+                return dir;
             }
             
             float safePow(in float x, in float y) {

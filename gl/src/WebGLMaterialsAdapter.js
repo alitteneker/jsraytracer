@@ -203,15 +203,17 @@ class WebGLMaterialsAdapter {
             vec4 samplePhongDirectionPDF(in vec4 R, in vec4 N, in float pathSmoothness, inout vec2 random_seed) {
                 if (isinf(pathSmoothness))
                     return R;
-                if (pathSmoothness <= 0.0)
+                if (pathSmoothness <= 0.0) {
+                    return normalize(N + vec4(randomHemispherePoint(N.xyz, random_seed), 0));
                     R = N;
+                }
 
                 // Compute a space transform from local space to world space using R and another random base vector
                 mat4 space_transform = mat4(1.0);
                 for (int i = 0; i < 3; ++i) {
                     vec4 axis = vec4(0.0);
                     axis[i] = 1.0;
-                    if (1.0 - dot(axis, R) > EPSILON) {
+                    if (1.0 - abs(dot(axis, R)) > EPSILON) {
                         space_transform[0] = vec4(normalize(cross(axis.xyz, R.xyz)).xyz, 0);
                         space_transform[1] = R;
                         space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
@@ -219,18 +221,19 @@ class WebGLMaterialsAdapter {
                     }
                 }
 
-                // spherical coordinates following the PDF for Phong, theta is easy
+                // spherical coordinates following the PDF for Phong, theta is a simple uniform angle
                 float theta = 2.0 * PI * randf(random_seed);
                 float sin_theta = sin(theta), cos_theta = cos(theta);
                 
                 // phi is harder: many possibly options may point away from the normal (through the material) if we're not careful
+                // This can lead to light leaks/black spots in surfaces if we can't prevent it.
                 float minRand = 0.0;
                 if (pathSmoothness > 0.0) {
                     vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
                     vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
                     
                     // So, to combat this, we first compute the maximum value phi can have before something breaks
-                    vec4 phiN = (1.0 - dot(right, N) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
+                    vec4 phiN = (1.0 - abs(dot(right, N)) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
                     if (dot(phiN, forward) < -EPSILON)
                         phiN = -1.0 * phiN;
                     float maxPhi = acos(max(dot(R, phiN), 0.0));
@@ -239,7 +242,7 @@ class WebGLMaterialsAdapter {
                     minRand = pow(cos(maxPhi - EPSILON), pathSmoothness + 1.0);
                 }
                 
-                // finally generate a random number in the given range
+                // finally generate a random number in the safe range
                 float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (pathSmoothness + 1.0)));
 
                 // convert spherical to local Cartesian, then to world space
@@ -249,7 +252,8 @@ class WebGLMaterialsAdapter {
                                 cos_phi,
                     sin_theta * sin_phi, 0);
                 
-                // Even with all that care, numerical error occasionally creeps in and breaks things, simply return the source if so
+                // Even with all that care, numerical error occasionally creeps in and breaks things, especially if
+                // R is almost aligned with N. just return R.
                 if (dot(ret, N) < 0.0)
                     return R;
                 
@@ -308,13 +312,14 @@ class WebGLMaterialsAdapter {
                 }
                 
                 // reflection/refraction
-                if (matParams.bounceProbability > 0.0 && (matParams.bounceProbability >= 1.0 || randf(random_seed) <= matParams.bounceProbability)) {
-                    nextRays.reflectionProbability = kr;
+                if (true) { //matParams.bounceProbability > 0.0 && (matParams.bounceProbability >= 1.0 || randf(random_seed) <= matParams.bounceProbability)) {
                     if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
+                        nextRays.reflectionProbability = kr;
                         nextRays.reflectionDirection = samplePhongDirectionPDF(R, N, matParams.pathSmoothness, random_seed);
                         nextRays.reflectionColor = matParams.reflectivity;
                     }
                     if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
+                        nextRays.refractionProbability = 1.0 - kr;
                         nextRays.refractionDirection = samplePhongDirectionPDF(refractionDirection, N, matParams.pathSmoothness, random_seed);
                         nextRays.refractionColor = matParams.reflectivity;
                     }

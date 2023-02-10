@@ -16,30 +16,31 @@ export function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(),
         new PhongPathTracingMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+            //new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+            Vec.of(0.1,0.1,1),
                 0.1, 0.4),
         Mat4.rotation(Math.PI/2, Vec.of(1,0,0))));
     // back wall
     objects.push(new SceneObject(
-        new Plane(),
+        new Square(),
         new PhongPathTracingMaterial(Vec.of(1,1,1), 0.1, 0.4),
-        Mat4.translation([0,0,-5])));
+        Mat4.translation([0,5,-5]).times(Mat4.scale([10,10,1]))));
     // left wall
     objects.push(new SceneObject(
-        new Plane(),
-        new PhongPathTracingMaterial(Vec.of(1,0,0), 0.1, 0.4),
-        Mat4.translation([5,0,0]).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)))));
+        new Square(),
+        new PhongPathTracingMaterial(Vec.of(1,0.1,0.1), 0.1, 0.4),
+        Mat4.translation([5,5,0]).times(Mat4.scale([1,10,10])).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)))));
     // right wall
     objects.push(new SceneObject(
-        new Plane(),
-        new PhongPathTracingMaterial(Vec.of(0,1,0), 0.1, 0.4),
-        Mat4.translation([-5,0,0]).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)))));
+        new Square(),
+        new PhongPathTracingMaterial(Vec.of(0.1,1,0.1), 0.1, 0.4),
+        Mat4.translation([-5,5,0]).times(Mat4.scale([1,10,10])).times(Mat4.rotation(-Math.PI/2, Vec.of(0,1,0)))));
     // ceiling
     const ceilingmaterial = new PhongPathTracingMaterial(Vec.of(1,1,1), 0.1, 0.4);
     objects.push(new SceneObject(
-        new Plane(),
+        new Square(),
         ceilingmaterial,
-        Mat4.translation([0,12,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
+        Mat4.translation([0,10.5,0]).times(Mat4.scale([2,1,2])).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     objects.push(new SceneObject(
         new UnitBox(),
         ceilingmaterial,
@@ -69,7 +70,7 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new Scene(objects, lights), camera, 128, 4),
+            new Scene(objects, lights), camera, 128, 2),
         width:  600,
         height: 600
     });
