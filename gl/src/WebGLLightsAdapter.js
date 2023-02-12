@@ -31,7 +31,7 @@ class WebGLLightsAdapter {
         if (this.lights_data.length > 0) {
             gl.uniform1iv(      gl.getUniformLocation(program, "uLightTypes"),            this.lights_data.map(l => l.type));
             gl.uniform3fv(      gl.getUniformLocation(program, "uLightColors"),           this.lights_data.map(l => Array.from(l.color)).flat());
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_to_webgl(this.lights_data.map(l => l.transform)));
+            gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => l.transform)));
         }
     }
     getShaderSourceDeclarations() {
@@ -42,7 +42,11 @@ class WebGLLightsAdapter {
                 vec3 color;
                 mat4 transform;
             };
-            void sampleLight(in int lightID, in vec4 position, out vec4 lightDirection, out vec3 lightColor, inout vec2 random_seed);`;
+            struct LightSample {
+                vec4 direction;
+                vec3 color;
+            };
+            LightSample sampleLight(in int lightID, in vec4 position, inout vec2 random_seed);`;
     }
     getShaderSource() {
         return `
@@ -62,19 +66,22 @@ class WebGLLightsAdapter {
                                    uLightColors[lightID],
                                    uLightTransforms[lightID]);
             }
-            void sampleLight(in int lightID, in vec4 position, out vec4 outLightDirection, out vec3 outLightColor, inout vec2 random_seed) {
+            LightSample sampleLight(in int lightID, in vec4 position, inout vec2 random_seed) {
                 LightStruct light = getLight(lightID);
                 
                 vec4 lightPosition = vec4(0,0,0,1);
                 if (light.type == 1)
-                    lightPosition = vec4(2.0 * rand2f(random_seed) - 1.0, 0, 1);
+                    lightPosition = vec4(rand2f(random_seed) - 0.5, 0, 1);
                 lightPosition = light.transform * lightPosition;
                 
-                outLightDirection = lightPosition - position;
-                outLightColor = light.color;// * lightFalloff(outLightDirection);
+                vec4 delta = lightPosition - position;
+                LightSample ret = LightSample(delta, light.color * lightFalloff(delta));
                 
                 if (light.type == 1)
-                    outLightColor *= abs(dot(normalize(outLightDirection), normalize(light.transform * vec4(0,0,1,0))));
+                    //ret.color *= abs(dot(normalize(ret.direction), normalize(light.transform * vec4(0,0,1,0))));
+                    ret.color *= max(dot(normalize(ret.direction), normalize(light.transform * vec4(0,0,1,0))), 0.0);
+                
+                return ret;
             }`;
     }
 }

@@ -4,7 +4,7 @@ class WebGLMaterialsAdapter {
     constructor(webgl_helper) {
         this.webgl_helper = webgl_helper;
         
-        this.solid_colors = new WebGLVecStore();
+        this.solid_colors = new WebGLVecStore(3, false);
         
         this.textures = [];
         this.texture_id_map = {};
@@ -12,6 +12,9 @@ class WebGLMaterialsAdapter {
         
         this.materials = [];
         this.material_id_map = {};
+        
+        [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
+        [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
     }
     destroy() {}
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
@@ -45,32 +48,35 @@ class WebGLMaterialsAdapter {
     visitMaterialColor(mc, webgl_helper) {
         return this.collapseMaterialColor(mc, webgl_helper);
     }
+    visitMaterialScalar(s) {
+        return this.solid_colors.visit(Vec.of(s, 0, 0));
+    }
     visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)
             return this.material_id_map[material.MATERIAL_UID];
         
         const material_data = {};
         if (material instanceof PhongMaterial) {
-            material_data.ambient_id      = this.visitMaterialColor(material.ambient,      webgl_helper);
-            material_data.diffuse_id      = this.visitMaterialColor(material.diffusivity,  webgl_helper);
-            material_data.specular_id     = this.visitMaterialColor(material.specularity,  webgl_helper);
-            material_data.reflectivity_id = this.visitMaterialColor(material.reflectivity, webgl_helper);
-            material_data.specularFactor  = material.smoothness;
+            material_data.ambient_id         = this.visitMaterialColor(material.ambient,      webgl_helper);
+            material_data.diffuse_id         = this.visitMaterialColor(material.diffusivity,  webgl_helper);
+            material_data.specular_id        = this.visitMaterialColor(material.specularity,  webgl_helper);
+            material_data.reflectivity_id    = this.visitMaterialColor(material.reflectivity, webgl_helper);
+            material_data.specularFactor_id  = this.visitMaterialScalar(material.smoothness);
             if (material instanceof FresnelPhongMaterial) {
-                material_data.refractiveIndexRatio = material.refractiveIndexRatio;
+                material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(material.refractiveIndexRatio);
                 if (material instanceof PhongPathTracingMaterial) {
-                    material_data.pathSmoothness = material.pathSmoothness;
-                    material_data.bounceProbability = material.bounceProbability;
+                    material_data.pathSmoothness_id    = this.visitMaterialScalar(material.pathSmoothness);
+                    material_data.bounceProbability_id = this.visitMaterialScalar(material.bounceProbability);
                 }
                 else {
-                    material_data.pathSmoothness = Infinity;
-                    material_data.bounceProbability = 1.0;
+                    material_data.pathSmoothness_id    = this.visitMaterialScalar(Infinity);
+                    material_data.bounceProbability_id = this.visitMaterialScalar(1.0);
                 }
             }
             else {
-                material_data.refractiveIndexRatio = Infinity;
-                material_data.pathSmoothness = Infinity;
-                material_data.bounceProbability = 1.0;
+                material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(Infinity);
+                material_data.pathSmoothness_id        = this.visitMaterialScalar(Infinity);
+                material_data.bounceProbability_id     = this.visitMaterialScalar(1.0);
             }
         }
         else
@@ -81,20 +87,23 @@ class WebGLMaterialsAdapter {
         return this.material_id_map[material.MATERIAL_UID];
     }
     writeShaderData(gl, program, webgl_helper) {
-        if (this.solid_colors.size())    gl.uniform3fv(gl.getUniformLocation(program, "umSolidColors"),   this.solid_colors.flat());
-        if (this.special_colors.length)  gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
-        if (this.textures.length)        gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),      this.textures.map(t => webgl_helper.textureUnitIndex(t.texture_unit)));
+        webgl_helper.setDataTexturePixelsUnit(this.material_colors_texture, 3, "FLOAT", this.material_colors_texture_unit, "umMaterialColors", program,
+            this.solid_colors.flat());
+        webgl_helper.setDataTexturePixelsUnit(this.material_indices_texture, 4, "INTEGER", this.material_indices_texture_unit, "umMaterialIndices", program,
+            this.materials.map(m => [...["ambient_id",
+                                         "diffuse_id",
+                                         "specular_id",
+                                         "reflectivity_id",
+                                         "specularFactor_id",
+                                         "refractiveIndexRatio_id",
+                                         "pathSmoothness_id",
+                                         "bounceProbability_id"].map(k => m[k])]).flat());
         
-        if (this.materials.length) {
-            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialAmbientMCs"),            this.materials.map(m => m.ambient_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialDiffuseMCs"),            this.materials.map(m => m.diffuse_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialSpecularMCs"),           this.materials.map(m => m.specular_id));
-            gl.uniform1iv(gl.getUniformLocation(program, "umPhongMaterialReflectivityMCs"),       this.materials.map(m => m.reflectivity_id));
-            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialSpecularFactors"),       this.materials.map(m => m.specularFactor));
-            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialRefractiveIndexRatios"), this.materials.map(m => m.refractiveIndexRatio));
-            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialPathSmoothnesses"),      this.materials.map(m => m.pathSmoothness));
-            gl.uniform1fv(gl.getUniformLocation(program, "umPhongMaterialBounceProbabilities"),   this.materials.map(m => m.bounceProbability));
-        }
+        if (this.special_colors.length)
+            gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
+        if (this.textures.length)
+            gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
+                this.textures.map(t => webgl_helper.textureUnitIndex(t.texture_unit)));
     }
     getShaderSourceDeclarations() {
         return `
@@ -107,39 +116,65 @@ class WebGLMaterialsAdapter {
         function makeStaticTextureShaderSource(i) {
             return `
                 case ${i}:
-                    return texture(umTextures[${i}], vec2(UV.x, 1.0-UV.y)).xyz * umSolidColors[special_color.z];`;
+                    return texture(umTextures[${i}], vec2(UV.x, 1.0-UV.y)).xyz * getSolidColor(special_color.z);`;
         }
         return `
-            uniform sampler2D umTextures[${Math.max(1, this.textures.length)}];
-            
-            uniform vec3  umSolidColors[${   Math.max(1, this.solid_colors.size())}];
-            uniform ivec3 umSpecialColors[${ Math.max(1, this.special_colors.length)}];
-            
-            #define MAX_MATERIALS ${Math.max(this.materials.length, 1)}
-            uniform int   umPhongMaterialAmbientMCs           [MAX_MATERIALS];
-            uniform int   umPhongMaterialDiffuseMCs           [MAX_MATERIALS];
-            uniform int   umPhongMaterialSpecularMCs          [MAX_MATERIALS];
-            uniform int   umPhongMaterialReflectivityMCs      [MAX_MATERIALS];
-            uniform float umPhongMaterialSpecularFactors      [MAX_MATERIALS];
-            uniform float umPhongMaterialRefractiveIndexRatios[MAX_MATERIALS];
-            uniform float umPhongMaterialPathSmoothnesses     [MAX_MATERIALS];
-            uniform float umPhongMaterialBounceProbabilities  [MAX_MATERIALS];
+            uniform sampler2D umTextures [${ Math.max(1, this.textures.length)       }];
+            uniform ivec3 umSpecialColors[${ Math.max(1, this.special_colors.length) }];
+            uniform  sampler2D umMaterialColors;
+            uniform isampler2D umMaterialIndices;
 
+            vec3 getSolidColor(in int color_index) {
+                return texelFetchByIndex(color_index, umMaterialColors).xyz;
+            }
             vec3 getMaterialColor(in int color_index, in vec2 UV) {
-                // Special color
+                
+                // Special colors
                 if (color_index < 0) {
                     ivec3 special_color = umSpecialColors[-color_index - 1];
+                    
+                    // checkerboard color
                     if (special_color.x == MATERIALCOLOR_SPECIAL_CHECKERBOARD)
-                        return umSolidColors[(mod(floor(UV.x) + floor(UV.y), 2.0) < 1.0) ? special_color.y : special_color.z];
+                        return getSolidColor((mod(floor(UV.x) + floor(UV.y), 2.0) < 1.0) ? special_color.y : special_color.z);
+                    
+                    // texture color
                     if (special_color.x == MATERIALCOLOR_SPECIAL_TEXTURE) {
                         switch (special_color.y) {
                             ${ new Array(this.textures.length).fill(0).map((_,i) => makeStaticTextureShaderSource(i)).join('') }
                             default: break;
                         }
                     }
+                    
+                    // something has gone wrong
+                    return vec3(1.0, 0.5, 1.0);
                 }
+                
                 // Solid color
-                return umSolidColors[color_index];
+                return getSolidColor(color_index);
+            }
+            
+            struct PhongMaterialParameters {
+                vec3 ambient;
+                vec3 diffuse;
+                vec3 specular;
+                vec3 reflectivity;
+                float specularFactor;
+                float refractiveIndexRatio;
+                float pathSmoothness;
+                float bounceProbability;
+            };
+            
+            void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
+                ivec4 mat_ind_1 = itexelFetchByIndex(materialID * 2    , umMaterialIndices),
+                      mat_ind_2 = itexelFetchByIndex(materialID * 2 + 1, umMaterialIndices);
+                matParams.ambient              = getMaterialColor(mat_ind_1.r, geodata.UV);
+                matParams.diffuse              = getMaterialColor(mat_ind_1.g, geodata.UV);
+                matParams.specular             = getMaterialColor(mat_ind_1.b, geodata.UV);
+                matParams.reflectivity         = getMaterialColor(mat_ind_1.a, geodata.UV);
+                matParams.specularFactor       = getMaterialColor(mat_ind_2.r, geodata.UV).r;
+                matParams.refractiveIndexRatio = getMaterialColor(mat_ind_2.g, geodata.UV).r;
+                matParams.pathSmoothness       = getMaterialColor(mat_ind_2.b, geodata.UV).r;
+                matParams.bounceProbability    = getMaterialColor(mat_ind_2.a, geodata.UV).r;
             }
             
             void computeRefractionParameters(in vec4 V, in vec4 N, in float vdotn, in float refractiveIndexRatio, in bool backside,
@@ -177,58 +212,44 @@ class WebGLMaterialsAdapter {
                 }
             }
             
-            struct PhongMaterialParameters {
-                vec3 ambient;
-                vec3 diffuse;
-                vec3 specular;
-                vec3 reflectivity;
-                float specularFactor;
-                float refractiveIndexRatio;
-                float pathSmoothness;
-                float bounceProbability;
-            };
             
-            void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
-                matParams.ambient              = getMaterialColor(umPhongMaterialAmbientMCs     [materialID], geodata.UV);
-                matParams.diffuse              = getMaterialColor(umPhongMaterialDiffuseMCs     [materialID], geodata.UV);
-                matParams.specular             = getMaterialColor(umPhongMaterialSpecularMCs    [materialID], geodata.UV);
-                matParams.reflectivity         = getMaterialColor(umPhongMaterialReflectivityMCs[materialID], geodata.UV);
-                matParams.specularFactor       = umPhongMaterialSpecularFactors      [materialID];
-                matParams.refractiveIndexRatio = umPhongMaterialRefractiveIndexRatios[materialID];
-                matParams.pathSmoothness       = umPhongMaterialPathSmoothnesses     [materialID];
-                matParams.bounceProbability    = umPhongMaterialBounceProbabilities  [materialID];
-            }
-            
-            
-            vec4 samplePhongDirectionPDF(in vec4 R, in vec4 N, in float pathSmoothness, inout vec2 random_seed) {
-                if (isinf(pathSmoothness))
-                    return R;
-                if (pathSmoothness <= 0.0) {
-                    return normalize(N + vec4(randomHemispherePoint(N.xyz, random_seed), 0));
-                    R = N;
+            void samplePhongScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,
+                inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
+            {
+                // perfect reflection
+                if (isinf(matParams.pathSmoothness)) {
+                    outDirection = R;
+                    outColor = matParams.reflectivity;
+                    return;
+                }
+                
+                // diffuse reflection
+                /* if some diffuse  */ {
+                    outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 0));
+                    outColor = matParams.diffuse;
+                    return;
+                }
+                
+                // specular reflection
+                outColor = matParams.reflectivity * matParams.specular;
+                
+                // if the path specular factor is zero, this will be just about equivalent, and much more efficient
+                if (matParams.pathSmoothness <= 0.0) {
+                    outDirection = normalize(vec4(randomHemispherePoint(N.xyz, random_seed), 0));
+                    return;
                 }
 
                 // Compute a space transform from local space to world space using R and another random base vector
-                mat4 space_transform = mat4(1.0);
-                for (int i = 0; i < 3; ++i) {
-                    vec4 axis = vec4(0.0);
-                    axis[i] = 1.0;
-                    if (1.0 - abs(dot(axis, R)) > EPSILON) {
-                        space_transform[0] = vec4(normalize(cross(axis.xyz, R.xyz)).xyz, 0);
-                        space_transform[1] = R;
-                        space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
-                        break;
-                    }
-                }
+                mat4 space_transform = transformToAlignY(R);
 
-                // spherical coordinates following the PDF for Phong, theta is a simple uniform angle
+                // spherical coordinates following the PDF for Phong specular, theta is a simple uniform angle
                 float theta = 2.0 * PI * randf(random_seed);
                 float sin_theta = sin(theta), cos_theta = cos(theta);
                 
                 // phi is harder: many possibly options may point away from the normal (through the material) if we're not careful
                 // This can lead to light leaks/black spots in surfaces if we can't prevent it.
                 float minRand = 0.0;
-                if (pathSmoothness > 0.0) {
+                if (matParams.pathSmoothness > 0.0) {
                     vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
                     vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
                     
@@ -239,27 +260,41 @@ class WebGLMaterialsAdapter {
                     float maxPhi = acos(max(dot(R, phiN), 0.0));
                     
                     // then we use that to compute the minimum usable random value allowable
-                    minRand = pow(cos(maxPhi - EPSILON), pathSmoothness + 1.0);
+                    minRand = pow(cos(maxPhi - EPSILON), matParams.pathSmoothness + 1.0);
                 }
                 
                 // finally generate a random number in the safe range
-                float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (pathSmoothness + 1.0)));
+                float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (matParams.pathSmoothness + 1.0)));
 
                 // convert spherical to local Cartesian, then to world space
                 float sin_phi = sin(phi), cos_phi = cos(phi);
-                vec4 ret = space_transform * vec4(
+                outDirection = space_transform * vec4(
                     cos_theta * sin_phi,
                                 cos_phi,
                     sin_theta * sin_phi, 0);
                 
                 // Even with all that care, numerical error occasionally creeps in and breaks things, especially if
-                // R is almost aligned with N. just return R.
-                if (dot(ret, N) < 0.0)
-                    return R;
-                
-                return ret;
+                // R is very close to N. In that case, just return R.
+                if (dot(outDirection, N) < 0.0)
+                    outDirection = R;
             }
             
+            vec3 phongBDRF(in vec4 N, in vec4 R, in vec4 lightDir, in float kr, in vec4 refractionDir, in PhongMaterialParameters matParams) {
+                vec4 L = normalize(lightDir);
+                float ldotn = dot(L, N);
+                
+                float diffuse = 0.0, specular = 0.0;
+                if (kr > 0.0 && ldotn >= 0.0) {
+                    diffuse  += kr * ldotn;
+                    specular += kr * ldotn * safePow(max(dot(L, R), 0.0), matParams.specularFactor);
+                }
+                if (kr < 1.0 && ldotn <= 0.0) {
+                    diffuse  += (1.0 - kr) * (-ldotn);
+                    specular += (1.0 - kr) * -ldotn * safePow(max(dot(L, refractionDir), 0.0), matParams.specularFactor);
+                }
+                
+                return diffuse * matParams.diffuse /* / PI */ + specular * matParams.specular; //* (matParams.specularFactor + 1.0) / (2.0 * PI);
+            }
             
             vec3 computePhongMaterialColor(in PhongMaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays)
@@ -288,40 +323,24 @@ class WebGLMaterialsAdapter {
                 // compute direct illumination
                 vec3 totalColor = matParams.ambient;
                 for (int i = 0; i < uNumLights; ++i) {
-                    vec4 lightDirection;
-                    vec3 lightColor;
-                    sampleLight(i, rp, lightDirection, lightColor, random_seed);
+                    LightSample lightSample = sampleLight(i, rp, random_seed);
                     
-                    float shadowIntersection = sceneRayCast(Ray(rp, lightDirection), EPSILON, 1.0, true);
+                    float shadowIntersection = sceneRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     
-                    vec4 L = normalize(lightDirection);
-                    float ldotn = dot(L, N);
-                    
-                    float diffuse = 0.0, specular = 0.0;
-                    if (kr > 0.0 && ldotn >= 0.0) {
-                        diffuse  += kr * ldotn;
-                        specular += kr * safePow(max(dot(L, R), 0.0), matParams.specularFactor);
-                    }
-                    if (kr < 1.0 && ldotn <= 0.0) {
-                        diffuse  += (1.0 - kr) * (-ldotn);
-                        specular += (1.0 - kr) * safePow(max(dot(L, refractionDirection), 0.0), matParams.specularFactor);
-                    }
-                    totalColor += lightColor * (diffuse * matParams.diffuse + specular * matParams.specular);
+                    totalColor += lightSample.color * phongBDRF(N, R, lightSample.direction, kr, refractionDirection, matParams);
                 }
                 
                 // reflection/refraction
                 if (true) { //matParams.bounceProbability > 0.0 && (matParams.bounceProbability >= 1.0 || randf(random_seed) <= matParams.bounceProbability)) {
                     if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
                         nextRays.reflectionProbability = kr;
-                        nextRays.reflectionDirection = samplePhongDirectionPDF(R, N, matParams.pathSmoothness, random_seed);
-                        nextRays.reflectionColor = matParams.reflectivity;
+                        samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed);
                     }
                     if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
                         nextRays.refractionProbability = 1.0 - kr;
-                        nextRays.refractionDirection = samplePhongDirectionPDF(refractionDirection, N, matParams.pathSmoothness, random_seed);
-                        nextRays.refractionColor = matParams.reflectivity;
+                        samplePhongScatter(refractionDirection, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed);
                     }
                 }
                 

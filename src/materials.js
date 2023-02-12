@@ -235,7 +235,7 @@ class PhongMaterial extends Material {
         const specular = Math.pow(Math.max(L.dot(data.R), 0), this.smoothness);
 
         return    light_sample.color.mult_pairs(data.diffusivity.times(diffuse ))
-            .plus(light_sample.color.mult_pairs(data.specularity.times(specular)));
+            .plus(light_sample.color.mult_pairs(data.specularity.times(specular * (this.smoothness + 1) / (2 * Math.PI))));
     }
 
     color(data, scene, recursionDepth) {

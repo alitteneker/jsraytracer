@@ -10,6 +10,9 @@ class WebGLRendererAdapter {
         this.doRandomSample = true;
         this.drawCount = 0;
         
+        // Sometimes it's useful to render into log color space, scaled to an appropriate level
+        this.colorLogScale = 0.0;
+        
         // store the canvas and renderer for future usage
         this.canvas = canvas;
         this.renderer = renderer;
@@ -179,6 +182,7 @@ class WebGLRendererAdapter {
         let ret = `
             uniform sampler2D uPreviousSamplesTexture;
             uniform float uSampleWeight;
+            uniform float uColorLogScale;
     
             uniform bool uRendererRandomMultisample;
             uniform float uRandomSeed;
@@ -205,6 +209,9 @@ class WebGLRendererAdapter {
                     sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
                 if (any(lessThan(sampleColor, vec4(0.0))))
                     sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
+                
+                if (uColorLogScale > 0.0)
+                    sampleColor = log(sampleColor + 1.0) / uColorLogScale;
                 
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
@@ -326,9 +333,6 @@ class WebGLRendererAdapter {
                             break;
                     }
                     
-                    // return (r.o.xyz / 30.0) + 0.5;
-                    // return 0.5 * (r.d.xyz + 1.0);
-                    
                     return total_color;
                 }`;
         return ret
@@ -341,6 +345,7 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         
         gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
+        gl.uniform1f(gl.getUniformLocation(this.tracerShaderProgram, "uColorLogScale"), this.colorLogScale);
         if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
             gl.uniform1i(gl.getUniformLocation(this.tracerShaderProgram, "uMaxBounceDepth"), this.renderer.maxRecursionDepth);
         

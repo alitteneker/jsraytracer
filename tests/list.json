@@ -10,6 +10,7 @@
     "refraction_path",
     "cornell_box",
     "cornell_box_path",
+    "cornell_box_emissive",
     "diamond",
     "utah_teapot",
     "cat",

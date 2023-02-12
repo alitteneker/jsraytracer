@@ -7,6 +7,26 @@ Math.range = function(start, stop, step = 1) {
     return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
 }
 
+function isPowerOf2(value) {
+    return (value & (value - 1)) === 0;
+}
+
+function clamp(a, min, max) {
+    return Math.min(Math.max(a, min), max);
+}
+
+
+// Code for QuickSelect/median
+function swap(arr, i, j) {
+    var tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+}
+
+function defaultCompare(a, b) {
+    return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function quickSelectStep(arr, k, left=0, right=arr.length-1, compare=defaultCompare) {
 
     while (right > left) {
@@ -59,20 +79,6 @@ function median(arr) {
     if (arr.length % 2 == 1)
         return quickSelect(arr, len2);
     return (quickSelect(arr, len2) + quickSelect(arr, len2 + 1)) / 2;
-}
-
-function swap(arr, i, j) {
-    var tmp = arr[i];
-    arr[i] = arr[j];
-    arr[j] = tmp;
-}
-
-function defaultCompare(a, b) {
-    return a < b ? -1 : a > b ? 1 : 0;
-}
-
-function clamp(a, min, max) {
-    return Math.min(Math.max(a, min), max);
 }
 
 // Much of this file was adapted from code written by Garett Ridge for the library tiny-graphics.js
@@ -280,24 +286,26 @@ class Mat extends Array {
         this.push(...new_value);
         return this;
     }
-    static flatten_2D_to_1D(M) {
-        let index = 0,
-            floats = new Float32Array(M.length && M.length * M[0].length);
-        for (let i = 0; i < M.length; i++)
-            for (let j = 0; j < M[i].length; j++) floats[index++] = M[i][j];
+    static flatten_2D_to_1D(M, transpose=false) {
+        const rows = M.length,
+              cols = rows && M[0].length,
+              floats = new Float32Array(rows * cols);
+        for (let i = 0; i < rows; i++)
+            for (let j = 0; j < cols; j++) 
+                floats[transpose ? (i + j * rows) : (i * cols + j)] = M[i][j];
         return floats;
     }
-    static mats_to_webgl(Ms) {
+    static mat_flat(M, transpose=false) {
+        return Mat.flatten_2D_to_1D(M, transpose);
+    }
+    static mats_flat(Ms, transpose=false) {
         let ret = [];
         for (let M of Ms)
-            ret.push(... M.to_webgl());
+            ret.push(... M.flat(transpose));
         return ret;
     }
-    static mat_to_webgl(M) {
-        return Mat.flatten_2D_to_1D(M);
-    }
-    to_webgl() {
-        return Mat4.mat_to_webgl(this);
+    flat(transpose=false) {
+        return Mat.mat_flat(this, transpose);
     }
     to_string() {
         return "[" + this.map((r, i) => "[" + r.join(", ") + "]").join(" ") + "]"
@@ -309,10 +317,10 @@ class Mat2 extends Mat {
         const det = m[0][0] * m[1][1] - m[0][1] * m[1][0];
 
         let ret = Mat.identity(2);
-        ret[0][0] = m[1][1] / det;
+        ret[0][0] =  m[1][1] / det;
         ret[0][1] = -m[0][1] / det;
         ret[1][0] = -m[1][0] / det;
-        ret[1][1] = m[0][0] / det;
+        ret[1][1] =  m[0][0] / det;
         return ret;
     }
 }

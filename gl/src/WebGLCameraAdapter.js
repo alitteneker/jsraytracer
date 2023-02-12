@@ -57,7 +57,7 @@ class WebGLCameraAdapter {
         return true;
     }
     writeCameraTransform(gl, program, transform) {
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.to_webgl());
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.flat());
     }
     getShaderSourceDeclarations() {
         return `

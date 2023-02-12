@@ -1,5 +1,6 @@
 class WebGLVecStore {
-    constructor(components=3) {
+    constructor(components=3, reuse=true) {
+        this.reuse = reuse;
         this.components = components;
         this.data_map = {};
         this.data = [];
@@ -9,20 +10,47 @@ class WebGLVecStore {
     }
     visit(vec) {
         vec = vec.slice(0, this.components);
+        if (!this.reuse) {
+            this.data.push(vec);
+            return this.data.length - 1;
+        }
         const key = vec.to_string();
-        if (key in this.data_map)
-            return this.data_map[key];
-        this.data_map[key] = this.data.length;
-        this.data.push(Array.of(...vec));
+        if (!(key in this.data_map)) {
+            this.data_map[key] = this.data.length;
+            this.data.push(vec);
+        }
         return this.data_map[key];
     }
     flat() {
-        return this.data.flat();
+        return this.data.reduce((acc, val) => acc.concat(...val), []);
     }
 }
 
-function isPowerOf2(value) {
-  return (value & (value - 1)) === 0;
+class WebGLTransformStore {
+    constructor(components=4, reuse=true) {
+        this.reuse = reuse;
+        this.components = components;
+        this.data_map = {};
+        this.data = [];
+    }
+    size() {
+        return this.data.length;
+    }
+    visit(mat) {
+        if (!this.reuse) {
+            this.data.push(mat);
+            return this.data.length - 1;
+        }
+        const key = mat.toString();
+        if (!(key in this.data_map)) {
+            this.data_map[key] = this.data.length;
+            this.data.push(mat);
+        }
+        return this.data_map[key];
+    }
+    flat(transpose=false) {
+        return Mat.mats_flat(this.data, transpose);
+    }
 }
 
 class WebGLHelper {
@@ -170,6 +198,20 @@ class WebGLHelper {
                 if (dot(dir, N) < 0.0)
                     return -dir;
                 return dir;
+            }
+            mat4 transformToAlignY(in vec4 R) {
+                mat4 space_transform = mat4(1.0);
+                for (int i = 0; i < 3; ++i) {
+                    vec4 axis = vec4(0.0);
+                    axis[i] = 1.0;
+                    if (1.0 - abs(dot(axis, R)) > EPSILON) {
+                        space_transform[0] = vec4(normalize(cross(axis.xyz, R.xyz)).xyz, 0);
+                        space_transform[1] = R;
+                        space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
+                        break;
+                    }
+                }
+                return space_transform;
             }
             
             float safePow(in float x, in float y) {

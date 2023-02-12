@@ -5,6 +5,7 @@ class WebGLSceneAdapter {
         [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
         
+        this.transform_store = new WebGLTransformStore();
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper),
             materials:  new WebGLMaterialsAdapter(webgl_helper),
@@ -18,20 +19,11 @@ class WebGLSceneAdapter {
         // deal with scene objects
         this.objects = [];
         this.inv_transforms = [];
-        const transform_ID_map = {}, object_id_index_map = {};
+        const object_id_index_map = {};
         for (let object of scene.objects) {
-            const transform_key = object.transform.toString();
-            let transformID = null;
-            if (transform_key in transform_ID_map)
-                transformID = transform_ID_map[transform_key];
-            else {
-                transformID = transform_ID_map[transform_key] = this.inv_transforms.length;
-                this.inv_transforms.push(object.inv_transform);
-            }
-            
             object_id_index_map[object.OBJECT_UID] = this.objects.length;
             this.objects.push({
-                transformID: transformID,
+                transformID: this.transform_store.visit(object.inv_transform),
                 geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
                 materialID:  this.adapters.materials.visit(object.material, webgl_helper),
                 does_cast_shadow:  object.does_cast_shadow
@@ -96,7 +88,7 @@ class WebGLSceneAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
         
         // write transforms
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, Mat.mats_to_webgl(this.inv_transforms));
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, this.transform_store.flat());
         
         // write geometry ids, material ids, transform ids, shadow flags
         webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
@@ -128,7 +120,7 @@ class WebGLSceneAdapter {
             uniform vec3 uBackgroundColor;
             uniform int uNumObjects;
 
-            uniform mat4 uObjectInverseTransforms[16];
+            uniform mat4 uObjectInverseTransforms[16]; // TODO: should safety check this
 
             uniform isampler2D uSceneObjects;
             
