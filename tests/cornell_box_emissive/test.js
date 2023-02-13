@@ -39,7 +39,7 @@ export function configureTest(callback) {
     const ceilingmaterial = new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4);
     objects.push(new SceneObject(
         new Square(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 1000),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 100),
         Mat4.translation([0,10.5,0]).times(Mat4.scale([2,1,2])).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     objects.push(new SceneObject(
         new UnitBox(),
@@ -70,7 +70,7 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new Scene(objects, lights), camera, 128, 10),
+            new Scene(objects, lights), camera, 128, 4),
         width:  600,
         height: 600
     });

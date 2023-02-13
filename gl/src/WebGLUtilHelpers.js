@@ -199,18 +199,28 @@ class WebGLHelper {
                     return -dir;
                 return dir;
             }
-            mat4 transformToAlignY(in vec4 R) {
-                mat4 space_transform = mat4(1.0);
+            vec4 getFurthestAxis(in vec4 R) {
+                vec4  best_axis = vec4(1,0,0,0);
+                float best_score = 1.0-abs(dot(R, best_axis));
                 for (int i = 0; i < 3; ++i) {
                     vec4 axis = vec4(0.0);
                     axis[i] = 1.0;
-                    if (1.0 - abs(dot(axis, R)) > EPSILON) {
-                        space_transform[0] = vec4(normalize(cross(axis.xyz, R.xyz)).xyz, 0);
-                        space_transform[1] = R;
-                        space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
-                        break;
+                    float score = 1.0-abs(dot(R, axis));
+                    if (score > best_score) {
+                        best_score = score;
+                        best_axis  = axis;
                     }
                 }
+                return best_axis;
+            }
+            mat4 transformToAlignY(in vec4 R) {
+                vec4 axis = getFurthestAxis(R);
+                
+                mat4 space_transform = mat4(1.0);
+                space_transform[0] = vec4(normalize(cross(axis.xyz, R.xyz)).xyz, 0);
+                space_transform[1] = R;
+                space_transform[2] = vec4(normalize(cross(R.xyz, space_transform[0].xyz)).xyz, 0);
+                
                 return space_transform;
             }
             

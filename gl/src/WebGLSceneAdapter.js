@@ -88,7 +88,7 @@ class WebGLSceneAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
         
         // write transforms
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uObjectInverseTransforms"), true, this.transform_store.flat());
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
         
         // write geometry ids, material ids, transform ids, shadow flags
         webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
@@ -120,7 +120,7 @@ class WebGLSceneAdapter {
             uniform vec3 uBackgroundColor;
             uniform int uNumObjects;
 
-            uniform mat4 uObjectInverseTransforms[16]; // TODO: should safety check this
+            uniform mat4 uTransforms[16]; // TODO: should safety check the size of this
 
             uniform isampler2D uSceneObjects;
             
@@ -134,13 +134,16 @@ class WebGLSceneAdapter {
                 ivec4 indices = itexelFetchByIndex(objectID, uSceneObjects);
                 return SceneObject(indices.r, indices.g, indices.b, bool(indices.a));
             }
+            mat4 getTransform(in int index) {
+                return uTransforms[index];
+            }
 
             // ---- Intersection ----
             float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
                 SceneObject obj = getSceneObjectIDs(objectID);
                 if (shadowFlag && !obj.castsShadow)
                     return minDistance - 1.0;
-                mat4 objectInverseTransform = uObjectInverseTransforms[obj.transform_id];
+                mat4 objectInverseTransform = getTransform(obj.transform_id);
                 return geometryIntersect(obj.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
 
@@ -256,7 +259,7 @@ class WebGLSceneAdapter {
             vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 SceneObject ids = getSceneObjectIDs(objectID);
                 GeometricMaterialData geomatdata;
-                mat4 inverseTransform = uObjectInverseTransforms[ids.transform_id];
+                mat4 inverseTransform = getTransform(ids.transform_id);
                 getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
                 return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
