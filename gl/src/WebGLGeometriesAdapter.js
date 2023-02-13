@@ -100,6 +100,7 @@ class WebGLGeometriesAdapter {
             }
             void squareMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 planeMaterialData(position, data);
+                data.UV += vec2(0.5);
             }
             
             

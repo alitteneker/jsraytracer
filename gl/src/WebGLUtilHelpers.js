@@ -11,18 +11,18 @@ class WebGLVecStore {
     visit(vec) {
         vec = vec.slice(0, this.components);
         if (!this.reuse) {
-            this.data.push(vec);
+            this.data.push(Array.from(vec));
             return this.data.length - 1;
         }
         const key = vec.to_string();
         if (!(key in this.data_map)) {
             this.data_map[key] = this.data.length;
-            this.data.push(vec);
+            this.data.push(Array.from(vec));
         }
         return this.data_map[key];
     }
     flat() {
-        return this.data.reduce((acc, val) => acc.concat(...val), []);
+        return this.data.flat();
     }
 }
 
@@ -165,17 +165,58 @@ class WebGLHelper {
     getShaderSource() {
         return `
             // Random functions
-            float randf(inout vec2 seed) {
+            
+            // A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
+            uint hash_uint( uint x ) {
+                x += ( x << 10u );
+                x ^= ( x >>  6u );
+                x += ( x <<  3u );
+                x ^= ( x >> 11u );
+                x += ( x << 15u );
+                return x;
+            }
+            
+            uint hash_uint( uvec2 v ) {
+                return hash_uint( v.x ^ hash_uint(v.y));
+            }
+
+            // Construct a float with half-open range [0:1] using low 23 bits.
+            // All zeroes yields 0.0, all ones yields the next smallest representable value below 1.0.
+            float floatConstruct( uint m ) {
+                const uint ieeeMantissa = 0x007FFFFFu; // binary32 mantissa bitmask
+                const uint ieeeOne      = 0x3F800000u; // 1.0 in IEEE binary32
+
+                m &= ieeeMantissa;                     // Keep only mantissa bits (fractional part)
+                m |= ieeeOne;                          // Add fractional part to 1.0
+
+                float  f = uintBitsToFloat( m );       // Range [1:2]
+                return f - 1.0;                        // Range [0:1]
+            }
+
+            float random_hash( vec2  v ) {
+                return floatConstruct( hash_uint( floatBitsToUint(v) ) );
+            }
+            
+            float random_fractsin(in vec2 seed) {
                 const float a = 12.9898;
                 const float b = 78.233;
                 const float c = 43758.5453;
                 
-                float dt= dot(seed.xy ,vec2(a,b));
-                float sn= mod(dt,3.14);
-                
-                seed += vec2(65.60358);
+                float dt = dot(seed.xy ,vec2(a,b));
+                float sn = mod(dt, PI);
                 
                 return fract(sin(sn) * c);
+            }
+            
+            float randf(inout vec2 seed) {
+                const float random_advance = 65.60358;
+                
+                float ret = random_hash(seed);
+                //float ret = random_fractsin(seed);
+                
+                seed += vec2(random_advance);
+                
+                return ret;
             }
             vec2 rand2f(inout vec2 seed) {
                 return vec2(randf(seed), randf(seed));

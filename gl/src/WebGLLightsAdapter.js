@@ -50,7 +50,7 @@ class WebGLLightsAdapter {
     }
     getShaderSource() {
         return `
-            #define MAX_LIGHTS ${Math.max(1, this.lights_data.length)}
+            #define MAX_LIGHTS ${Math.max(3, this.lights_data.length)}
             uniform int  uLightTypes[MAX_LIGHTS];
             uniform vec3 uLightColors[MAX_LIGHTS];
             uniform mat4 uLightTransforms[MAX_LIGHTS];

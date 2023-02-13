@@ -120,7 +120,7 @@ class WebGLMaterialsAdapter {
         }
         return `
             uniform sampler2D umTextures [${ Math.max(1, this.textures.length)       }];
-            uniform ivec3 umSpecialColors[${ Math.max(1, this.special_colors.length) }];
+            uniform ivec3 umSpecialColors[${ Math.max(4, this.special_colors.length) }];
             uniform  sampler2D umMaterialColors;
             uniform isampler2D umMaterialIndices;
 
