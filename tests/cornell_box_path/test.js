@@ -16,9 +16,9 @@ export function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(),
         new PhongPathTracingMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0.1,0.1,0.1)),
             //Vec.of(0.1,0.1,1),
-                0, 0.4),
+                0, 0.4, 0.4, 10),
         Mat4.rotation(Math.PI/2, Vec.of(1,0,0))));
     // back wall
     objects.push(new SceneObject(
@@ -61,11 +61,11 @@ export function configureTest(callback) {
     // objects
     objects.push(new SceneObject(
         new Sphere(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.2, 0, 100),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.1, 0.8, 10),
         Mat4.translation([1, 2, -1]).times(Mat4.scale(2))));
     objects.push(new SceneObject(
         new Sphere(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.2, 0, 100),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.1, 0.9, 10, 2),
         Mat4.translation([-2, 1, 1.5])));
 
     callback({

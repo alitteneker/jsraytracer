@@ -16,7 +16,7 @@ export function configureTest(callback) {
     objects.push(new SceneObject(
         new Plane(),
         new PhongMaterial(
-            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0.1,0.1,0.1)),
                 0.1, 0.4),
         Mat4.rotation(Math.PI/2, Vec.of(1,0,0))));
     // back wall

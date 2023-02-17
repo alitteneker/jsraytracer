@@ -258,7 +258,7 @@ class WebGLMaterialsAdapter {
             bool diffuseScatter(in vec4 N, in PhongMaterialParameters matParams,
                 inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
             {
-                outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 1));
+                outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 0));
                 outColor = matParams.diffuse;
                 return true;
             }
@@ -338,18 +338,21 @@ class WebGLMaterialsAdapter {
                 }
                 
                 // reflection/refraction
-                if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
+                if (kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
                     nextRays.reflectionProbability = kr;
                     if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed))
                         nextRays.reflectionColor *= matParams.reflectivity;
-                    else
-                        return vec3(1, 0, 0.5);
                 }
-                if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
+                if (kr < 1.0 && normSquared(refractionDirection) > 0.0) {
                     nextRays.refractionProbability = 1.0 - kr;
                     if (samplePhongScatter(refractionDirection, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed))
                         nextRays.refractionColor *= matParams.transmissivity;
-                } // TODO: how do we reason about transmissivity?
+                }
+                else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
+                    nextRays.refractionProbability = 1.0;
+                    if (samplePhongScatter(rd, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed))
+                        nextRays.refractionColor *= matParams.transmissivity;
+                }
                 
                 return totalColor;
             }

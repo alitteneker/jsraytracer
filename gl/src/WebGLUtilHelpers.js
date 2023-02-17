@@ -148,7 +148,17 @@ class WebGLHelper {
             precision highp int;
             precision highp float;
             precision highp isampler2D;
-        
+            
+            float normSquared(in vec2 v);
+            float normSquared(in vec3 v);
+            float normSquared(in vec4 v);
+            float sum(in vec2 v);
+            float sum(in vec3 v);
+            float sum(in vec4 v);
+            float average(in vec2 v);
+            float average(in vec3 v);
+            float average(in vec4 v);
+            
             float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
@@ -168,12 +178,12 @@ class WebGLHelper {
             float normSquared(in vec2 v) { return dot(v, v); }
             float normSquared(in vec3 v) { return dot(v, v); }
             float normSquared(in vec4 v) { return dot(v, v); }
-            float sum(in vec2 v) { return dot(v, vec2(1)); }
-            float sum(in vec3 v) { return dot(v, vec3(1)); }
-            float sum(in vec4 v) { return dot(v, vec4(1)); }
-            float average(in vec2 v) { return sum(v) / 2.0; }
-            float average(in vec3 v) { return sum(v) / 3.0; }
-            float average(in vec4 v) { return sum(v) / 4.0; }
+            float sum(in vec2 v)         { return dot(v, vec2(1)); }
+            float sum(in vec3 v)         { return dot(v, vec3(1)); }
+            float sum(in vec4 v)         { return dot(v, vec4(1)); }
+            float average(in vec2 v)     { return sum(v) / 2.0; }
+            float average(in vec3 v)     { return sum(v) / 3.0; }
+            float average(in vec4 v)     { return sum(v) / 4.0; }
         
         
             // Random functions

@@ -298,41 +298,55 @@ class WebGLRendererAdapter {
                         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
                         total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
                         
-                        if (intersect_positon.w == 0.0)
+                        if (intersect_positon.w == 0.0) {
+                            // return vec3(1.0 / (float(i) + 1.0),0,0);
                             break;
-                        
-                        bool do_next_ray = false;
-                        float next_ray_probability_sample = randf(random_seed);
-                        
-                        next_ray_probability_sample -= nextRays.reflectionProbability;
-                        if (next_ray_probability_sample <= 0.0
-                            && dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON)
-                        {
-                            if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
-                                return vec3(1.0, 0.0, 0.5);
-                            if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
-                                return vec3(0.0, 1.0, 0.5);
-                            
-                            r = Ray(intersect_positon, nextRays.reflectionDirection);
-                            attenuation_color *= nextRays.reflectionColor;
-                            do_next_ray = true;
                         }
                         
-                        else {
-                            next_ray_probability_sample -= nextRays.refractionProbability;
+                        bool do_next_ray = false;
+
+                        
+                        float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.refractionProbability;
+                        if (next_ray_probability_sum > 0.0) {
+                        
+                            float next_ray_probability_sample = randf(random_seed) / min(next_ray_probability_sum, 1.0);
+                            
+                            next_ray_probability_sample -= nextRays.reflectionProbability;
                             if (next_ray_probability_sample <= 0.0
-                                && dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON)
+                                && normSquared(nextRays.reflectionDirection) > EPSILON)
                             {
-                                r = Ray(intersect_positon, nextRays.refractionDirection);
-                                attenuation_color *= nextRays.refractionColor;
+                                if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
+                                    return vec3(1.0, 0.0, 0.5);
+                                if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
+                                    return vec3(0.0, 1.0, 0.5);
+                                
+                                r = Ray(intersect_positon, nextRays.reflectionDirection);
+                                attenuation_color *= nextRays.reflectionColor;
                                 do_next_ray = true;
+                                
+                                // return (nextRays.reflectionDirection.xyz + vec3(1.0)) / 2.0;
+                                // return nextRays.reflectionColor;
+                            }
+                            
+                            else {
+                                next_ray_probability_sample -= nextRays.refractionProbability;
+                                if (next_ray_probability_sample <= 0.0
+                                    && normSquared(nextRays.refractionDirection) > EPSILON)
+                                {
+                                    r = Ray(intersect_positon, nextRays.refractionDirection);
+                                    attenuation_color *= nextRays.refractionColor;
+                                    do_next_ray = true;
+                                }
                             }
                         }
                         
-                        if (!do_next_ray)
+                        if (!do_next_ray) {
+                            // return vec3(0, 1.0 / (float(i) + 1.0), 0);
                             break;
+                        }
                     }
                     
+                    // return vec3(0, 0, 1.0 / (float(uMaxBounceDepth) + 1.0));
                     return total_color;
                 }`;
         return ret
