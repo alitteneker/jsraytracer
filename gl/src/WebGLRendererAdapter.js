@@ -299,7 +299,6 @@ class WebGLRendererAdapter {
                         total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
                         
                         if (intersect_positon.w == 0.0) {
-                            // return vec3(1.0 / (float(i) + 1.0),0,0);
                             break;
                         }
                         
@@ -323,9 +322,6 @@ class WebGLRendererAdapter {
                                 r = Ray(intersect_positon, nextRays.reflectionDirection);
                                 attenuation_color *= nextRays.reflectionColor;
                                 do_next_ray = true;
-                                
-                                // return (nextRays.reflectionDirection.xyz + vec3(1.0)) / 2.0;
-                                // return nextRays.reflectionColor;
                             }
                             
                             else {
@@ -341,12 +337,10 @@ class WebGLRendererAdapter {
                         }
                         
                         if (!do_next_ray) {
-                            // return vec3(0, 1.0 / (float(i) + 1.0), 0);
                             break;
                         }
                     }
                     
-                    // return vec3(0, 0, 1.0 / (float(uMaxBounceDepth) + 1.0));
                     return total_color;
                 }`;
         return ret

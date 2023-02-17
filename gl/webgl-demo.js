@@ -6,6 +6,9 @@ $(document).ready(function() {
     const console_output = $('#console_output');
     const loading_spinner = $("#loading-img");
     const fps_div = $('#fps-display');
+    
+    $("#control-panel").accordion({ collapsible:true, active: false });
+    $(".control-group").controlgroup();
 
     const fovSlider = $('#fov-range');
     const focusSlider = $('#focus-distance');

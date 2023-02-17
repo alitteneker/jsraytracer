@@ -14,6 +14,11 @@ output {
     display: inline-block;
 }
 
+.control-group {
+    width: 100%;
+    align-items: center;
+}
+
 #console_output {
     font-family: monospace;
     max-height: 150px;
