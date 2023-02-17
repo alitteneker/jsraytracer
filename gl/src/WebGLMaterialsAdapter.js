@@ -57,26 +57,22 @@ class WebGLMaterialsAdapter {
         
         const material_data = {};
         if (material instanceof PhongMaterial) {
-            material_data.ambient_id         = this.visitMaterialColor(material.ambient,      webgl_helper);
-            material_data.diffuse_id         = this.visitMaterialColor(material.diffusivity,  webgl_helper);
-            material_data.specular_id        = this.visitMaterialColor(material.specularity,  webgl_helper);
-            material_data.reflectivity_id    = this.visitMaterialColor(material.reflectivity, webgl_helper);
+            material_data.ambient_id         = this.visitMaterialColor(material.ambient,        webgl_helper);
+            material_data.diffuse_id         = this.visitMaterialColor(material.diffusivity,    webgl_helper);
+            material_data.specular_id        = this.visitMaterialColor(material.specularity,    webgl_helper);
+            material_data.reflectivity_id    = this.visitMaterialColor(material.reflectivity,   webgl_helper);
+            material_data.transmissivity_id  = this.visitMaterialColor(material.transmissivity, webgl_helper);
             material_data.specularFactor_id  = this.visitMaterialScalar(material.smoothness);
             if (material instanceof FresnelPhongMaterial) {
                 material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(material.refractiveIndexRatio);
-                if (material instanceof PhongPathTracingMaterial) {
-                    material_data.pathSmoothness_id    = this.visitMaterialScalar(material.pathSmoothness);
-                    material_data.bounceProbability_id = this.visitMaterialScalar(material.bounceProbability);
-                }
-                else {
-                    material_data.pathSmoothness_id    = this.visitMaterialScalar(Infinity);
-                    material_data.bounceProbability_id = this.visitMaterialScalar(1.0);
-                }
+                if (material instanceof PhongPathTracingMaterial)
+                    material_data.mirrorProbability_id = this.visitMaterialScalar(material.mirrorProbability);
+                else
+                    material_data.mirrorProbability_id = this.visitMaterialScalar(1.0);
             }
             else {
                 material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(Infinity);
-                material_data.pathSmoothness_id        = this.visitMaterialScalar(Infinity);
-                material_data.bounceProbability_id     = this.visitMaterialScalar(1.0);
+                material_data.mirrorProbability_id     = this.visitMaterialScalar(1.0);
             }
         }
         else
@@ -94,10 +90,10 @@ class WebGLMaterialsAdapter {
                                          "diffuse_id",
                                          "specular_id",
                                          "reflectivity_id",
+                                         "transmissivity_id",
                                          "specularFactor_id",
                                          "refractiveIndexRatio_id",
-                                         "pathSmoothness_id",
-                                         "bounceProbability_id"].map(k => m[k])]).flat());
+                                         "mirrorProbability_id"].map(k => m[k])]).flat());
         
         if (this.special_colors.length)
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
@@ -158,23 +154,23 @@ class WebGLMaterialsAdapter {
                 vec3 diffuse;
                 vec3 specular;
                 vec3 reflectivity;
+                vec3 transmissivity;
                 float specularFactor;
                 float refractiveIndexRatio;
-                float pathSmoothness;
-                float bounceProbability;
+                float mirrorProbability;
             };
             
             void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
                 ivec4 mat_ind_1 = itexelFetchByIndex(materialID * 2    , umMaterialIndices),
                       mat_ind_2 = itexelFetchByIndex(materialID * 2 + 1, umMaterialIndices);
-                matParams.ambient              = getMaterialColor(mat_ind_1.r, geodata.UV);
-                matParams.diffuse              = getMaterialColor(mat_ind_1.g, geodata.UV);
-                matParams.specular             = getMaterialColor(mat_ind_1.b, geodata.UV);
-                matParams.reflectivity         = getMaterialColor(mat_ind_1.a, geodata.UV);
-                matParams.specularFactor       = getMaterialColor(mat_ind_2.r, geodata.UV).r;
-                matParams.refractiveIndexRatio = getMaterialColor(mat_ind_2.g, geodata.UV).r;
-                matParams.pathSmoothness       = getMaterialColor(mat_ind_2.b, geodata.UV).r;
-                matParams.bounceProbability    = getMaterialColor(mat_ind_2.a, geodata.UV).r;
+                matParams.ambient              = getMaterialColor(mat_ind_1[0], geodata.UV);
+                matParams.diffuse              = getMaterialColor(mat_ind_1[1], geodata.UV);
+                matParams.specular             = getMaterialColor(mat_ind_1[2], geodata.UV);
+                matParams.reflectivity         = getMaterialColor(mat_ind_1[3], geodata.UV);
+                matParams.transmissivity       = getMaterialColor(mat_ind_2[0], geodata.UV);
+                matParams.specularFactor       = getMaterialColor(mat_ind_2[1], geodata.UV).r;
+                matParams.refractiveIndexRatio = getMaterialColor(mat_ind_2[2], geodata.UV).r;
+                matParams.mirrorProbability    = getMaterialColor(mat_ind_2[3], geodata.UV).r;
             }
             
             void computeRefractionParameters(in vec4 V, in vec4 N, in float vdotn, in float refractiveIndexRatio, in bool backside,
@@ -212,33 +208,15 @@ class WebGLMaterialsAdapter {
                 }
             }
             
-            
-            void samplePhongScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,
+            bool glossyScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,
                 inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
             {
-                // perfect reflection
-                if (isinf(matParams.pathSmoothness)) {
+                outColor = matParams.specular;
+                if (isinf(matParams.specularFactor)) {
                     outDirection = R;
-                    outColor = matParams.reflectivity;
-                    return;
+                    return true;
                 }
                 
-                // diffuse reflection
-                /* if some diffuse  */ {
-                    outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 0));
-                    outColor = matParams.diffuse;
-                    return;
-                }
-                
-                // specular reflection
-                outColor = matParams.reflectivity * matParams.specular;
-                
-                // if the path specular factor is zero, this will be just about equivalent, and much more efficient
-                if (matParams.pathSmoothness <= 0.0) {
-                    outDirection = normalize(vec4(randomHemispherePoint(N.xyz, random_seed), 0));
-                    return;
-                }
-
                 // Compute a space transform from local space to world space using R and another random base vector
                 mat4 space_transform = transformToAlignY(R);
 
@@ -248,23 +226,20 @@ class WebGLMaterialsAdapter {
                 
                 // phi is harder: many possibly options may point away from the normal (through the material) if we're not careful
                 // This can lead to light leaks/black spots in surfaces if we can't prevent it.
-                float minRand = 0.0;
-                if (matParams.pathSmoothness > 0.0) {
-                    vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
-                    vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
-                    
-                    // So, to combat this, we first compute the maximum value phi can have before something breaks
-                    vec4 phiN = (1.0 - abs(dot(right, N)) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
-                    if (dot(phiN, forward) < -EPSILON)
-                        phiN = -1.0 * phiN;
-                    float maxPhi = acos(max(dot(R, phiN), 0.0));
-                    
-                    // then we use that to compute the minimum usable random value allowable
-                    minRand = pow(cos(maxPhi - EPSILON), matParams.pathSmoothness + 1.0);
-                }
+                vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
+                vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
+                
+                // So, to combat this, we first compute the maximum value phi can have before something breaks
+                vec4 phiN = (1.0 - abs(dot(right, N)) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
+                if (dot(phiN, forward) < -EPSILON)
+                    phiN = -1.0 * phiN;
+                float maxPhi = acos(max(dot(R, phiN), 0.0));
+                
+                // then we use that to compute the minimum usable random value allowable
+                float minRand = pow(cos(maxPhi - EPSILON), matParams.specularFactor + 1.0);
                 
                 // finally generate a random number in the safe range
-                float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (matParams.pathSmoothness + 1.0)));
+                float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (matParams.specularFactor + 1.0)));
 
                 // convert spherical to local Cartesian, then to world space
                 float sin_phi = sin(phi), cos_phi = cos(phi);
@@ -277,6 +252,36 @@ class WebGLMaterialsAdapter {
                 // R is very close to N. In that case, just return R.
                 if (dot(outDirection, N) < 0.0)
                     outDirection = R;
+                
+                return true;
+            }
+            bool diffuseScatter(in vec4 N, in PhongMaterialParameters matParams,
+                inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
+            {
+                outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 1));
+                outColor = matParams.diffuse;
+                return true;
+            }
+            bool samplePhongScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,
+                inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
+            {
+                if (randf(random_seed) < matParams.mirrorProbability) {
+                    outDirection = R;
+                    outColor = vec3(1.0);
+                    return true;
+                }
+
+                float diffuseProb  = average(matParams.diffuse),
+                      specularProb = average(matParams.specular);
+                float probSum = diffuseProb + specularProb;
+                
+                if (probSum < EPSILON)
+                    return false;
+                
+                if (randf(random_seed) < (diffuseProb / probSum))
+                    return diffuseScatter(N, matParams, outDirection, outColor, random_seed);
+                
+                return glossyScatter(R, N, matParams, outDirection, outColor, random_seed);
             }
             
             vec3 phongBDRF(in vec4 N, in vec4 R, in vec4 lightDir, in float kr, in vec4 refractionDir, in PhongMaterialParameters matParams) {
@@ -293,7 +298,7 @@ class WebGLMaterialsAdapter {
                     specular += (1.0 - kr) * -ldotn * safePow(max(dot(L, refractionDir), 0.0), matParams.specularFactor);
                 }
                 
-                return diffuse * matParams.diffuse /* / PI */ + specular * matParams.specular; //* (matParams.specularFactor + 1.0) / (2.0 * PI);
+                return diffuse * matParams.diffuse + specular * matParams.specular;
             }
             
             vec3 computePhongMaterialColor(in PhongMaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
@@ -333,16 +338,18 @@ class WebGLMaterialsAdapter {
                 }
                 
                 // reflection/refraction
-                if (true) { //matParams.bounceProbability > 0.0 && (matParams.bounceProbability >= 1.0 || randf(random_seed) <= matParams.bounceProbability)) {
-                    if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
-                        nextRays.reflectionProbability = kr;
-                        samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed);
-                    }
-                    if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
-                        nextRays.refractionProbability = 1.0 - kr;
-                        samplePhongScatter(refractionDirection, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed);
-                    }
+                if (kr > 0.0 && dot(matParams.reflectivity, matParams.reflectivity) > 0.0) {
+                    nextRays.reflectionProbability = kr;
+                    if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed))
+                        nextRays.reflectionColor *= matParams.reflectivity;
+                    else
+                        return vec3(1, 0, 0.5);
                 }
+                if (kr < 1.0 && dot(refractionDirection, refractionDirection) > 0.0) {
+                    nextRays.refractionProbability = 1.0 - kr;
+                    if (samplePhongScatter(refractionDirection, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed))
+                        nextRays.refractionColor *= matParams.transmissivity;
+                } // TODO: how do we reason about transmissivity?
                 
                 return totalColor;
             }

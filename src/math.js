@@ -93,8 +93,17 @@ class Vec extends Float32Array {
     }
     static circlePick() {
         const a = Math.random() * 2 * Math.PI,
-            r = Math.sqrt(Math.random());
+              r = Math.sqrt(Math.random());
         return Vec.of(r * Math.cos(a), r * Math.sin(a));
+    }
+    static spherePick() {
+        const theta = 2.0 * Math.PI * Math.random(),
+            phi = Math.acos(2.0 * Math.random() - 1.0);
+        const sin_phi = Math.sin(phi);
+        return Vec.of(
+            Math.cos(theta) *      sin_phi,
+                              Math.cos(phi),
+            Math.sin(theta) *      sin_phi);
     }
     equals(b) {
         return this.every((x, i) => x == b[i])
@@ -153,6 +162,12 @@ class Vec extends Float32Array {
         }, 0);
         // Assume a minimum length of 2.
         return this[0] * b[0] + this[1] * b[1];
+    }
+    sum() {
+        return this.reduce((acc, x, i) => { return acc + x }, 0);
+    }
+    average() {
+        return this.sum() / this.length;
     }
     // For avoiding repeatedly typing Vec.of in lists.
     static cast(...args) {
@@ -360,7 +375,7 @@ class Mat4 extends Mat {
                 [x * z * omc - y * s, y * z * omc + x * s, z * z * omc + c,     0],
                 [0, 0, 0, 1]);
     }
-    // Requires a 3x1 Vec.
+    // Requires a 3x1 Vec or single scalar.
     static scale(s) {
         if (typeof s === "number")
             s = [s, s, s];

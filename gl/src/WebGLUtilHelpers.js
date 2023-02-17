@@ -164,6 +164,18 @@ class WebGLHelper {
     }
     getShaderSource() {
         return `
+            // Utility Functions
+            float normSquared(in vec2 v) { return dot(v, v); }
+            float normSquared(in vec3 v) { return dot(v, v); }
+            float normSquared(in vec4 v) { return dot(v, v); }
+            float sum(in vec2 v) { return dot(v, vec2(1)); }
+            float sum(in vec3 v) { return dot(v, vec3(1)); }
+            float sum(in vec4 v) { return dot(v, vec4(1)); }
+            float average(in vec2 v) { return sum(v) / 2.0; }
+            float average(in vec3 v) { return sum(v) / 3.0; }
+            float average(in vec4 v) { return sum(v) / 4.0; }
+        
+        
             // Random functions
             
             // A single iteration of Bob Jenkins' One-At-A-Time hashing algorithm.
@@ -243,7 +255,7 @@ class WebGLHelper {
             vec4 getFurthestAxis(in vec4 R) {
                 vec4  best_axis = vec4(1,0,0,0);
                 float best_score = 1.0-abs(dot(R, best_axis));
-                for (int i = 0; i < 3; ++i) {
+                for (int i = 1; i < 3; ++i) {
                     vec4 axis = vec4(0.0);
                     axis[i] = 1.0;
                     float score = 1.0-abs(dot(R, axis));

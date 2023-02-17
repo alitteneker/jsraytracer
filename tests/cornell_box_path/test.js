@@ -61,11 +61,11 @@ export function configureTest(callback) {
     // objects
     objects.push(new SceneObject(
         new Sphere(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4, 0.6, 100, Infinity, 0),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.2, 0, 100),
         Mat4.translation([1, 2, -1]).times(Mat4.scale(2))));
     objects.push(new SceneObject(
         new Sphere(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4, 0.6, 100, Infinity, 0),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.2, 0, 100),
         Mat4.translation([-2, 1, 1.5])));
 
     callback({
