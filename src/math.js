@@ -403,10 +403,10 @@ class Mat4 extends Mat {
         const mats = {
             X: ax ? Mat4.rotationX(ax) : null,
             Y: ay ? Mat4.rotationY(ay) : null,
-            Z: az ? Mat4.rotationZ(az) : null,
+            Z: az ? Mat4.rotationZ(az) : null
         };
         let ret = Mat4.identity();
-        for (let k of order.split(''))
+        for (let k of order.split('').reverse())
             if (mats[k])
                 ret = mats[k].times(ret);
         return ret;
