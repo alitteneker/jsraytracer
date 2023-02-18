@@ -368,13 +368,140 @@ class Mat4 extends Mat {
     };
     // Requires a scalar (angle) and a 3x1 Vec (axis)
     static rotation(angle, axis) {
-            let [x, y, z] = axis.normalized(), [c, s] = [Math.cos(angle), Math.sin(angle)], omc = 1.0 - c;
-            return Mat.of(
-                [x * x * omc + c,     x * y * omc - z * s, x * z * omc + y * s, 0],
-                [x * y * omc + z * s, y * y * omc + c,     y * z * omc - x * s, 0],
-                [x * z * omc - y * s, y * z * omc + x * s, z * z * omc + c,     0],
-                [0, 0, 0, 1]);
+        let [x, y, z] = axis.normalized(), [c, s] = [Math.cos(angle), Math.sin(angle)], omc = 1.0 - c;
+        return Mat.of(
+            [x * x * omc + c,     x * y * omc - z * s, x * z * omc + y * s, 0],
+            [x * y * omc + z * s, y * y * omc + c,     y * z * omc - x * s, 0],
+            [x * z * omc - y * s, y * z * omc + x * s, z * z * omc + c,     0],
+            [0, 0, 0, 1]);
     }
+    static rotationX(angle) {
+        const [c, s] = [Math.cos(angle), Math.sin(angle)];
+        return Mat.of(
+            [1, 0,  0, 0],
+            [0, c, -s, 0],
+            [0, s,  c, 0],
+            [0, 0,  0, 1]);
+    }
+    static rotationY(angle) {
+        const [c, s] = [Math.cos(angle), Math.sin(angle)];
+        return Mat.of(
+            [ c, 0, s, 0],
+            [ 0, 1, 0, 0],
+            [-s, 0, c, 0],
+            [ 0, 0, 0, 1]);
+    }
+    static rotationZ(angle) {
+        const [c, s] = [Math.cos(angle), Math.sin(angle)];
+        return Mat.of(
+            [c, -s, 0, 0],
+            [s,  c, 0, 0],
+            [0,  0, 1, 0],
+            [0,  0, 0, 1]);
+    }
+    static eulerRotation(ax, ay, az, order="YXZ") {
+        const mats = {
+            X: ax ? Mat4.rotationX(ax) : null,
+            Y: ay ? Mat4.rotationY(ay) : null,
+            Z: az ? Mat4.rotationZ(az) : null,
+        };
+        let ret = Mat4.identity();
+        for (let k of order.split(''))
+            if (mats[k])
+                ret = mats[k].times(ret);
+        return ret;
+    }
+    
+    static getEulerAngles(m, order="YXZ") {
+        const EPSILON = 0.0000001;
+        
+        const m11 = m[0][0], m12 = m[0][1], m13 = m[0][2],
+              m21 = m[1][0], m22 = m[1][1], m23 = m[1][2],
+              m31 = m[2][0], m32 = m[2][1], m33 = m[2][2];
+
+        const ret = [0, 0, 0];
+
+        switch ( order ) {
+
+            case 'XYZ':
+                ret[1] = Math.asin( clamp( m13, - 1, 1 ) );
+                if ( Math.abs( m13 ) < 1-EPSILON ) {
+                    ret[0] = Math.atan2( - m23, m33 );
+                    ret[2] = Math.atan2( - m12, m11 );
+                }
+                else {
+                    ret[0] = Math.atan2( m32, m22 );
+                    ret[2] = 0;
+                }
+                break;
+
+            case 'YXZ':
+                ret[0] = Math.asin( - clamp( m23, - 1, 1 ) );
+                if ( Math.abs( m23 ) < 1-EPSILON ) {
+                    ret[1] = Math.atan2( m13, m33 );
+                    ret[2] = Math.atan2( m21, m22 );
+                }
+                else {
+                    ret[1] = Math.atan2( - m31, m11 );
+                    ret[2] = 0;
+                }
+                break;
+
+            case 'ZXY':
+                ret[0] = Math.asin( clamp( m32, - 1, 1 ) );
+                if ( Math.abs( m32 ) < 1-EPSILON ) {
+                    ret[1] = Math.atan2( - m31, m33 );
+                    ret[2] = Math.atan2( - m12, m22 );
+                }
+                else {
+                    ret[1] = 0;
+                    ret[2] = Math.atan2( m21, m11 );
+                }
+                break;
+
+            case 'ZYX':
+                ret[1] = Math.asin( - clamp( m31, - 1, 1 ) );
+                if ( Math.abs( m31 ) < 1-EPSILON ) {
+                    ret[0] = Math.atan2( m32, m33 );
+                    ret[2] = Math.atan2( m21, m11 );
+                }
+                else {
+                    ret[0] = 0;
+                    ret[2] = Math.atan2( - m12, m22 );
+                }
+                break;
+
+            case 'YZX':
+                ret[2] = Math.asin( clamp( m21, - 1, 1 ) );
+                if ( Math.abs( m21 ) < 1-EPSILON ) {
+                    ret[0] = Math.atan2( - m23, m22 );
+                    ret[1] = Math.atan2( - m31, m11 );
+                }
+                else {
+                    ret[0] = 0;
+                    ret[1] = Math.atan2( m13, m33 );
+                }
+                break;
+
+            case 'XZY':
+                ret[2] = Math.asin( - clamp( m12, - 1, 1 ) );
+                if ( Math.abs( m12 ) < 1-EPSILON ) {
+                    ret[0] = Math.atan2( m32, m22 );
+                    ret[1] = Math.atan2( m13, m11 );
+                }
+                else {
+                    ret[0] = Math.atan2( - m23, m33 );
+                    ret[1] = 0;
+                }
+                break;
+            
+            default:
+                throw "Unsupported Euler angle order";
+        }
+        
+        return ret;
+    }
+
     // Requires a 3x1 Vec or single scalar.
     static scale(s) {
         if (typeof s === "number")

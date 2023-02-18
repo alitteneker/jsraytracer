@@ -16,7 +16,7 @@ output {
 
 .control-group {
     width: 100%;
-    align-items: center;
+    box-sizing: border-box;
 }
 
 #console_output {
