@@ -399,7 +399,69 @@ class Mat4 extends Mat {
             [0,  0, 1, 0],
             [0,  0, 0, 1]);
     }
-    static eulerRotation(ax, ay, az, order="YXZ") {
+
+    // Requires a 3x1 Vec or single scalar.
+    static scale(s) {
+        if (typeof s === "number")
+            s = [s, s, s];
+        return Mat.of([s[0], 0, 0, 0], [0, s[1], 0, 0], [0, 0, s[2], 0], [0, 0, 0, 1]);
+    }
+    // Requires a 3x1 Vec.
+    static translation(t) {
+        return Mat.of([1, 0, 0, t[0]], [0, 1, 0, t[1]], [0, 0, 1, t[2]], [0, 0, 0, 1]);
+    }
+    // Note:  look_at() assumes the result will be used for a camera and stores its result in inverse space.  You can also use
+    // it to point the basis of any *object* towards anything but you must re-invert it first.  Each input must be 3x1 Vec.                         
+    static look_at(eye, at, up) {
+        let z = at.minus(eye).normalized(),
+            x = z.cross(up).normalized(), // Compute vectors along the requested coordinate axes.
+            y = x.cross(z).normalized(); // This is the "updated" and orthogonalized local y axis.
+        if (!x.every(i => i == i)) // Check for NaN, indicating a degenerate cross product, which
+            throw "Two parallel vectors were given"; // happens if eye == at, or if at minus eye is parallel to up.
+        z.scale(-1); // Enforce right-handed coordinate system.                                   
+        return Mat4.translation([-x.dot(eye), -y.dot(eye), -z.dot(eye)])
+            .times(Mat.of(x.to4(0), y.to4(0), z.to4(0), Vec.of(0, 0, 0, 1)));
+    }
+    // Box-shaped view volume for projection.
+    static orthographic(left, right, bottom, top, near, far) {
+        return Mat4.scale(Vec.of(1 / (right - left), 1 / (top - bottom), 1 / (far - near)))
+            .times(Mat4.translation(Vec.of(-left - right, -top - bottom, -near - far)))
+            .times(Mat4.scale(Vec.of(2, 2, -2)));
+    }
+    // Frustum-shaped view volume for projection.
+    static perspective(fov_y, aspect, near, far) {
+        const f = 1 / Math.tan(fov_y / 2),
+            d = far - near;
+        return Mat.of([f / aspect, 0, 0, 0], [0, f, 0, 0], [0, 0, -(near + far) / d, -2 * near * far / d], [0, 0, -1, 0]);
+    }
+    // Computing a 4x4 inverse is slow because of the amount of steps; call fewer times when possible.
+    static inverse(m) {
+        const result = Mat4.identity(),
+            m00 = m[0][0], m01 = m[0][1], m02 = m[0][2], m03 = m[0][3],
+            m10 = m[1][0], m11 = m[1][1], m12 = m[1][2], m13 = m[1][3],
+            m20 = m[2][0], m21 = m[2][1], m22 = m[2][2], m23 = m[2][3],
+            m30 = m[3][0], m31 = m[3][1], m32 = m[3][2], m33 = m[3][3];
+        result[0][0] = m12 * m23 * m31 - m13 * m22 * m31 + m13 * m21 * m32 - m11 * m23 * m32 - m12 * m21 * m33 + m11 * m22 * m33;
+        result[0][1] = m03 * m22 * m31 - m02 * m23 * m31 - m03 * m21 * m32 + m01 * m23 * m32 + m02 * m21 * m33 - m01 * m22 * m33;
+        result[0][2] = m02 * m13 * m31 - m03 * m12 * m31 + m03 * m11 * m32 - m01 * m13 * m32 - m02 * m11 * m33 + m01 * m12 * m33;
+        result[0][3] = m03 * m12 * m21 - m02 * m13 * m21 - m03 * m11 * m22 + m01 * m13 * m22 + m02 * m11 * m23 - m01 * m12 * m23;
+        result[1][0] = m13 * m22 * m30 - m12 * m23 * m30 - m13 * m20 * m32 + m10 * m23 * m32 + m12 * m20 * m33 - m10 * m22 * m33;
+        result[1][1] = m02 * m23 * m30 - m03 * m22 * m30 + m03 * m20 * m32 - m00 * m23 * m32 - m02 * m20 * m33 + m00 * m22 * m33;
+        result[1][2] = m03 * m12 * m30 - m02 * m13 * m30 - m03 * m10 * m32 + m00 * m13 * m32 + m02 * m10 * m33 - m00 * m12 * m33;
+        result[1][3] = m02 * m13 * m20 - m03 * m12 * m20 + m03 * m10 * m22 - m00 * m13 * m22 - m02 * m10 * m23 + m00 * m12 * m23;
+        result[2][0] = m11 * m23 * m30 - m13 * m21 * m30 + m13 * m20 * m31 - m10 * m23 * m31 - m11 * m20 * m33 + m10 * m21 * m33;
+        result[2][1] = m03 * m21 * m30 - m01 * m23 * m30 - m03 * m20 * m31 + m00 * m23 * m31 + m01 * m20 * m33 - m00 * m21 * m33;
+        result[2][2] = m01 * m13 * m30 - m03 * m11 * m30 + m03 * m10 * m31 - m00 * m13 * m31 - m01 * m10 * m33 + m00 * m11 * m33;
+        result[2][3] = m03 * m11 * m20 - m01 * m13 * m20 - m03 * m10 * m21 + m00 * m13 * m21 + m01 * m10 * m23 - m00 * m11 * m23;
+        result[3][0] = m12 * m21 * m30 - m11 * m22 * m30 - m12 * m20 * m31 + m10 * m22 * m31 + m11 * m20 * m32 - m10 * m21 * m32;
+        result[3][1] = m01 * m22 * m30 - m02 * m21 * m30 + m02 * m20 * m31 - m00 * m22 * m31 - m01 * m20 * m32 + m00 * m21 * m32;
+        result[3][2] = m02 * m11 * m30 - m01 * m12 * m30 - m02 * m10 * m31 + m00 * m12 * m31 + m01 * m10 * m32 - m00 * m11 * m32;
+        result[3][3] = m01 * m12 * m20 - m02 * m11 * m20 + m02 * m10 * m21 - m00 * m12 * m21 - m01 * m10 * m22 + m00 * m11 * m22;
+        // Divide by determinant and return.
+        return result.times(1 / (m00 * result[0][0] + m10 * result[0][1] + m20 * result[0][2] + m30 * result[0][3]));
+    }
+    
+    static eulerRotation([ax, ay, az], order="YXZ") {
         const mats = {
             X: ax ? Mat4.rotationX(ax) : null,
             Y: ay ? Mat4.rotationY(ay) : null,
@@ -500,66 +562,5 @@ class Mat4 extends Mat {
         }
         
         return ret;
-    }
-
-    // Requires a 3x1 Vec or single scalar.
-    static scale(s) {
-        if (typeof s === "number")
-            s = [s, s, s];
-        return Mat.of([s[0], 0, 0, 0], [0, s[1], 0, 0], [0, 0, s[2], 0], [0, 0, 0, 1]);
-    }
-    // Requires a 3x1 Vec.
-    static translation(t) {
-        return Mat.of([1, 0, 0, t[0]], [0, 1, 0, t[1]], [0, 0, 1, t[2]], [0, 0, 0, 1]);
-    }
-    // Note:  look_at() assumes the result will be used for a camera and stores its result in inverse space.  You can also use
-    // it to point the basis of any *object* towards anything but you must re-invert it first.  Each input must be 3x1 Vec.                         
-    static look_at(eye, at, up) {
-        let z = at.minus(eye).normalized(),
-            x = z.cross(up).normalized(), // Compute vectors along the requested coordinate axes.
-            y = x.cross(z).normalized(); // This is the "updated" and orthogonalized local y axis.
-        if (!x.every(i => i == i)) // Check for NaN, indicating a degenerate cross product, which
-            throw "Two parallel vectors were given"; // happens if eye == at, or if at minus eye is parallel to up.
-        z.scale(-1); // Enforce right-handed coordinate system.                                   
-        return Mat4.translation([-x.dot(eye), -y.dot(eye), -z.dot(eye)])
-            .times(Mat.of(x.to4(0), y.to4(0), z.to4(0), Vec.of(0, 0, 0, 1)));
-    }
-    // Box-shaped view volume for projection.
-    static orthographic(left, right, bottom, top, near, far) {
-        return Mat4.scale(Vec.of(1 / (right - left), 1 / (top - bottom), 1 / (far - near)))
-            .times(Mat4.translation(Vec.of(-left - right, -top - bottom, -near - far)))
-            .times(Mat4.scale(Vec.of(2, 2, -2)));
-    }
-    // Frustum-shaped view volume for projection.
-    static perspective(fov_y, aspect, near, far) {
-        const f = 1 / Math.tan(fov_y / 2),
-            d = far - near;
-        return Mat.of([f / aspect, 0, 0, 0], [0, f, 0, 0], [0, 0, -(near + far) / d, -2 * near * far / d], [0, 0, -1, 0]);
-    }
-    // Computing a 4x4 inverse is slow because of the amount of steps; call fewer times when possible.
-    static inverse(m) {
-        const result = Mat4.identity(),
-            m00 = m[0][0], m01 = m[0][1], m02 = m[0][2], m03 = m[0][3],
-            m10 = m[1][0], m11 = m[1][1], m12 = m[1][2], m13 = m[1][3],
-            m20 = m[2][0], m21 = m[2][1], m22 = m[2][2], m23 = m[2][3],
-            m30 = m[3][0], m31 = m[3][1], m32 = m[3][2], m33 = m[3][3];
-        result[0][0] = m12 * m23 * m31 - m13 * m22 * m31 + m13 * m21 * m32 - m11 * m23 * m32 - m12 * m21 * m33 + m11 * m22 * m33;
-        result[0][1] = m03 * m22 * m31 - m02 * m23 * m31 - m03 * m21 * m32 + m01 * m23 * m32 + m02 * m21 * m33 - m01 * m22 * m33;
-        result[0][2] = m02 * m13 * m31 - m03 * m12 * m31 + m03 * m11 * m32 - m01 * m13 * m32 - m02 * m11 * m33 + m01 * m12 * m33;
-        result[0][3] = m03 * m12 * m21 - m02 * m13 * m21 - m03 * m11 * m22 + m01 * m13 * m22 + m02 * m11 * m23 - m01 * m12 * m23;
-        result[1][0] = m13 * m22 * m30 - m12 * m23 * m30 - m13 * m20 * m32 + m10 * m23 * m32 + m12 * m20 * m33 - m10 * m22 * m33;
-        result[1][1] = m02 * m23 * m30 - m03 * m22 * m30 + m03 * m20 * m32 - m00 * m23 * m32 - m02 * m20 * m33 + m00 * m22 * m33;
-        result[1][2] = m03 * m12 * m30 - m02 * m13 * m30 - m03 * m10 * m32 + m00 * m13 * m32 + m02 * m10 * m33 - m00 * m12 * m33;
-        result[1][3] = m02 * m13 * m20 - m03 * m12 * m20 + m03 * m10 * m22 - m00 * m13 * m22 - m02 * m10 * m23 + m00 * m12 * m23;
-        result[2][0] = m11 * m23 * m30 - m13 * m21 * m30 + m13 * m20 * m31 - m10 * m23 * m31 - m11 * m20 * m33 + m10 * m21 * m33;
-        result[2][1] = m03 * m21 * m30 - m01 * m23 * m30 - m03 * m20 * m31 + m00 * m23 * m31 + m01 * m20 * m33 - m00 * m21 * m33;
-        result[2][2] = m01 * m13 * m30 - m03 * m11 * m30 + m03 * m10 * m31 - m00 * m13 * m31 - m01 * m10 * m33 + m00 * m11 * m33;
-        result[2][3] = m03 * m11 * m20 - m01 * m13 * m20 - m03 * m10 * m21 + m00 * m13 * m21 + m01 * m10 * m23 - m00 * m11 * m23;
-        result[3][0] = m12 * m21 * m30 - m11 * m22 * m30 - m12 * m20 * m31 + m10 * m22 * m31 + m11 * m20 * m32 - m10 * m21 * m32;
-        result[3][1] = m01 * m22 * m30 - m02 * m21 * m30 + m02 * m20 * m31 - m00 * m22 * m31 - m01 * m20 * m32 + m00 * m21 * m32;
-        result[3][2] = m02 * m11 * m30 - m01 * m12 * m30 - m02 * m10 * m31 + m00 * m12 * m31 + m01 * m10 * m32 - m00 * m11 * m32;
-        result[3][3] = m01 * m12 * m20 - m02 * m11 * m20 + m02 * m10 * m21 - m00 * m12 * m21 - m01 * m10 * m22 + m00 * m11 * m22;
-        // Divide by determinant and return.
-        return result.times(1 / (m00 * result[0][0] + m10 * result[0][1] + m20 * result[0][2] + m30 * result[0][3]));
     }
 }

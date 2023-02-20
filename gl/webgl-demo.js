@@ -6,10 +6,6 @@ $(document).ready(function() {
     const console_output = $('#console_output');
     const loading_spinner = $("#loading-img");
     const fps_div = $('#fps-display');
-
-    const fovSlider = $('#fov-range');
-    const focusSlider = $('#focus-distance');
-    const apertureSlider = $('#aperture-size');
     
     window["myconsole"] = {
         log: function(...args) {
@@ -61,19 +57,12 @@ $(document).ready(function() {
                 try {
                     WebGLRendererAdapter.build(canvas.get(0), test.renderer, function(adapter) {
                         renderer_adapter = adapter;
-                
-                        // Set the initial slider values for the camera settings to the display
-                        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
-                            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
-                        else
-                            focusSlider.val(renderer_adapter.adapters.camera.camera_transform.column(3).minus(
-                                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
-                        apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
-                        fovSlider.val(renderer_adapter.adapters.camera.FOV);
-                        changeLensSettings();
+                        
+                        // Set the initial values for the controls
+                        getDefaultControlValues(renderer_adapter);
                         
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
-                        mouseDelta = [0,0];
+                        mouseMoveDelta = [0,0];
                         
                         myconsole.log("Starting draw scene loop...");
                         animation_request_id = window.requestAnimationFrame(drawScene);
@@ -89,8 +78,36 @@ $(document).ready(function() {
     });
     
     
+    
+    // Draw the scene, incorporating mouse/key deltas
+    let lastDrawTimestamp = null;
+    let keyMoveDelta = [0,0,0], mouseMoveDelta = [0,0];
+    const keySpeed = 3.0, mouseSpeed = 0.08;
+    function drawScene(timestamp) {
+        const currentTimestamp = performance.now();
+        const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
+        
+        // draw the scene, and request the next frame of animation
+        if (renderer_adapter) {
+            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + renderer_adapter.drawCount + " samples");
+            if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || keyMoveDelta.some(x => (x != 0)))) {
+                const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(v => mouseSpeed * v * timeDelta / 1000));
+                const normalizedKeyDelta   = Vec.from(keyMoveDelta.map(  v => keySpeed   * v * timeDelta / 1000));
+                renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+                mouseMoveDelta = [0,0];
+            }
+            renderer_adapter.drawScene(currentTimestamp);
+            animation_request_id = window.requestAnimationFrame(drawScene);
+        }
+        
+        // reset all intermediary input/timing variables
+        lastDrawTimestamp = currentTimestamp;
+    }
+    
+    
+    
     // Setup key mappings so that the camera can be moved
-    let keyDelta = [0, 0, 0], keysDown = {};
+    let keysDown = {};
     const keyDirMap = {
         "w": [ 0, 0,-1],
         "s": [ 0, 0, 1],
@@ -99,11 +116,11 @@ $(document).ready(function() {
         " ": [ 0, 1, 0],
         "c": [ 0,-1, 0]};
     function calcKeyDelta() {
-        keyDelta = [0,0,0];
+        keyMoveDelta = [0,0,0];
         for (let [key, isDown] of Object.entries(keysDown))
             if (isDown && key in keyDirMap)
                 for (let i = 0; i < 3; ++i)
-                    keyDelta[i] += keyDirMap[key][i];
+                    keyMoveDelta[i] += keyDirMap[key][i];
     }
     function keyDown(e) {
         if (e.key in keyDirMap)
@@ -125,7 +142,7 @@ $(document).ready(function() {
     
     
     // setup some mouse listeners to track mouse movements while the cursor is pressed over the canvas
-    let mouseDelta = [0, 0], lastMousePos = null, isMouseDown = false;
+    let lastMousePos = null, isMouseDown = false;
     function pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)
             return;
@@ -134,7 +151,7 @@ $(document).ready(function() {
         canvas.get(0).setPointerCapture(e.pointerId);
     }
     function pointerUp(e) {
-        
+        pointerLeave(e);
     }
     function pointerLeave(e) {
         isMouseDown = false;
@@ -143,7 +160,7 @@ $(document).ready(function() {
     function pointerMove(e) {
         const mousePos = [event.clientX, event.clientY];
         if (renderer_adapter && isMouseDown)
-            mouseDelta = [0,1].map(i => mouseDelta[i] + mousePos[i] - lastMousePos[i]);
+            mouseMoveDelta = [0,1].map(i => mouseMoveDelta[i] + mousePos[i] - lastMousePos[i]);
         lastMousePos = mousePos;
     }
     canvas.on("pointerdown",   pointerDown);
@@ -153,51 +170,57 @@ $(document).ready(function() {
     canvas.on("blur", e => { isMouseDown = false; });
     
     
+    
+    const fovSlider = $('#fov-range');
+    const focusSlider = $('#focus-distance');
+    const apertureSlider = $('#aperture-size');
+    const rendererDepthInput = $('#renderer-depth');
+    
+    
+    function getDefaultControlValues(renderer_adapter) {
+        rendererDepthInput.val(renderer_adapter.maxBounceDepth);
+        
+        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
+            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
+        else
+            focusSlider.val(renderer_adapter.adapters.camera.camera_transform.column(3).minus(
+                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
+        
+        apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
+        fovSlider.val(-renderer_adapter.adapters.camera.FOV);
+        
+        changeLensSettings();
+    }
+
+    
     // setup listeners to change the camera focus settings whenever the sliders change
     function changeLensSettings() {
-        const focusValue    = Number.parseFloat(focusSlider.val()),
-              apertureValue = Number.parseFloat(apertureSlider.val()),
-              fovValue      = Number.parseFloat(fovSlider.val());
+        const focusValue    =  Number.parseFloat(focusSlider.val()),
+              apertureValue =  Number.parseFloat(apertureSlider.val()),
+              fovValue      = -Number.parseFloat(fovSlider.val());
         if (renderer_adapter)
             renderer_adapter.changeLensSettings(focusValue, apertureValue, fovValue);
         $('#focus-output').text(focusValue.toFixed(2));
         $('#aperture-output').text(apertureValue.toFixed(2));
-        $('#fov-output').text(fovValue.toFixed(2));
+        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
     }
     focusSlider.on('input', changeLensSettings);
     apertureSlider.on('input', changeLensSettings);
     fovSlider.on('input', changeLensSettings);
     
-    
-    
-    // Draw the scene, incorporating mouse/key deltas
-    let lastDrawTimestamp = null;
-    const keySpeed = 3.0, mouseSpeed = 0.08;
-    function drawScene(timestamp) {
-        const currentTimestamp = performance.now();
-        const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
-        
-        // draw the scene, and request the next frame of animation
-        if (renderer_adapter) {
-            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + renderer_adapter.drawCount + " samples");
-            if (timeDelta > 0 && (mouseDelta.some(x => (x != 0)) || keyDelta.some(x => (x != 0)))) {
-                const normalizedMouseDelta = Vec.from(mouseDelta.map(v => mouseSpeed * v * timeDelta / 1000));
-                const normalizedKeyDelta   = Vec.from(keyDelta.map(  v => keySpeed   * v * timeDelta / 1000));
-                renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
-                mouseDelta = [0,0];
-            }
-            renderer_adapter.drawScene(currentTimestamp);
-            animation_request_id = window.requestAnimationFrame(drawScene);
-        }
-        
-        // reset all intermediary input/timing variables
-        lastDrawTimestamp = currentTimestamp;
-    }
+    rendererDepthInput.on('spin', function(e, ui) {
+        if (renderer_adapter)
+            renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
+    });
     
     
     
     // Setup the UI to pretty things up...
     $("#control-panel").accordion({ collapsible:true, active: -1 });
     $(".control-group").controlgroup();
+    $("#help-button").button({
+        icon: "ui-icon-help",
+        showLabel: false
+    });
 });
 

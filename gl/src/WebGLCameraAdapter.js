@@ -2,14 +2,11 @@ class WebGLCameraAdapter {
     constructor(camera, webgl_helper) {
         this.camera = camera;
         
-        this.rotateDelta = Vec.of(0,0);
-        this.translateDelta = Vec.of(0,0,0);
-        
         if (camera instanceof PerspectiveCamera) {
             this.FOV = camera.FOV;
             this.tan_fov = camera.tan_fov;
             this.aspect = camera.aspect; // should aspect instead reflect canvas size/dimensions?
-            this.camera_transform = this.base_camera_transform = this.camera.transform;
+            this.camera_transform = this.camera.transform;
             
             if (camera instanceof DepthOfFieldPerspectiveCamera) {
                 this.focus_distance = camera.focus_distance;
@@ -22,6 +19,9 @@ class WebGLCameraAdapter {
         }
         else 
             throw "Unsupported camera type";
+        
+        this.camera_position = this.camera_transform.column(3);
+        this.camera_euler_rotation = Vec.from(Mat4.getEulerAngles(this.camera_transform));
     }
     destroy() {}
     writeShaderData(gl, program) {
@@ -36,14 +36,14 @@ class WebGLCameraAdapter {
         if (rotateDelta.every(x => (x == 0)) && translateDelta.every(x => (x == 0)))
             return false;
         
-        this.rotateDelta = this.rotateDelta.plus(rotateDelta);
-        this.translateDelta = this.translateDelta.plus(this.camera_transform.times(translateDelta.to4(0)));
-        this.camera_transform = Mat4.translation(this.translateDelta)
-            .times(this.base_camera_transform)
-            .times(Mat4.rotation(this.rotateDelta[0], Vec.of(0,1,0))).times(Mat4.rotation(this.rotateDelta[1], Vec.of(1,0,0)));
-            
-        if (this.translateDelta.some(v => isNaN(v)))
+        this.camera_euler_rotation = this.camera_euler_rotation.plus([rotateDelta[1], rotateDelta[0]]);
+        this.camera_position = this.camera_position.plus(this.camera_transform.times(translateDelta.to4(0)));
+        
+        if (this.camera_position.some(v => isNaN(v)))
             throw "NaN found in moved camera translation";
+        
+        this.camera_transform = Mat4.translation(this.camera_position)
+            .times(Mat4.eulerRotation(this.camera_euler_rotation));
         
         this.writeCameraTransform(gl, program, this.camera_transform);
         return true;

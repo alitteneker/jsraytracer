@@ -1,5 +1,13 @@
+body {
+    background: #141414;
+}
+
+#help-button {
+    float: right;
+}
+
 #glcanvas {
-    border:black;
+    border: white;
     border-style:solid;
     border-width:1px;
     display: block;
@@ -39,6 +47,7 @@ input[type=range] {
 
 div#controls {
     height: 30px;
+    color: white;
 }
 
 #progress {
@@ -54,7 +63,7 @@ div#controls {
     width: 100%;
     float: left;
     color: white;
-    background-color: lightgray;
+    background-color: darkgrey;
     border-width: 1px;
     border-color: black;
     border-style: solid;

@@ -17,6 +17,8 @@ class WebGLRendererAdapter {
         this.canvas = canvas;
         this.renderer = renderer;
         
+        this.maxBounceDepth = renderer.maxRecursionDepth;
+        
         // create and store utility variables for managing the WebGL context
         this.gl = gl;
         this.webgl_helper = new WebGLHelper(gl);
@@ -120,9 +122,23 @@ class WebGLRendererAdapter {
                     uniform sampler2D uPreviousSamplesTexture;
                     in vec2 textureCoord;
                     
+                    uniform float uColorLogScale;
+                    
                     out vec4 outTexelColor;
                     void main() {
-                        outTexelColor = vec4(texture(uPreviousSamplesTexture, textureCoord).rgb, 1.0);
+                        vec3 sampleColor = texture(uPreviousSamplesTexture, textureCoord).rgb;
+                        
+                        if (any(isnan(sampleColor)))
+                            sampleColor = vec3(1.0, 0.0, 0.5);
+                        if (any(isinf(sampleColor)))
+                            sampleColor = vec3(0.0, 1.0, 0.5);
+                        if (any(lessThan(sampleColor, vec3(0.0))))
+                            sampleColor = vec3(0.5, 0.0, 1.0);
+                        
+                        if (uColorLogScale > 0.0)
+                            sampleColor = log(sampleColor + 1.0) / uColorLogScale;
+                        
+                        outTexelColor = vec4(sampleColor, 1.0);
                     }`
             }], 
             ([tracerShaderProgram, passthroughShaderProgram]) => {
@@ -141,8 +157,10 @@ class WebGLRendererAdapter {
                             randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
                             doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
                             sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
+                            maxBounceDepth:                   gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
                             tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
-                            passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture")
+                            passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture"),
+                            colorLogScale:                     gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale")
                         };
                         
                         if (callback)
@@ -182,7 +200,6 @@ class WebGLRendererAdapter {
         let ret = `
             uniform sampler2D uPreviousSamplesTexture;
             uniform float uSampleWeight;
-            uniform float uColorLogScale;
     
             uniform bool uRendererRandomMultisample;
             uniform float uRandomSeed;
@@ -210,21 +227,10 @@ class WebGLRendererAdapter {
                 if (any(lessThan(sampleColor, vec4(0.0))))
                     sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
                 
-                if (uColorLogScale > 0.0)
-                    sampleColor = log(sampleColor + 1.0) / uColorLogScale;
-                
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
                 else {
                     vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-                    
-                    if (any(isnan(previousSampleColor)))
-                        previousSampleColor = vec4(1.0, 0.0, 0.5, 1.0);
-                    if (any(isinf(previousSampleColor)))
-                        previousSampleColor = vec4(0.0, 1.0, 0.5, 1.0);
-                    if (any(lessThan(previousSampleColor, vec4(0.0))))
-                        previousSampleColor = vec4(0.5, 0.0, 1.0, 1.0);
-
                     outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
                 }
             }`;
@@ -259,11 +265,6 @@ class WebGLRendererAdapter {
                             if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
                                 && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
                             {
-                                if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
-                                    return vec4(1.0, 0.0, 0.5, 1.0);
-                                if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
-                                    return vec4(0.0, 1.0, 0.5, 1.0);
-                                
                                 q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
                                 q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
                                 q_remaining_bounces[q_len] = remaining_bounces - 1;
@@ -298,12 +299,10 @@ class WebGLRendererAdapter {
                         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
                         total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
                         
-                        if (intersect_positon.w == 0.0) {
+                        if (intersect_positon.w == 0.0)
                             break;
-                        }
                         
                         bool do_next_ray = false;
-
                         
                         float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.refractionProbability;
                         if (next_ray_probability_sum > 0.0) {
@@ -314,11 +313,6 @@ class WebGLRendererAdapter {
                             if (next_ray_probability_sample <= 0.0
                                 && normSquared(nextRays.reflectionDirection) > EPSILON)
                             {
-                                if (any(isnan(nextRays.reflectionDirection)) || any(isnan(nextRays.reflectionColor)))
-                                    return vec3(1.0, 0.0, 0.5);
-                                if (any(isinf(nextRays.reflectionDirection)) || any(isinf(nextRays.reflectionColor)))
-                                    return vec3(0.0, 1.0, 0.5);
-                                
                                 r = Ray(intersect_positon, nextRays.reflectionDirection);
                                 attenuation_color *= nextRays.reflectionColor;
                                 do_next_ray = true;
@@ -353,25 +347,32 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         
         gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
-        gl.uniform1f(gl.getUniformLocation(this.tracerShaderProgram, "uColorLogScale"), this.colorLogScale);
-        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
-            gl.uniform1i(gl.getUniformLocation(this.tracerShaderProgram, "uMaxBounceDepth"), this.renderer.maxRecursionDepth);
         
         this.webgl_helper.writeShaderData(gl, this.tracerShaderProgram);
         this.adapters.scene.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
         this.adapters.camera.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
     }
+    
+    resetDrawCount() {
+        this.drawCount = 0;
+    }
 
     moveCamera(rotateDelta, translateDelta) {
         this.gl.useProgram(this.tracerShaderProgram);
         if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.tracerShaderProgram))
-            this.drawCount = 0;
+            this.resetDrawCount();
     }
-    
     changeLensSettings(focusDistance, apertureSize, FOV) {
         this.gl.useProgram(this.tracerShaderProgram);
         if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, FOV, this.gl, this.tracerShaderProgram))
-            this.drawCount = 0;
+            this.resetDrawCount();
+    }
+    
+    changeMaxBounceDepth(newBounceDepth) {
+        if (newBounceDepth != this.maxBounceDepth) {
+            this.maxBounceDepth = newBounceDepth;
+            this.resetDrawCount();
+        }
     }
 
     drawScene(timestamp) {
@@ -382,6 +383,8 @@ class WebGLRendererAdapter {
         this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
         this.gl.uniform1f(this.uniforms.sampleWeight, this.doRandomSample ? (this.drawCount / (this.drawCount + 1.0)) : 0.0);
+        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
+            this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
         
         // Give the shader access to textures[0] to mix with new samples
         this.gl.activeTexture(this.renderTextureUnit);
@@ -405,6 +408,7 @@ class WebGLRendererAdapter {
         this.gl.activeTexture(this.renderTextureUnit);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[1]);
         this.gl.uniform1i(this.uniforms.passthroughPreviousSamplesTexture, this.webgl_helper.textureUnitIndex(this.renderTextureUnit));
+        this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         // Ping-pong the textures, so the next texture read from is the last texture rendered.
