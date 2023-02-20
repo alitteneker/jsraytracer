@@ -374,6 +374,11 @@ class WebGLRendererAdapter {
             this.resetDrawCount();
         }
     }
+    
+    selectObjectAt(x, y) {
+        const ray = this.adapters.camera.camera.getRayForPixel(x, y);
+        return this.adapters.scene.intersectRay(ray);
+    }
 
     drawScene(timestamp) {
         // Tell WebGL to use our program when drawing

@@ -82,6 +82,10 @@ class WebGLSceneAdapter {
         this.adapters.geometries.destroy(gl);
         this.adapters.materials.destroy(gl);
     }
+    intersectRay(ray) {
+        // TODO: need to decorate this with appropriate webgl store indices
+        return this.scene.cast(ray);
+    }
     writeShaderData(gl, program, webgl_helper) {
         // write global scene properties
         gl.uniform1i(gl.getUniformLocation(program, "uNumObjects"), this.scene.objects.length);

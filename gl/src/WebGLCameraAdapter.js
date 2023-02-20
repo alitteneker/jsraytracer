@@ -42,7 +42,7 @@ class WebGLCameraAdapter {
         if (this.camera_position.some(v => isNaN(v)))
             throw "NaN found in moved camera translation";
         
-        this.camera_transform = Mat4.translation(this.camera_position)
+        this.camera_transform = this.camera.transform = Mat4.translation(this.camera_position)
             .times(Mat4.eulerRotation(this.camera_euler_rotation));
         
         this.writeCameraTransform(gl, program, this.camera_transform);

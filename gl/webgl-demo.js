@@ -142,15 +142,20 @@ $(document).ready(function() {
     
     
     // setup some mouse listeners to track mouse movements while the cursor is pressed over the canvas
-    let lastMousePos = null, isMouseDown = false;
+    let lastMousePos = null, isMouseDown = false, hasMouseMoved = false;
     function pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)
             return;
+        hasMouseMoved = false;
         isMouseDown = true;
         lastMousePos = [event.clientX, event.clientY];
         canvas.get(0).setPointerCapture(e.pointerId);
     }
     function pointerUp(e) {
+        if (hasMouseMoved === false && renderer_adapter) {
+            const rect = e.target.getBoundingClientRect();
+            selectObjectAt(e.clientX - rect.left, e.clientY - rect.top);
+        }
         pointerLeave(e);
     }
     function pointerLeave(e) {
@@ -159,8 +164,11 @@ $(document).ready(function() {
     }
     function pointerMove(e) {
         const mousePos = [event.clientX, event.clientY];
-        if (renderer_adapter && isMouseDown)
-            mouseMoveDelta = [0,1].map(i => mouseMoveDelta[i] + mousePos[i] - lastMousePos[i]);
+        if (isMouseDown) {
+            hasMouseMoved = true;
+            if (renderer_adapter)
+                mouseMoveDelta = [0,1].map(i => mouseMoveDelta[i] + mousePos[i] - lastMousePos[i]);
+        }
         lastMousePos = mousePos;
     }
     canvas.on("pointerdown",   pointerDown);
@@ -212,6 +220,20 @@ $(document).ready(function() {
         if (renderer_adapter)
             renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
     });
+    
+    
+    
+    function selectObjectAt(raster_x, raster_y) {
+        if (!renderer_adapter)
+            return;
+        
+        let x =  2 * (raster_x / canvas.attr("width"))  - 1;
+        let y = -2 * (raster_y / canvas.attr("height")) + 1;
+        
+        const selected = renderer_adapter.selectObjectAt(x, y);
+        // TODO: do something with it
+        myconsole.log(x,y,selected.object);
+    }
     
     
     
