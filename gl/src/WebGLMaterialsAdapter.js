@@ -19,7 +19,7 @@ class WebGLMaterialsAdapter {
     destroy() {}
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
         if (mc instanceof SolidMaterialColor)
-            return this.solid_colors.visit(mc._color.times(scale));
+            return { _id: this.solid_colors.visit(mc._color.times(scale)), color: mc._color, scale: scale };
         else if (mc instanceof ScaledMaterialColor)
             return this.collapseMaterialColor(mc._mc, webgl_helper, scale.times(mc._scale));
         else if (mc instanceof CheckerboardMaterialColor) {
@@ -28,7 +28,7 @@ class WebGLMaterialsAdapter {
                 this.solid_colors.visit(mc.color1.toSolidColor()._color.times(scale)),
                 this.solid_colors.visit(mc.color2.toSolidColor()._color.times(scale))
             ]);
-            return -this.special_colors.length;
+            return { _id: -this.special_colors.length, color: mc, scale: scale };
         }
         else if (mc instanceof TextureMaterialColor) {
             if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
@@ -41,7 +41,7 @@ class WebGLMaterialsAdapter {
                 WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
                 this.texture_id_map[mc.MATERIALCOLOR_UID],
                 this.solid_colors.visit(scale)]);
-            return -this.special_colors.length;
+            return { _id: -this.special_colors.length, color: mc, scale: scale };
         }
         throw "Unsupported material color type";
     }
@@ -49,7 +49,7 @@ class WebGLMaterialsAdapter {
         return this.collapseMaterialColor(mc, webgl_helper);
     }
     visitMaterialScalar(s) {
-        return this.solid_colors.visit(Vec.of(s, 0, 0));
+        return { _id: this.solid_colors.visit(Vec.of(s, 0, 0)), color: Vec.of(s,0,0), scale: Vec.of(1,1,1) };
     }
     visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)
@@ -57,22 +57,22 @@ class WebGLMaterialsAdapter {
         
         const material_data = {};
         if (material instanceof PhongMaterial) {
-            material_data.ambient_id         = this.visitMaterialColor(material.ambient,        webgl_helper);
-            material_data.diffuse_id         = this.visitMaterialColor(material.diffusivity,    webgl_helper);
-            material_data.specular_id        = this.visitMaterialColor(material.specularity,    webgl_helper);
-            material_data.reflectivity_id    = this.visitMaterialColor(material.reflectivity,   webgl_helper);
-            material_data.transmissivity_id  = this.visitMaterialColor(material.transmissivity, webgl_helper);
-            material_data.specularFactor_id  = this.visitMaterialScalar(material.smoothness);
+            material_data.ambient        = this.visitMaterialColor(material.ambient,        webgl_helper);
+            material_data.diffuse        = this.visitMaterialColor(material.diffusivity,    webgl_helper);
+            material_data.specular       = this.visitMaterialColor(material.specularity,    webgl_helper);
+            material_data.reflectivity   = this.visitMaterialColor(material.reflectivity,   webgl_helper);
+            material_data.transmissivity = this.visitMaterialColor(material.transmissivity, webgl_helper);
+            material_data.specularFactor = this.visitMaterialScalar(material.smoothness);
             if (material instanceof FresnelPhongMaterial) {
-                material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(material.refractiveIndexRatio);
+                material_data.refractiveIndexRatio  = this.visitMaterialScalar(material.refractiveIndexRatio);
                 if (material instanceof PhongPathTracingMaterial)
-                    material_data.mirrorProbability_id = this.visitMaterialScalar(material.mirrorProbability);
+                    material_data.mirrorProbability = this.visitMaterialScalar(material.mirrorProbability);
                 else
-                    material_data.mirrorProbability_id = this.visitMaterialScalar(1.0);
+                    material_data.mirrorProbability = this.visitMaterialScalar(1.0);
             }
             else {
-                material_data.refractiveIndexRatio_id  = this.visitMaterialScalar(Infinity);
-                material_data.mirrorProbability_id     = this.visitMaterialScalar(1.0);
+                material_data.refractiveIndexRatio  = this.visitMaterialScalar(Infinity);
+                material_data.mirrorProbability     = this.visitMaterialScalar(1.0);
             }
         }
         else
@@ -86,14 +86,14 @@ class WebGLMaterialsAdapter {
         webgl_helper.setDataTexturePixelsUnit(this.material_colors_texture, 3, "FLOAT", this.material_colors_texture_unit, "umMaterialColors", program,
             this.solid_colors.flat());
         webgl_helper.setDataTexturePixelsUnit(this.material_indices_texture, 4, "INTEGER", this.material_indices_texture_unit, "umMaterialIndices", program,
-            this.materials.map(m => [...["ambient_id",
-                                         "diffuse_id",
-                                         "specular_id",
-                                         "reflectivity_id",
-                                         "transmissivity_id",
-                                         "specularFactor_id",
-                                         "refractiveIndexRatio_id",
-                                         "mirrorProbability_id"].map(k => m[k])]).flat());
+            this.materials.map(m => [...["ambient",
+                                         "diffuse",
+                                         "specular",
+                                         "reflectivity",
+                                         "transmissivity",
+                                         "specularFactor",
+                                         "refractiveIndexRatio",
+                                         "mirrorProbability"].map(k => m[k]._id)]).flat());
         
         if (this.special_colors.length)
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
