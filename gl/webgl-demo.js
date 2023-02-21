@@ -54,13 +54,14 @@ $(document).ready(function() {
         
         `#version 300 es
         precision mediump float;
+        #define EPSILON 0.0001
         
         in vec3 vertexPosition;
         uniform vec3 uCameraPosition;
         uniform vec4 uLineColor;
         out vec4 outTexelColor;
         void main() {
-            gl_FragDepth = 0.49;//length(uCameraPosition - vertexPosition);
+            gl_FragDepth = min(length(uCameraPosition - vertexPosition) / 1000.0, 1.0-EPSILON);
             outTexelColor = uLineColor;
         }`,
         function(shaderProgram) {
@@ -170,8 +171,6 @@ $(document).ready(function() {
                 renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
                 mouseMoveDelta = [0,0];
             }
-            
-            gl.clear(gl.COLOR_BUFFER_BIT);
             
             renderer_adapter.drawScene(currentTimestamp);
             

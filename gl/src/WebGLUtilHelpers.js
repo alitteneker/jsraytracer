@@ -358,9 +358,11 @@ class WebGLHelper {
         function checkToUseProgram() {
             if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
                 if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS))
-                    throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(vertexShader);
-                if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS))
-                    throw 'An error occurred compiling the shader: ' + gl.getShaderInfoLog(fragmentShader);
+                    throw 'An error occurred compiling the vertex shader: ' + gl.getShaderInfoLog(vertexShader);
+                if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+                    const flines = fsSource.split("\n");
+                    throw 'An error occurred compiling the fragment shader: ' + gl.getShaderInfoLog(fragmentShader);
+                }
                 throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram);
             }
             if (callback)
