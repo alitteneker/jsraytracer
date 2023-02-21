@@ -8,7 +8,7 @@ class WebGLVecStore {
     size() {
         return this.data.length;
     }
-    visit(vec) {
+    store(vec) {
         vec = vec.slice(0, this.components);
         if (!this.reuse) {
             this.data.push(Array.from(vec));
@@ -20,6 +20,12 @@ class WebGLVecStore {
             this.data.push(Array.from(vec));
         }
         return this.data_map[key];
+    }
+    get(index) {
+        return this.data[index];
+    }
+    set(index, value) {
+        return this.data[index] = value;
     }
     flat() {
         return this.data.flat();
@@ -36,7 +42,7 @@ class WebGLTransformStore {
     size() {
         return this.data.length;
     }
-    visit(mat) {
+    store(mat) {
         if (!this.reuse) {
             this.data.push(mat);
             return this.data.length - 1;
@@ -47,6 +53,12 @@ class WebGLTransformStore {
             this.data.push(mat);
         }
         return this.data_map[key];
+    }
+    get(index) {
+        return this.data[index];
+    }
+    set(index, value) {
+        return this.data[index] = value;
     }
     flat(transpose=false) {
         return Mat.mats_flat(this.data, transpose);

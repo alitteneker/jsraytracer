@@ -43,9 +43,9 @@ class WebGLGeometriesAdapter {
             if (geometry.area < 0.00001)
                 return -1;
             this.triangles.push({
-                vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.visit(p)),
-                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.visit(v)),
-                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.visit(Vec.of(...v, 0)))
+                vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.store(p)),
+                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.store(v)),
+                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.store(Vec.of(...v, 0)))
             });
             this.id_map[geometry.GEOMETRY_UID] = this.geometries.length;
             this.geometries.push(geometry);

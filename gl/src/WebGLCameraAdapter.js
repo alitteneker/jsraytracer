@@ -6,7 +6,6 @@ class WebGLCameraAdapter {
             this.FOV = camera.FOV;
             this.tan_fov = camera.tan_fov;
             this.aspect = camera.aspect; // should aspect instead reflect canvas size/dimensions?
-            this.camera_transform = this.camera.transform;
             
             if (camera instanceof DepthOfFieldPerspectiveCamera) {
                 this.focus_distance = camera.focus_distance;
@@ -20,8 +19,8 @@ class WebGLCameraAdapter {
         else 
             throw "Unsupported camera type";
         
-        this.camera_position = this.camera_transform.column(3);
-        this.camera_euler_rotation = Vec.from(Mat4.getEulerAngles(this.camera_transform));
+        this.camera_position = this.camera.transform.column(3);
+        this.camera_euler_rotation = Vec.from(Mat4.getEulerAngles(this.camera.transform));
     }
     destroy() {}
     writeShaderData(gl, program) {
@@ -30,22 +29,23 @@ class WebGLCameraAdapter {
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
         gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"),  this.aperture_size);
         
-        this.writeCameraTransform(gl, program, this.camera_transform);
+        this.writeCameraTransform(gl, program, this.camera.transform);
     }
     moveCamera(rotateDelta, translateDelta, gl, program) {
         if (rotateDelta.every(x => (x == 0)) && translateDelta.every(x => (x == 0)))
             return false;
         
         this.camera_euler_rotation = this.camera_euler_rotation.plus([rotateDelta[1], rotateDelta[0]]);
-        this.camera_position = this.camera_position.plus(this.camera_transform.times(translateDelta.to4(0)));
+        this.camera_position = this.camera_position.plus(this.camera.transform.times(translateDelta.to4(0)));
         
         if (this.camera_position.some(v => isNaN(v)))
             throw "NaN found in moved camera translation";
         
-        this.camera_transform = this.camera.transform = Mat4.translation(this.camera_position)
-            .times(Mat4.eulerRotation(this.camera_euler_rotation));
+        const rotation = Mat4.eulerRotation(this.camera_euler_rotation)
+        this.camera.setTransform(Mat4.translation(this.camera_position).times(rotation),
+                                 rotation.transposed().times(Mat4.translation(this.camera_position.times(-1))));
         
-        this.writeCameraTransform(gl, program, this.camera_transform);
+        this.writeCameraTransform(gl, program, this.camera.transform);
         return true;
     }
     changeLensSettings(focusDistance, apertureSize, FOV, gl, program) {

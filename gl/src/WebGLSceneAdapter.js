@@ -19,11 +19,12 @@ class WebGLSceneAdapter {
         // deal with scene objects
         this.objects = [];
         this.inv_transforms = [];
-        const object_id_index_map = {};
+        const object_id_index_map = this.object_id_index_map = {};
         for (let object of scene.objects) {
             object_id_index_map[object.OBJECT_UID] = this.objects.length;
             this.objects.push({
-                transformID: this.transform_store.visit(object.inv_transform),
+                object:      object,
+                transformID: this.transform_store.store(object.inv_transform),
                 geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
                 materialID:  this.adapters.materials.visit(object.material, webgl_helper),
                 does_cast_shadow:  object.does_cast_shadow
@@ -83,8 +84,20 @@ class WebGLSceneAdapter {
         this.adapters.materials.destroy(gl);
     }
     intersectRay(ray) {
-        // TODO: need to decorate this with appropriate webgl store indices
-        return this.scene.cast(ray);
+        const intersect = this.scene.cast(ray);
+        if (!intersect.object)
+            return null;
+        
+        const index = this.object_id_index_map[intersect.object.OBJECT_UID];
+        const webgl_ids = this.objects[index];
+        
+        return {
+            index: index,
+            object: webgl_ids.object,
+            transform: { index: webgl_ids.transformID, value: this.transform_store.get(webgl_ids.transformID) },
+            material:  { index: webgl_ids.materialID,  value: this.adapters.materials.getMaterial(webgl_ids.materialID) },
+            does_cast_shadow: webgl_ids.does_cast_shadow
+        };
     }
     writeShaderData(gl, program, webgl_helper) {
         // write global scene properties

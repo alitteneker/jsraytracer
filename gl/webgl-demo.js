@@ -30,6 +30,69 @@ $(document).ready(function() {
             scene_select.append(`<option value="tests/${o}">${o}</option>`);
     });
     
+    const gl = canvas.get(0).getContext('webgl2');
+    if (!gl)
+        throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
+    
+    // vertex shader for drawing a line
+    let lineShaderProgram = null, lineShaderProgramUniforms = null, lineVertexBuffer = null, lineIndexBuffer = null, lineVertexAttribute = null;
+    WebGLHelper.compileShaderProgramFromSources(gl,
+        `#version 300 es
+        precision mediump float;
+        
+        in vec3 vertexPosition;
+        
+        uniform vec3 uCubeMin;
+        uniform vec3 uCubeMax;
+        uniform mat4 uModelviewProjection;
+        
+        void main() {
+            gl_Position = uModelviewProjection * vec4(mix(uCubeMin, uCubeMax, vertexPosition), 1.0);
+        }`,
+        
+        `#version 300 es
+        precision mediump float;
+        
+        uniform vec4 uLineColor;
+        out vec4 outTexelColor;
+        void main() {
+            outTexelColor = uLineColor;
+        }`,
+        function(shaderProgram) {
+            lineShaderProgram = shaderProgram;
+            lineShaderProgramUniforms = {
+                lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
+                cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
+                cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
+                modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
+            };
+
+            lineVertexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, lineVertexBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                0, 0, 0,
+                0, 0, 1,
+                0, 1, 1,
+                0, 1, 0,
+                1, 0, 0,
+                1, 0, 1,
+                1, 1, 1,
+                1, 1, 0
+            ]), gl.STATIC_DRAW);
+            
+            lineIndexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([
+                0, 1, 1, 2, 2, 3, 3, 0,
+                4, 5, 5, 6, 6, 7, 7, 4,
+                0, 4, 1, 5, 2, 6, 3, 7
+            ]), gl.STATIC_DRAW);
+            
+            lineVertexAttribute = gl.getAttribLocation(shaderProgram, 'vertexPosition');
+            gl.enableVertexAttribArray(lineVertexAttribute);
+        });
+    
+    
     // Setup a listener so that the rendered scene will update anytime the scene selector is changed
     let renderer_adapter = null, animation_request_id = null;
     scene_select.on("change", function onChange(e) {
@@ -55,7 +118,9 @@ $(document).ready(function() {
                 canvas.attr("height", test.height);
                 
                 try {
-                    WebGLRendererAdapter.build(canvas.get(0), test.renderer, function(adapter) {
+                    gl.viewport(0, 0, test.width, test.height);
+                    
+                    WebGLRendererAdapter.build(gl, canvas.get(0), test.renderer, function(adapter) {
                         renderer_adapter = adapter;
                         
                         // Set the initial values for the controls
@@ -81,6 +146,7 @@ $(document).ready(function() {
     
     // Draw the scene, incorporating mouse/key deltas
     let lastDrawTimestamp = null;
+    let selectedObject = null;
     let keyMoveDelta = [0,0,0], mouseMoveDelta = [0,0];
     const keySpeed = 3.0, mouseSpeed = 0.08;
     function drawScene(timestamp) {
@@ -96,7 +162,27 @@ $(document).ready(function() {
                 renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
                 mouseMoveDelta = [0,0];
             }
+            
             renderer_adapter.drawScene(currentTimestamp);
+            
+            if (lineShaderProgram && selectedObject) {
+                const aabb = selectedObject.object.getBoundingBox()
+                if (aabb.isFinite()) {
+                    gl.useProgram(lineShaderProgram);
+                    gl.bindTexture(gl.TEXTURE_2D, null);
+                    
+                    gl.uniform4fv(lineShaderProgramUniforms.lineColor, Vec.of(1,1,1,1));
+                    gl.uniform3fv(lineShaderProgramUniforms.cubeMin,   aabb.min.slice(0,3));
+                    gl.uniform3fv(lineShaderProgramUniforms.cubeMax,   aabb.max.slice(0,3));
+                    gl.uniformMatrix4fv(lineShaderProgramUniforms.modelviewProjection, true, renderer_adapter.adapters.camera.camera.getViewMatrix().flat());
+                    
+                    gl.bindBuffer(gl.ARRAY_BUFFER, lineVertexBuffer);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
+                    gl.vertexAttribPointer(lineVertexAttribute, 3, gl.FLOAT, false, 0, 0);
+                    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+                }
+            }
+            
             animation_request_id = window.requestAnimationFrame(drawScene);
         }
         
@@ -179,6 +265,7 @@ $(document).ready(function() {
     
     
     
+    
     const fovSlider = $('#fov-range');
     const focusSlider = $('#focus-distance');
     const apertureSlider = $('#aperture-size');
@@ -191,7 +278,7 @@ $(document).ready(function() {
         if (renderer_adapter.adapters.camera.focus_distance != 1.0)
             focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
         else
-            focusSlider.val(renderer_adapter.adapters.camera.camera_transform.column(3).minus(
+            focusSlider.val(renderer_adapter.adapters.camera.camera.transform.column(3).minus(
                 renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
         
         apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
@@ -230,15 +317,14 @@ $(document).ready(function() {
         let x =  2 * (raster_x / canvas.attr("width"))  - 1;
         let y = -2 * (raster_y / canvas.attr("height")) + 1;
         
-        const selected = renderer_adapter.selectObjectAt(x, y);
-        // TODO: do something with it
-        myconsole.log(x,y,selected.object);
+        selectedObject = renderer_adapter.selectObjectAt(x, y);
+        // update the rest of the display?
     }
     
     
     
     // Setup the UI to pretty things up...
-    $("#control-panel").accordion({ collapsible:true, active: -1 });
+    $("#control-panel").accordion({ animate: false, collapsible:true, active: -1 });
     $(".control-group").controlgroup();
     $("#help-button").button({
         icon: "ui-icon-help",

@@ -19,14 +19,14 @@ class WebGLMaterialsAdapter {
     destroy() {}
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
         if (mc instanceof SolidMaterialColor)
-            return { _id: this.solid_colors.visit(mc._color.times(scale)), color: mc._color, scale: scale };
+            return { _id: this.solid_colors.store(mc._color.times(scale)), color: mc._color, scale: scale };
         else if (mc instanceof ScaledMaterialColor)
             return this.collapseMaterialColor(mc._mc, webgl_helper, scale.times(mc._scale));
         else if (mc instanceof CheckerboardMaterialColor) {
             this.special_colors.push([
                 WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD,
-                this.solid_colors.visit(mc.color1.toSolidColor()._color.times(scale)),
-                this.solid_colors.visit(mc.color2.toSolidColor()._color.times(scale))
+                this.solid_colors.store(mc.color1.toSolidColor()._color.times(scale)),
+                this.solid_colors.store(mc.color2.toSolidColor()._color.times(scale))
             ]);
             return { _id: -this.special_colors.length, color: mc, scale: scale };
         }
@@ -40,7 +40,7 @@ class WebGLMaterialsAdapter {
             this.special_colors.push([
                 WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
                 this.texture_id_map[mc.MATERIALCOLOR_UID],
-                this.solid_colors.visit(scale)]);
+                this.solid_colors.store(scale)]);
             return { _id: -this.special_colors.length, color: mc, scale: scale };
         }
         throw "Unsupported material color type";
@@ -49,7 +49,7 @@ class WebGLMaterialsAdapter {
         return this.collapseMaterialColor(mc, webgl_helper);
     }
     visitMaterialScalar(s) {
-        return { _id: this.solid_colors.visit(Vec.of(s, 0, 0)), color: Vec.of(s,0,0), scale: Vec.of(1,1,1) };
+        return { _id: this.solid_colors.store(Vec.of(s, 0, 0)), color: Vec.of(s,0,0), scale: Vec.of(1,1,1) };
     }
     visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)
@@ -81,6 +81,9 @@ class WebGLMaterialsAdapter {
         this.material_id_map[material.MATERIAL_UID] = this.materials.length;
         this.materials.push(material_data);
         return this.material_id_map[material.MATERIAL_UID];
+    }
+    getMaterial(index) {
+        return this.materials[index];
     }
     writeShaderData(gl, program, webgl_helper) {
         webgl_helper.setDataTexturePixelsUnit(this.material_colors_texture, 3, "FLOAT", this.material_colors_texture_unit, "umMaterialColors", program,

@@ -1,10 +1,7 @@
 class WebGLRendererAdapter {
     static DOUBLE_RECURSIVE = false;
     
-    constructor(canvas, renderer) {
-        const gl = canvas.getContext('webgl2');
-        if (!gl)
-            throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
+    constructor(gl, canvas, renderer) {
         
         // Store some useful initial variable values
         this.doRandomSample = true;
@@ -35,9 +32,9 @@ class WebGLRendererAdapter {
         };
     }
     
-    static build(canvas, renderer, callback) {
+    static build(gl, canvas, renderer, callback) {
         myconsole.log("Building adapters...");
-        const ret = new WebGLRendererAdapter(canvas, renderer);
+        const ret = new WebGLRendererAdapter(gl, canvas, renderer);
         
         // Build the shader programs to make this render
         myconsole.log("Building shader...");
@@ -157,7 +154,7 @@ class WebGLRendererAdapter {
                             randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
                             doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
                             sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
-                            maxBounceDepth:                   gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
+                            maxBounceDepth:                    gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
                             tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
                             passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture"),
                             colorLogScale:                     gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale")
