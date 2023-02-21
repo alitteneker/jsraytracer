@@ -55,6 +55,11 @@ class SceneObject {
         material_data.position = ray.getPoint(distance);
         return this.material.color(material_data, scene, recursionDepth);
     }
+    setTransform(transform, inv_transform=Mat4.inverse(transform)) {
+        this.transform = transform;
+        this.inv_transform = inv_transform;
+        this.boundingBox = null;
+    }
     getTransformed(transform, inv_transform=Mat4.inverse(transform)) {
         return new SceneObject(
             this.geometry,

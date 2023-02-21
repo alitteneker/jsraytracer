@@ -215,14 +215,8 @@ class WebGLRendererAdapter {
                 
                 Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 
+                gl_FragDepth = 1E20;
                 vec4 sampleColor = vec4(rendererRayColor(r, random_seed), 1.0);
-                
-                if (any(isnan(sampleColor)))
-                    sampleColor = vec4(1.0, 0.0, 0.5, 1.0);
-                if (any(isinf(sampleColor)))
-                    sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
-                if (any(lessThan(sampleColor, vec4(0.0))))
-                    sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
                 
                 if (uSampleWeight == 0.0)
                     outTexelColor = sampleColor;
@@ -292,12 +286,15 @@ class WebGLRendererAdapter {
                     Ray r = in_ray;
                     vec3 attenuation_color = vec3(1);
                     for (int i = 0; i < uMaxBounceDepth; ++i) {
-                        vec4 intersect_positon = vec4(0);
+                        vec4 intersect_position = vec4(0);
                         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_positon, nextRays);
+                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_position, nextRays);
                         
-                        if (intersect_positon.w == 0.0)
+                        if (intersect_position.w == 0.0)
                             break;
+                        
+                        if (i == 0)
+                            gl_FragDepth = length(r.o - intersect_position);
                         
                         bool do_next_ray = false;
                         
@@ -310,7 +307,7 @@ class WebGLRendererAdapter {
                             if (next_ray_probability_sample <= 0.0
                                 && normSquared(nextRays.reflectionDirection) > EPSILON)
                             {
-                                r = Ray(intersect_positon, nextRays.reflectionDirection);
+                                r = Ray(intersect_position, nextRays.reflectionDirection);
                                 attenuation_color *= nextRays.reflectionColor;
                                 do_next_ray = true;
                             }
@@ -320,7 +317,7 @@ class WebGLRendererAdapter {
                                 if (next_ray_probability_sample <= 0.0
                                     && normSquared(nextRays.refractionDirection) > EPSILON)
                                 {
-                                    r = Ray(intersect_positon, nextRays.refractionDirection);
+                                    r = Ray(intersect_position, nextRays.refractionDirection);
                                     attenuation_color *= nextRays.refractionColor;
                                     do_next_ray = true;
                                 }

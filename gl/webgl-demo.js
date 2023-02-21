@@ -40,22 +40,27 @@ $(document).ready(function() {
         `#version 300 es
         precision mediump float;
         
-        in vec3 vertexPosition;
+        in vec3 cubeCorner;
         
         uniform vec3 uCubeMin;
         uniform vec3 uCubeMax;
         uniform mat4 uModelviewProjection;
         
+        out vec3 vertexPosition;
         void main() {
-            gl_Position = uModelviewProjection * vec4(mix(uCubeMin, uCubeMax, vertexPosition), 1.0);
+            vertexPosition = mix(uCubeMin, uCubeMax, cubeCorner);
+            gl_Position = uModelviewProjection * vec4(vertexPosition, 1.0);
         }`,
         
         `#version 300 es
         precision mediump float;
         
+        in vec3 vertexPosition;
+        uniform vec3 uCameraPosition;
         uniform vec4 uLineColor;
         out vec4 outTexelColor;
         void main() {
+            gl_FragDepth = 0.49;//length(uCameraPosition - vertexPosition);
             outTexelColor = uLineColor;
         }`,
         function(shaderProgram) {
@@ -64,6 +69,7 @@ $(document).ready(function() {
                 lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
                 cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
                 cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
+                cameraPosition:      gl.getUniformLocation(shaderProgram, "uCameraPosition"),
                 modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
             };
 
@@ -88,8 +94,10 @@ $(document).ready(function() {
                 0, 4, 1, 5, 2, 6, 3, 7
             ]), gl.STATIC_DRAW);
             
-            lineVertexAttribute = gl.getAttribLocation(shaderProgram, 'vertexPosition');
+            lineVertexAttribute = gl.getAttribLocation(shaderProgram, 'cubeCorner');
             gl.enableVertexAttribArray(lineVertexAttribute);
+            
+            gl.enable(gl.DEPTH_TEST);
         });
     
     
@@ -163,6 +171,8 @@ $(document).ready(function() {
                 mouseMoveDelta = [0,0];
             }
             
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            
             renderer_adapter.drawScene(currentTimestamp);
             
             if (lineShaderProgram && selectedObject) {
@@ -171,9 +181,10 @@ $(document).ready(function() {
                     gl.useProgram(lineShaderProgram);
                     gl.bindTexture(gl.TEXTURE_2D, null);
                     
-                    gl.uniform4fv(lineShaderProgramUniforms.lineColor, Vec.of(1,1,1,1));
-                    gl.uniform3fv(lineShaderProgramUniforms.cubeMin,   aabb.min.slice(0,3));
-                    gl.uniform3fv(lineShaderProgramUniforms.cubeMax,   aabb.max.slice(0,3));
+                    gl.uniform4fv(lineShaderProgramUniforms.lineColor,      Vec.of(1,1,1,1));
+                    gl.uniform3fv(lineShaderProgramUniforms.cubeMin,        aabb.min.slice(0,3));
+                    gl.uniform3fv(lineShaderProgramUniforms.cubeMax,        aabb.max.slice(0,3));
+                    gl.uniform3fv(lineShaderProgramUniforms.cameraPosition, renderer_adapter.adapters.camera.camera.transform.column(3).slice(0,3));
                     gl.uniformMatrix4fv(lineShaderProgramUniforms.modelviewProjection, true, renderer_adapter.adapters.camera.camera.getViewMatrix().flat());
                     
                     gl.bindBuffer(gl.ARRAY_BUFFER, lineVertexBuffer);
