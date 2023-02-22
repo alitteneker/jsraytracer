@@ -364,6 +364,21 @@ class WebGLRendererAdapter {
         if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.tracerShaderProgram))
             this.resetDrawCount();
     }
+    getCameraPosition() {
+        return this.adapters.camera.getPosition();
+    }
+    getCameraViewMatrix() {
+        return this.adapters.camera.getViewMatrix();
+    }
+    getCameraFOV() {
+        return this.adapters.camera.getFOV();
+    }
+    getCameraFocusDistance() {
+        return this.adapters.camera.getFocusDistance();
+    }
+    getCameraSensorSize() {
+        return this.adapters.camera.getSensorSize();
+    }
     changeLensSettings(focusDistance, apertureSize, FOV) {
         this.gl.useProgram(this.tracerShaderProgram);
         if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, FOV, this.gl, this.tracerShaderProgram))

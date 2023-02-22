@@ -217,8 +217,8 @@ class WebGLInterface {
                     gl.uniform4fv(      this.lineShader.uniforms.lineColor,      Vec.of(1,1,1,1));
                     gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
                     gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
-                    gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.adapters.camera.camera.transform.column(3).slice(0,3));
-                    gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.adapters.camera.camera.getViewMatrix().flat());
+                    gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
+                    gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.getCameraViewMatrix().flat());
                     
                     gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
@@ -260,14 +260,15 @@ class WebGLInterface {
     getDefaultControlValues(renderer_adapter) {
         $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
         
-        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
-            $('#focus-distance').val(renderer_adapter.adapters.camera.focus_distance);
+        const focus_distance = renderer_adapter.getCameraFocusDistance();
+        if (renderer_adapter.getCameraFocusDistance() != 1.0)
+            $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
         else
-            $('#focus-distance').val(renderer_adapter.adapters.camera.camera.transform.column(3).minus(
-                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
+            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
+                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm()); // TODO
         
-        $('#aperture-size').val(renderer_adapter.adapters.camera.aperture_size);
-        $('#fov-range').val(-renderer_adapter.adapters.camera.FOV);
+        $('#aperture-size').val(renderer_adapter.getCameraSensorSize());
+        $('#fov-range').val(-renderer_adapter.getCameraFOV());
         
         this.changeLensSettings();
     }
@@ -324,7 +325,10 @@ class WebGLInterface {
         canvas.on("pointerup",     this.pointerUp.bind(this));
         canvas.on("pointercancel", this.pointerLeave.bind(this));
         canvas.on("pointermove",   this.pointerMove.bind(this));
-        canvas.on("blur", e => { this.isMouseDown = false; });
+        canvas.on("blur", e => {
+            this.isMouseDown = false;
+            this.keyReset();
+        });
     }
     pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)

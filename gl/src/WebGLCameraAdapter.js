@@ -56,6 +56,21 @@ class WebGLCameraAdapter {
         gl.uniform1f(gl.getUniformLocation(program, "uApertureSize"),  this.aperture_size  = apertureSize);
         return true;
     }
+    getPosition() {
+        return this.camera.transform.column(3);
+    }
+    getViewMatrix() {
+        return this.camera.getViewMatrix();
+    }
+    getFOV() {
+        return this.FOV;
+    }
+    getFocusDistance() {
+        return this.focusDistance;
+    }
+    getSensorSize() {
+        return this.aperture_size;
+    }
     writeCameraTransform(gl, program, transform) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.flat());
     }
