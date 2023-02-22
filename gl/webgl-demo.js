@@ -48,7 +48,7 @@ class WebGLInterface {
         
         
         // setup standard listeners for changing lens settings
-        $("#fov-range,#focus-distance,#aperture-size").on('input', this.changeLensSettings.bind(this));
+        $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
         
         $("#renderer-depth").on('spin', (e, ui) => {
             if (this.renderer_adapter)
@@ -138,7 +138,7 @@ class WebGLInterface {
     renderer_adapter = null;
     sceneChange() {
         if (this.animation_request_id) {
-            window.cancelAnimationFrame(animation_request_id);
+            window.cancelAnimationFrame(this.animation_request_id);
             this.animation_request_id = null;
         }
         if (this.renderer_adapter) {
@@ -247,13 +247,13 @@ class WebGLInterface {
     }
     
     changeLensSettings() {
-        const focusValue    =  Number.parseFloat($('#focus-distance').val()),
-              apertureValue =  Number.parseFloat($('#aperture-size').val()),
-              fovValue      = -Number.parseFloat($('#fov-range').val());
+        const focusValue  =  Number.parseFloat($('#focus-distance').val()),
+              sensorValue =  Number.parseFloat($('#sensor-size').val()),
+              fovValue    = -Number.parseFloat($('#fov-range').val());
         if (this.renderer_adapter)
-            this.renderer_adapter.changeLensSettings(focusValue, apertureValue, fovValue);
+            this.renderer_adapter.changeLensSettings(focusValue, sensorValue, fovValue);
         $('#focus-output').text(focusValue.toFixed(2));
-        $('#aperture-output').text(apertureValue.toFixed(2));
+        $('#sensor-output').text(sensorValue.toFixed(2));
         $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
     }
     
@@ -267,7 +267,7 @@ class WebGLInterface {
             $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
                 renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm()); // TODO
         
-        $('#aperture-size').val(renderer_adapter.getCameraSensorSize());
+        $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
         $('#fov-range').val(-renderer_adapter.getCameraFOV());
         
         this.changeLensSettings();
