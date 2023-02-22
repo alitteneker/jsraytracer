@@ -1,11 +1,7 @@
 "use strict";
 
 $(document).ready(function() {
-    
-    const canvas = $('#glcanvas');
     const console_output = $('#console_output');
-    const loading_spinner = $("#loading-img");
-    const fps_div = $('#fps-display');
     
     window["myconsole"] = {
         log: function(...args) {
@@ -17,328 +13,346 @@ $(document).ready(function() {
             console_output.append('<p class="error">' + args.join("\t") + "</p>");
         }
     };
+    
     if (window["myerrors"].length) {
         for (let error_dict of window["myerrors"])
             window["myconsole"].error(error_dict.error, "@" + error_dict.url + ":" + error_dict.lineNo);
         return;
     }
     
+    
+    
     // Populate the list of scenes with the default test list
-    const scene_select = $("#test-select");
     fetch("../tests/list.json").then(response => response.json()).then(function(json) {
         for (let o of json.sort())
-            scene_select.append(`<option value="tests/${o}">${o}</option>`);
+            $("#test-select").append(`<option value="tests/${o}">${o}</option>`);
     });
-    
-    const gl = canvas.get(0).getContext('webgl2');
-    if (!gl)
-        throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
-    
-    // vertex shader for drawing a line
-    let lineShaderProgram = null, lineShaderProgramUniforms = null, lineVertexBuffer = null, lineIndexBuffer = null, lineVertexAttribute = null;
-    WebGLHelper.compileShaderProgramFromSources(gl,
-        `#version 300 es
-        precision mediump float;
-        
-        in vec3 cubeCorner;
-        
-        uniform vec3 uCubeMin;
-        uniform vec3 uCubeMax;
-        uniform mat4 uModelviewProjection;
-        
-        out vec3 vertexPosition;
-        void main() {
-            vertexPosition = mix(uCubeMin, uCubeMax, cubeCorner);
-            gl_Position = uModelviewProjection * vec4(vertexPosition, 1.0);
-        }`,
-        
-        `#version 300 es
-        precision mediump float;
-        #define EPSILON 0.0001
-        
-        in vec3 vertexPosition;
-        uniform vec3 uCameraPosition;
-        uniform vec4 uLineColor;
-        out vec4 outTexelColor;
-        void main() {
-            gl_FragDepth = min(length(uCameraPosition - vertexPosition) / 1000.0, 1.0-EPSILON);
-            outTexelColor = uLineColor;
-        }`,
-        function(shaderProgram) {
-            lineShaderProgram = shaderProgram;
-            lineShaderProgramUniforms = {
-                lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
-                cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
-                cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
-                cameraPosition:      gl.getUniformLocation(shaderProgram, "uCameraPosition"),
-                modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
-            };
+   
+    const i = new WebGLInterface();
+});
 
-            lineVertexBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ARRAY_BUFFER, lineVertexBuffer);
-            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-                0, 0, 0,
-                0, 0, 1,
-                0, 1, 1,
-                0, 1, 0,
-                1, 0, 0,
-                1, 0, 1,
-                1, 1, 1,
-                1, 1, 0
-            ]), gl.STATIC_DRAW);
-            
-            lineIndexBuffer = gl.createBuffer();
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
-            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([
-                0, 1, 1, 2, 2, 3, 3, 0,
-                4, 5, 5, 6, 6, 7, 7, 4,
-                0, 4, 1, 5, 2, 6, 3, 7
-            ]), gl.STATIC_DRAW);
-            
-            lineVertexAttribute = gl.getAttribLocation(shaderProgram, 'cubeCorner');
-            gl.enableVertexAttribArray(lineVertexAttribute);
-            
-            gl.enable(gl.DEPTH_TEST);
+class WebGLInterface {
+    constructor() {
+        const canvas = this.canvas = $('#glcanvas');
+        
+        const gl = this.gl = canvas.get(0).getContext('webgl2');
+        if (!gl)
+            throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
+        
+        this.buildLineShader(gl);
+        
+        $("#test-select").on("change", this.sceneChange.bind(this));
+        
+        this.registerPointerEvents(canvas);
+        this.registerKeyEvents();
+        
+        
+        // setup standard listeners for changing lens settings
+        $("#fov-range,#focus-distance,#aperture-size").on('input', this.changeLensSettings.bind(this));
+        
+        $("#renderer-depth").on('spin', (e, ui) => {
+            if (this.renderer_adapter)
+                this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
         });
+        
+        
+        // Setup the UI to pretty things up...
+        $("#control-panel").accordion({ animate: false, collapsible:true, active: -1 });
+        $(".control-group").controlgroup();
+        $("#help-button").button({
+            icon: "ui-icon-help",
+            showLabel: false
+        });
+    }
     
+    lineShader = null;
+    buildLineShader(gl) {
+        WebGLHelper.compileShaderProgramFromSources(gl,
+            `#version 300 es
+            precision mediump float;
+            
+            in vec3 cubeCorner;
+            
+            uniform vec3 uCubeMin;
+            uniform vec3 uCubeMax;
+            uniform mat4 uModelviewProjection;
+            
+            out vec3 vertexPosition;
+            void main() {
+                vertexPosition = mix(uCubeMin, uCubeMax, cubeCorner);
+                gl_Position = uModelviewProjection * vec4(vertexPosition, 1.0);
+            }`,
+            
+            `#version 300 es
+            precision mediump float;
+            #define EPSILON 0.0001
+            
+            in vec3 vertexPosition;
+            uniform vec3 uCameraPosition;
+            uniform vec4 uLineColor;
+            out vec4 outTexelColor;
+            void main() {
+                gl_FragDepth = min(length(uCameraPosition - vertexPosition) / 1000.0, 1.0-EPSILON);
+                outTexelColor = uLineColor;
+            }`,
+            (shaderProgram) => {
+                this.lineShader = {};
+                this.lineShader.program = shaderProgram;
+                this.lineShader.uniforms = {
+                    lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
+                    cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
+                    cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
+                    cameraPosition:      gl.getUniformLocation(shaderProgram, "uCameraPosition"),
+                    modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
+                };
+
+                this.lineShader.vertexBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                    0, 0, 0,
+                    0, 0, 1,
+                    0, 1, 1,
+                    0, 1, 0,
+                    1, 0, 0,
+                    1, 0, 1,
+                    1, 1, 1,
+                    1, 1, 0
+                ]), gl.STATIC_DRAW);
+                
+                this.lineShader.indexBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([
+                    0, 1, 1, 2, 2, 3, 3, 0,
+                    4, 5, 5, 6, 6, 7, 7, 4,
+                    0, 4, 1, 5, 2, 6, 3, 7
+                ]), gl.STATIC_DRAW);
+                
+                this.lineShader.vertexAttribute = gl.getAttribLocation(shaderProgram, 'cubeCorner');
+                gl.enableVertexAttribArray(this.lineShader.vertexAttribute);
+                
+                gl.enable(gl.DEPTH_TEST);
+            }
+        );
+    }
     
-    // Setup a listener so that the rendered scene will update anytime the scene selector is changed
-    let renderer_adapter = null, animation_request_id = null;
-    scene_select.on("change", function onChange(e) {
-        if (animation_request_id) {
+    renderer_adapter = null;
+    sceneChange() {
+        if (this.animation_request_id) {
             window.cancelAnimationFrame(animation_request_id);
-            animation_request_id = null;
+            this.animation_request_id = null;
         }
-        if (renderer_adapter) {
-            renderer_adapter.destroy();
-            renderer_adapter = null;
+        if (this.renderer_adapter) {
+            this.renderer_adapter.destroy();
+            this.renderer_adapter = null;
         }
         
+        const scene_select = $("#test-select");
         if (scene_select.value === "")
             return;
         const scene_path = scene_select.val();
 
-        loading_spinner.css('visibility', 'visible');
+        $("#loading-img").css('visibility', 'visible');
         
         myconsole.log("Loading " + scene_path + "...");
         import("../" + scene_path + "/test.js").then(function(module) {
             module.configureTest(function(test) {
-                canvas.attr("width", test.width);
-                canvas.attr("height", test.height);
+                this.canvas.attr("width", test.width);
+                this.canvas.attr("height", test.height);
                 
                 try {
+                    const gl = this.gl;
                     gl.viewport(0, 0, test.width, test.height);
                     
-                    WebGLRendererAdapter.build(gl, canvas.get(0), test.renderer, function(adapter) {
-                        renderer_adapter = adapter;
+                    WebGLRendererAdapter.build(gl, this.canvas.get(0), test.renderer, function(adapter) {
+                        this.renderer_adapter = adapter;
                         
                         // Set the initial values for the controls
-                        getDefaultControlValues(renderer_adapter);
+                        this.getDefaultControlValues(adapter);
                         
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
-                        mouseMoveDelta = [0,0];
+                        this.mouseMoveDelta = [0,0];
                         
                         myconsole.log("Starting draw scene loop...");
-                        animation_request_id = window.requestAnimationFrame(drawScene);
+                        this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
 
-                        loading_spinner.css('visibility', 'hidden');
-                    });
+                        $("#loading-img").css('visibility', 'hidden');
+                    }.bind(this));
                 } catch(error) {
                     myconsole.error(error);
-                    loading_spinner.css('visibility', 'hidden');
+                    $("#loading-img").css('visibility', 'hidden');
                 }
-            });
-        });
-    });
+            }.bind(this));
+        }.bind(this));
+    }
     
-    
-    
-    // Draw the scene, incorporating mouse/key deltas
-    let lastDrawTimestamp = null;
-    let selectedObject = null;
-    let keyMoveDelta = [0,0,0], mouseMoveDelta = [0,0];
-    const keySpeed = 3.0, mouseSpeed = 0.08;
-    function drawScene(timestamp) {
+
+    lastDrawTimestamp = null;
+    keyMoveDelta = [0,0,0]
+    mouseMoveDelta = [0,0];
+    keySpeed = 3.0;
+    mouseSpeed = 0.08;
+    draw(timestamp) {
         const currentTimestamp = performance.now();
-        const timeDelta = lastDrawTimestamp ? (currentTimestamp - lastDrawTimestamp) : 1;
+        const timeDelta = this.lastDrawTimestamp ? (currentTimestamp - this.lastDrawTimestamp) : 1;
         
         // draw the scene, and request the next frame of animation
-        if (renderer_adapter) {
-            fps_div.text((1000 / timeDelta).toFixed(1) + " FPS - " + renderer_adapter.drawCount + " samples");
-            if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || keyMoveDelta.some(x => (x != 0)))) {
-                const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(v => mouseSpeed * v * timeDelta / 1000));
-                const normalizedKeyDelta   = Vec.from(keyMoveDelta.map(  v => keySpeed   * v * timeDelta / 1000));
-                renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
-                mouseMoveDelta = [0,0];
+        if (this.renderer_adapter) {
+            $('#fps-display').text((1000 / timeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
+            if (timeDelta > 0 && (this.mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
+                const normalizedMouseDelta = Vec.from(this.mouseMoveDelta.map(v => this.mouseSpeed * v * timeDelta / 1000));
+                const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
+                this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+                this.mouseMoveDelta = [0,0];
             }
             
-            renderer_adapter.drawScene(currentTimestamp);
+            this.renderer_adapter.drawScene(currentTimestamp);
             
-            if (lineShaderProgram && selectedObject) {
-                const aabb = selectedObject.object.getBoundingBox()
+            if (this.lineShader && this.selectedObject) {
+                const gl = this.gl;
+                const aabb = this.selectedObject.object.getBoundingBox()
                 if (aabb.isFinite()) {
-                    gl.useProgram(lineShaderProgram);
+                    gl.useProgram(this.lineShader.program);
                     gl.bindTexture(gl.TEXTURE_2D, null);
                     
-                    gl.uniform4fv(lineShaderProgramUniforms.lineColor,      Vec.of(1,1,1,1));
-                    gl.uniform3fv(lineShaderProgramUniforms.cubeMin,        aabb.min.slice(0,3));
-                    gl.uniform3fv(lineShaderProgramUniforms.cubeMax,        aabb.max.slice(0,3));
-                    gl.uniform3fv(lineShaderProgramUniforms.cameraPosition, renderer_adapter.adapters.camera.camera.transform.column(3).slice(0,3));
-                    gl.uniformMatrix4fv(lineShaderProgramUniforms.modelviewProjection, true, renderer_adapter.adapters.camera.camera.getViewMatrix().flat());
+                    gl.uniform4fv(      this.lineShader.uniforms.lineColor,      Vec.of(1,1,1,1));
+                    gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
+                    gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
+                    gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.adapters.camera.camera.transform.column(3).slice(0,3));
+                    gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.adapters.camera.camera.getViewMatrix().flat());
                     
-                    gl.bindBuffer(gl.ARRAY_BUFFER, lineVertexBuffer);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
-                    gl.vertexAttribPointer(lineVertexAttribute, 3, gl.FLOAT, false, 0, 0);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
+                    gl.vertexAttribPointer(this.lineShader.vertexAttribute, 3, gl.FLOAT, false, 0, 0);
                     gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
                 }
             }
             
-            animation_request_id = window.requestAnimationFrame(drawScene);
+            this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
         }
         
         // reset all intermediary input/timing variables
-        lastDrawTimestamp = currentTimestamp;
+        this.lastDrawTimestamp = currentTimestamp;
+    }
+    
+    selectedObject = null;
+    selectObjectAt(raster_x, raster_y) {
+        if (!this.renderer_adapter)
+            return;
+        
+        let x =  2 * (raster_x / this.canvas.attr("width"))  - 1;
+        let y = -2 * (raster_y / this.canvas.attr("height")) + 1;
+        
+        this.selectedObject = this.renderer_adapter.selectObjectAt(x, y);
+        // update the rest of the display?
+    }
+    
+    changeLensSettings() {
+        const focusValue    =  Number.parseFloat($('#focus-distance').val()),
+              apertureValue =  Number.parseFloat($('#aperture-size').val()),
+              fovValue      = -Number.parseFloat($('#fov-range').val());
+        if (this.renderer_adapter)
+            this.renderer_adapter.changeLensSettings(focusValue, apertureValue, fovValue);
+        $('#focus-output').text(focusValue.toFixed(2));
+        $('#aperture-output').text(apertureValue.toFixed(2));
+        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
+    }
+    
+    getDefaultControlValues(renderer_adapter) {
+        $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
+        
+        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
+            $('#focus-distance').val(renderer_adapter.adapters.camera.focus_distance);
+        else
+            $('#focus-distance').val(renderer_adapter.adapters.camera.camera.transform.column(3).minus(
+                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
+        
+        $('#aperture-size').val(renderer_adapter.adapters.camera.aperture_size);
+        $('#fov-range').val(-renderer_adapter.adapters.camera.FOV);
+        
+        this.changeLensSettings();
     }
     
     
-    
-    // Setup key mappings so that the camera can be moved
-    let keysDown = {};
-    const keyDirMap = {
+    // Key movement functionality
+    keysDown = {};
+    keyDirMap = {
         "w": [ 0, 0,-1],
         "s": [ 0, 0, 1],
         "a": [-1, 0, 0],
         "d": [ 1, 0, 0],
         " ": [ 0, 1, 0],
-        "c": [ 0,-1, 0]};
-    function calcKeyDelta() {
-        keyMoveDelta = [0,0,0];
-        for (let [key, isDown] of Object.entries(keysDown))
-            if (isDown && key in keyDirMap)
+        "c": [ 0,-1, 0]
+    };
+    registerKeyEvents() {
+        const canvas_widget = $("div.canvas-widget");
+        canvas_widget.on("keydown", this.keyDown.bind(this));
+        canvas_widget.on("keyup",   this.keyUp.bind(this));
+        canvas_widget.on("blur",    this.keyReset.bind(this));
+    }
+    calcKeyDelta() {
+        this.keyMoveDelta = [0,0,0];
+        for (let [key, isDown] of Object.entries(this.keysDown))
+            if (isDown && key in this.keyDirMap)
                 for (let i = 0; i < 3; ++i)
-                    keyMoveDelta[i] += keyDirMap[key][i];
+                    this.keyMoveDelta[i] += this.keyDirMap[key][i];
     }
-    function keyDown(e) {
-        if (e.key in keyDirMap)
-            keysDown[e.key] = true;
-        calcKeyDelta();
+    keyDown(e) {
+        if (e.key in this.keyDirMap) {
+            e.stopPropagation();
+            e.preventDefault();
+            this.keysDown[e.key] = true;
+        }
+        this.calcKeyDelta();
     }
-    function keyUp(e) {
-        if (e.key in keyDirMap)
-            keysDown[e.key] = false;
-        calcKeyDelta();
+    keyUp(e) {
+        if (e.key in this.keyDirMap)
+            this.keysDown[e.key] = false;
+        this.calcKeyDelta();
     }
-    function keyReset(e) {
-        keysDown = {};
-        calcKeyDelta();
+    keyReset(e) {
+        this.keysDown = {};
+        this.calcKeyDelta();
     }
-    $("div.canvas-widget").on("keydown", keyDown);
-    $("div.canvas-widget").on("keyup", keyUp);
-    $("div.canvas-widget").on("blur", keyReset);
     
     
-    // setup some mouse listeners to track mouse movements while the cursor is pressed over the canvas
-    let lastMousePos = null, isMouseDown = false, hasMouseMoved = false;
-    function pointerDown(e) {
+    // Mouse/pointer movement functionality
+    lastMousePos = null;
+    isMouseDown = false;
+    hasMouseMoved = false;
+    registerPointerEvents(canvas) {
+        canvas.on("pointerdown",   this.pointerDown.bind(this));
+        canvas.on("pointerup",     this.pointerUp.bind(this));
+        canvas.on("pointercancel", this.pointerLeave.bind(this));
+        canvas.on("pointermove",   this.pointerMove.bind(this));
+        canvas.on("blur", e => { this.isMouseDown = false; });
+    }
+    pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)
             return;
-        hasMouseMoved = false;
-        isMouseDown = true;
-        lastMousePos = [event.clientX, event.clientY];
-        canvas.get(0).setPointerCapture(e.pointerId);
+        this.hasMouseMoved = false;
+        this.isMouseDown = true;
+        this.lastMousePos = [event.clientX, event.clientY];
+        this.canvas.get(0).setPointerCapture(e.pointerId);
     }
-    function pointerUp(e) {
-        if (hasMouseMoved === false && renderer_adapter) {
+    pointerUp(e) {
+        if (this.hasMouseMoved === false && this.renderer_adapter) {
             const rect = e.target.getBoundingClientRect();
-            selectObjectAt(e.clientX - rect.left, e.clientY - rect.top);
+            this.selectObjectAt(event.clientX - rect.left, event.clientY - rect.top);
         }
-        pointerLeave(e);
+        this.pointerLeave(e);
     }
-    function pointerLeave(e) {
-        isMouseDown = false;
-        canvas.get(0).releasePointerCapture(e.pointerId);
+    pointerLeave(e) {
+        this.isMouseDown = false;
+        this.canvas.get(0).releasePointerCapture(e.pointerId);
     }
-    function pointerMove(e) {
+    pointerMove(e) {
         const mousePos = [event.clientX, event.clientY];
-        if (isMouseDown) {
-            hasMouseMoved = true;
-            if (renderer_adapter)
-                mouseMoveDelta = [0,1].map(i => mouseMoveDelta[i] + mousePos[i] - lastMousePos[i]);
+        if (this.isMouseDown) {
+            this.hasMouseMoved = true;
+            if (this.renderer_adapter)
+                this.mouseMoveDelta = [0,1].map(i => this.mouseMoveDelta[i] + mousePos[i] - this.lastMousePos[i]);
         }
-        lastMousePos = mousePos;
+        this.lastMousePos = mousePos;
     }
-    canvas.on("pointerdown",   pointerDown);
-    canvas.on("pointerup",     pointerUp);
-    canvas.on("pointercancel", pointerLeave);
-    canvas.on("pointermove",   pointerMove);
-    canvas.on("blur", e => { isMouseDown = false; });
-    
-    
-    
-    
-    const fovSlider = $('#fov-range');
-    const focusSlider = $('#focus-distance');
-    const apertureSlider = $('#aperture-size');
-    const rendererDepthInput = $('#renderer-depth');
-    
-    
-    function getDefaultControlValues(renderer_adapter) {
-        rendererDepthInput.val(renderer_adapter.maxBounceDepth);
-        
-        if (renderer_adapter.adapters.camera.focus_distance != 1.0)
-            focusSlider.val(renderer_adapter.adapters.camera.focus_distance);
-        else
-            focusSlider.val(renderer_adapter.adapters.camera.camera.transform.column(3).minus(
-                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm());
-        
-        apertureSlider.val(renderer_adapter.adapters.camera.aperture_size);
-        fovSlider.val(-renderer_adapter.adapters.camera.FOV);
-        
-        changeLensSettings();
-    }
-
-    
-    // setup listeners to change the camera focus settings whenever the sliders change
-    function changeLensSettings() {
-        const focusValue    =  Number.parseFloat(focusSlider.val()),
-              apertureValue =  Number.parseFloat(apertureSlider.val()),
-              fovValue      = -Number.parseFloat(fovSlider.val());
-        if (renderer_adapter)
-            renderer_adapter.changeLensSettings(focusValue, apertureValue, fovValue);
-        $('#focus-output').text(focusValue.toFixed(2));
-        $('#aperture-output').text(apertureValue.toFixed(2));
-        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
-    }
-    focusSlider.on('input', changeLensSettings);
-    apertureSlider.on('input', changeLensSettings);
-    fovSlider.on('input', changeLensSettings);
-    
-    rendererDepthInput.on('spin', function(e, ui) {
-        if (renderer_adapter)
-            renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
-    });
-    
-    
-    
-    function selectObjectAt(raster_x, raster_y) {
-        if (!renderer_adapter)
-            return;
-        
-        let x =  2 * (raster_x / canvas.attr("width"))  - 1;
-        let y = -2 * (raster_y / canvas.attr("height")) + 1;
-        
-        selectedObject = renderer_adapter.selectObjectAt(x, y);
-        // update the rest of the display?
-    }
-    
-    
-    
-    // Setup the UI to pretty things up...
-    $("#control-panel").accordion({ animate: false, collapsible:true, active: -1 });
-    $(".control-group").controlgroup();
-    $("#help-button").button({
-        icon: "ui-icon-help",
-        showLabel: false
-    });
-});
+}
 
