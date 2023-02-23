@@ -352,9 +352,11 @@ class WebGLInterface {
         this.hasMouseMoved = false;
         this.isMouseDown = true;
         if (this.renderer_adapter) {
+            const rect = e.target.getBoundingClientRect();
+            const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
             if (this.selectedObject)
-                this.isObjectBeingTransformed = this.selectedObject.aabb.intersect(this.renderer_adapter.getRayForPixel(event.clientX, event.clientY)) > 0;
-            this.nextMousePos = this.lastMousePos = [event.clientX, event.clientY];
+                this.isObjectBeingTransformed = this.selectedObject.aabb.intersect(this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1])) > 0;
+            this.nextMousePos = this.lastMousePos = mousePos;
         }
         this.canvas.get(0).setPointerCapture(e.pointerId);
     }
@@ -373,8 +375,10 @@ class WebGLInterface {
     pointerMove(e) {
         if (this.isMouseDown) {
             this.hasMouseMoved = true;
-            if (this.renderer_adapter)
-                this.nextMousePos = [event.clientX, event.clientY];
+            if (this.renderer_adapter) {
+                const rect = e.target.getBoundingClientRect();
+                this.nextMousePos = [event.clientX - rect.left, event.clientY - rect.top];
+            }
         }
     }
 }
