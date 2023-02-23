@@ -392,9 +392,13 @@ class WebGLRendererAdapter {
         }
     }
     
+    getRayForPixel(raster_x, raster_y) {
+        const x =  2 * (raster_x / this.canvas.width)  - 1;
+        const y = -2 * (raster_y / this.canvas.height) + 1;
+        return this.adapters.camera.camera.getRayForPixel(x, y);
+    }
     selectObjectAt(x, y) {
-        const ray = this.adapters.camera.camera.getRayForPixel(x, y);
-        return this.adapters.scene.intersectRay(ray);
+        return this.adapters.scene.intersectRay(this.getRayForPixel(x, y));
     }
 
     drawScene(timestamp) {

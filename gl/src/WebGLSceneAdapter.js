@@ -1,5 +1,5 @@
 class WebGLSceneAdapter {
-    static USE_SCENE_BVH = true;
+    USE_SCENE_BVH = false;
     constructor(scene, webgl_helper) {
         [this.indices_texture_unit,  this.indices_texture ] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
@@ -112,7 +112,7 @@ class WebGLSceneAdapter {
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat());
         
         // Write BVH data
-        gl.uniform1i(gl.getUniformLocation(program, "uUseBVHSceneIntersect"), WebGLSceneAdapter.USE_SCENE_BVH);
+        gl.uniform1i(gl.getUniformLocation(program, "uUseBVHSceneIntersect"), this.USE_SCENE_BVH);
         gl.uniform1i(gl.getUniformLocation(program, "uSceneBVHNodeCount"), this.bvh_nodes.length);
         webgl_helper.setDataTexturePixelsUnit(this.bvh_aabb_texture, 4, "FLOAT",   this.bvh_aabb_texture_unit, "uSceneBVHAABBs", program,
             this.bvh_nodes.map(n => n.aabb ? [...n.aabb.center, ...n.aabb.half_size] : [0,0,0,0,0,0,0,0]).flat());

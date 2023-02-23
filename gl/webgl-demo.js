@@ -187,10 +187,6 @@ class WebGLInterface {
     
 
     lastDrawTimestamp = null;
-    keyMoveDelta = [0,0,0]
-    mouseMoveDelta = [0,0];
-    keySpeed = 3.0;
-    mouseSpeed = 0.08;
     draw(timestamp) {
         const currentTimestamp = performance.now();
         const timeDelta = this.lastDrawTimestamp ? (currentTimestamp - this.lastDrawTimestamp) : 1;
@@ -198,34 +194,13 @@ class WebGLInterface {
         // draw the scene, and request the next frame of animation
         if (this.renderer_adapter) {
             $('#fps-display').text((1000 / timeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
-            if (timeDelta > 0 && (this.mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
-                const normalizedMouseDelta = Vec.from(this.mouseMoveDelta.map(v => this.mouseSpeed * v * timeDelta / 1000));
-                const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
-                this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
-                this.mouseMoveDelta = [0,0];
-            }
+            
+            this.handleMovement(timeDelta);
             
             this.renderer_adapter.drawScene(currentTimestamp);
             
-            if (this.lineShader && this.selectedObject) {
-                const gl = this.gl;
-                const aabb = this.selectedObject.object.getBoundingBox()
-                if (aabb.isFinite()) {
-                    gl.useProgram(this.lineShader.program);
-                    gl.bindTexture(gl.TEXTURE_2D, null);
-                    
-                    gl.uniform4fv(      this.lineShader.uniforms.lineColor,      Vec.of(1,1,1,1));
-                    gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
-                    gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
-                    gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
-                    gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.getCameraViewMatrix().flat());
-                    
-                    gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
-                    gl.vertexAttribPointer(this.lineShader.vertexAttribute, 3, gl.FLOAT, false, 0, 0);
-                    gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
-                }
-            }
+            if (this.selectedObject)
+                this.drawWireframe(this.selectedObject.aabb)
             
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
         }
@@ -233,16 +208,38 @@ class WebGLInterface {
         // reset all intermediary input/timing variables
         this.lastDrawTimestamp = currentTimestamp;
     }
+    drawWireframe(aabb) {
+        if (this.lineShader) {
+            const gl = this.gl;
+            if (aabb.isFinite()) {
+                gl.useProgram(this.lineShader.program);
+                gl.bindTexture(gl.TEXTURE_2D, null);
+                
+                gl.uniform4fv(      this.lineShader.uniforms.lineColor,      this.isObjectBeingTransformed ? Vec.of(1,0,0,1) : Vec.of(1,1,1,1));
+                gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
+                gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
+                gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
+                gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.getCameraViewMatrix().flat());
+                
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
+                gl.vertexAttribPointer(this.lineShader.vertexAttribute, 3, gl.FLOAT, false, 0, 0);
+                gl.drawElements(gl.LINES, 24, gl.UNSIGNED_SHORT, 0);
+            }
+        }
+    }
     
     selectedObject = null;
-    selectObjectAt(raster_x, raster_y) {
+    isObjectBeingTransformed = false;
+    selectObjectAt(x, y) {
         if (!this.renderer_adapter)
             return;
         
-        let x =  2 * (raster_x / this.canvas.attr("width"))  - 1;
-        let y = -2 * (raster_y / this.canvas.attr("height")) + 1;
-        
         this.selectedObject = this.renderer_adapter.selectObjectAt(x, y);
+        if (this.selectedObject) {
+            this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
+        }
+        
         // update the rest of the display?
     }
     
@@ -274,7 +271,25 @@ class WebGLInterface {
     }
     
     
+    keySpeed = 3.0;
+    mouseSpeed = 0.0013;
+    handleMovement(timeDelta) {
+        const mouseDelta = [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
+        let mouseMoveDelta = mouseDelta;
+        if (this.selectedObject && this.isObjectBeingTransformed) {
+            mouseMoveDelta = [0,0];
+        }
+        if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
+            const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
+            const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
+            this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+        }
+        this.lastMousePos = this.nextMousePos;
+    }
+    
+    
     // Key movement functionality
+    keyMoveDelta = [0,0,0];
     keysDown = {};
     keyDirMap = {
         "w": [ 0, 0,-1],
@@ -317,7 +332,8 @@ class WebGLInterface {
     
     
     // Mouse/pointer movement functionality
-    lastMousePos = null;
+    lastMousePos = [0,0];
+    nextMousePos = [0,0];
     isMouseDown = false;
     hasMouseMoved = false;
     registerPointerEvents(canvas) {
@@ -335,7 +351,11 @@ class WebGLInterface {
             return;
         this.hasMouseMoved = false;
         this.isMouseDown = true;
-        this.lastMousePos = [event.clientX, event.clientY];
+        if (this.renderer_adapter) {
+            if (this.selectedObject)
+                this.isObjectBeingTransformed = this.selectedObject.aabb.intersect(this.renderer_adapter.getRayForPixel(event.clientX, event.clientY)) > 0;
+            this.nextMousePos = this.lastMousePos = [event.clientX, event.clientY];
+        }
         this.canvas.get(0).setPointerCapture(e.pointerId);
     }
     pointerUp(e) {
@@ -347,16 +367,15 @@ class WebGLInterface {
     }
     pointerLeave(e) {
         this.isMouseDown = false;
+        this.isObjectBeingTransformed = false;
         this.canvas.get(0).releasePointerCapture(e.pointerId);
     }
     pointerMove(e) {
-        const mousePos = [event.clientX, event.clientY];
         if (this.isMouseDown) {
             this.hasMouseMoved = true;
             if (this.renderer_adapter)
-                this.mouseMoveDelta = [0,1].map(i => this.mouseMoveDelta[i] + mousePos[i] - this.lastMousePos[i]);
+                this.nextMousePos = [event.clientX, event.clientY];
         }
-        this.lastMousePos = mousePos;
     }
 }
 

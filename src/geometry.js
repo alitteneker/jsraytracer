@@ -107,7 +107,7 @@ class AABB extends Geometry {
             [a[0], a[1], b[2], 1], [b[0], a[1], b[2], 1],
             [a[0], b[1], b[2], 1], [b[0], b[1], b[2], 1]);
     }
-    intersect(ray, minDistance, maxDistance) {
+    intersect(ray, minDistance = 0, maxDistance = Infinity) {
         const t = this.get_intersects(ray, minDistance, maxDistance);
         if (t)
             return (t.min >= minDistance) ? t.min : t.max;
