@@ -62,6 +62,12 @@ class WebGLCameraAdapter {
     getViewMatrix() {
         return this.camera.getViewMatrix();
     }
+    getTransform() {
+        return this.camera.transform;
+    }
+    getInverseTransform() {
+        return this.camera.inv_transform;
+    }
     getFOV() {
         return this.FOV;
     }

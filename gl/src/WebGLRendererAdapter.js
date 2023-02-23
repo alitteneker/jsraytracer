@@ -29,8 +29,8 @@ class WebGLRendererAdapter {
         
         // Create the adapters for the scene, which will also validate the data for the scene
         this.adapters = {
-            camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper),
-            scene:  new WebGLSceneAdapter(renderer.scene, this.webgl_helper)
+            camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper, gl),
+            scene:  new WebGLSceneAdapter( renderer.scene,  this.webgl_helper, gl)
         };
     }
     
@@ -50,12 +50,7 @@ class WebGLRendererAdapter {
                 callback(ret);
         });
     }
-    
-    visit(renderer) {
-        this.renderer = renderer;
-        this.adapters.camera.visit(renderer.camera, this.webgl_helper);
-        this.adapters.scene .visit(renderer.scene,  this.webgl_helper);
-    }
+
     reset() {
         this.adapters.scene.reset( this.gl, this.webgl_helper);
         this.adapters.camera.reset(this.gl, this.webgl_helper);
@@ -367,6 +362,12 @@ class WebGLRendererAdapter {
     getCameraPosition() {
         return this.adapters.camera.getPosition();
     }
+    getCameraTransform() {
+        return this.adapters.camera.getTransform();
+    }
+    getCameraInverseTransform() {
+        return this.adapters.camera.getInverseTransform();
+    }
     getCameraViewMatrix() {
         return this.adapters.camera.getViewMatrix();
     }
@@ -383,6 +384,12 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, FOV, this.gl, this.tracerShaderProgram))
             this.resetDrawCount();
+    }
+    
+    setTransform(transform_index, new_transform) {
+        this.gl.useProgram(this.tracerShaderProgram);
+        this.adapters.scene.setTransform(transform_index, new_transform, this.gl, this.tracerShaderProgram);
+        this.resetDrawCount();
     }
     
     changeMaxBounceDepth(newBounceDepth) {

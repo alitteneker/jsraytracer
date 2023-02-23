@@ -230,7 +230,6 @@ class WebGLInterface {
     }
     
     selectedObject = null;
-    isObjectBeingTransformed = false;
     selectObjectAt(x, y) {
         if (!this.renderer_adapter)
             return;
@@ -275,17 +274,27 @@ class WebGLInterface {
     mouseSpeed = 0.0013;
     handleMovement(timeDelta) {
         const mouseDelta = [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
-        let mouseMoveDelta = mouseDelta;
-        if (this.selectedObject && this.isObjectBeingTransformed) {
-            mouseMoveDelta = [0,0];
-        }
+        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : mouseDelta;
         if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
             const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
         }
+        
+        if (this.selectedObject && this.selectedObject.isBeingTransformed) {
+            const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.selectedObject.selectDepth);
+            const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.selectedObject.selectDepth);
+            const new_transform     = Mat4.translation(nextPos3D.minus(lastPos3D)).times(this.selectedObject.object.transform),
+                  new_inv_transform = this.selectedObject.object.inv_transform.times(Mat4.translation(lastPos3D.minus(nextPos3D)));
+            this.renderer_adapter.setTransform(this.selectedObject.transform.index, new_inv_transform);
+            
+            this.selectedObject.object.setTransform(new_transform, new_inv_transform);
+            this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
+        }
+        
         this.lastMousePos = this.nextMousePos;
     }
+    
     
     
     // Key movement functionality
@@ -354,8 +363,11 @@ class WebGLInterface {
         if (this.renderer_adapter) {
             const rect = e.target.getBoundingClientRect();
             const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
-            if (this.selectedObject)
-                this.isObjectBeingTransformed = this.selectedObject.aabb.intersect(this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1])) > 0;
+            if (this.selectedObject) {
+                const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]);
+                this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite() ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray);
+                this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;
+            }
             this.nextMousePos = this.lastMousePos = mousePos;
         }
         this.canvas.get(0).setPointerCapture(e.pointerId);
@@ -368,8 +380,12 @@ class WebGLInterface {
         this.pointerLeave(e);
     }
     pointerLeave(e) {
+        if (this.selectedObject) {
+            if (this.selectedObject.isBeingTransformed)
+                this.lastMousePos = this.nextMousePos;
+            this.selectedObject.isBeingTransformed = false;
+        }
         this.isMouseDown = false;
-        this.isObjectBeingTransformed = false;
         this.canvas.get(0).releasePointerCapture(e.pointerId);
     }
     pointerMove(e) {

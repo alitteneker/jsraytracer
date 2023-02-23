@@ -26,7 +26,7 @@ class WebGLSceneAdapter {
                 object:      object,
                 transformID: this.transform_store.store(object.inv_transform),
                 geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
-                materialID:  this.adapters.materials.visit(object.material, webgl_helper),
+                materialID:  this.adapters.materials.visit( object.material, webgl_helper),
                 does_cast_shadow:  object.does_cast_shadow
             });
         }
@@ -83,6 +83,7 @@ class WebGLSceneAdapter {
         this.adapters.geometries.destroy(gl);
         this.adapters.materials.destroy(gl);
     }
+    
     intersectRay(ray) {
         const intersect = this.scene.cast(ray);
         if (!intersect.object)
@@ -99,9 +100,15 @@ class WebGLSceneAdapter {
             does_cast_shadow: webgl_ids.does_cast_shadow
         };
     }
+    setTransform(transform_index, new_transform, gl, program) {
+        // TODO: also update all usages of this transform
+        this.transform_store.set(transform_index, new_transform);
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
+    }
+    
     writeShaderData(gl, program, webgl_helper) {
         // write global scene properties
-        gl.uniform1i(gl.getUniformLocation(program, "uNumObjects"), this.scene.objects.length);
+        gl.uniform1i( gl.getUniformLocation(program, "uNumObjects"), this.scene.objects.length);
         gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
         
         // write transforms
