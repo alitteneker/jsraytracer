@@ -5,15 +5,13 @@ class Scene {
         this.lights = lights;
     }
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
-        let closestDist = Infinity, closestObj = null;
+        let closestIntersection = { distance: Infinity, object: null, invTransform: null };
         for (let o of this.objects) {
-            let distance = o.intersect(ray, minDistance, maxDistance, intersectTransparent);
-            if (distance > minDistance && distance < closestDist && distance < maxDistance) {
-                closestDist = distance;
-                closestObj = o;
-            }
+            let intersection = o.intersect(ray, minDistance, maxDistance, intersectTransparent);
+            if (intersection.distance > minDistance && intersection.distance < closestIntersection.distance && intersection.distance < maxDistance)
+                closestIntersection = intersection;
         }
-        return { object: closestObj, distance: closestDist };
+        return closestIntersection;
     }
     color(ray, recursionDepth, minDistance = 0) {
         if (!recursionDepth)
@@ -41,7 +39,11 @@ class SceneObject {
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         if (!this.does_cast_shadow && !shadowCast)
             return Infinity;
-        return this.geometry.intersect(ray.getTransformed(this.inv_transform), minDistance, maxDistance);
+        return {
+            distance: this.geometry.intersect(ray.getTransformed(this.inv_transform), minDistance, maxDistance),
+            transform: null,
+            object: this
+        };
     }
     color(ray, distance, scene, recursionDepth) {
         let base_data = Object.assign({

@@ -374,7 +374,7 @@ class WebGLInterface {
             if (this.selectedObject) {
                 const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]);
                 this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
-                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray);
+                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray).distance;
                 this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;
             }
             this.nextMousePos = this.lastMousePos = mousePos;

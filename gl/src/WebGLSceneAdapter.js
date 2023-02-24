@@ -12,33 +12,29 @@ class WebGLSceneAdapter {
             geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
         
+        this.objects = [];
+        this.inv_transforms = [];
+        const object_id_index_map = this.object_id_index_map = {};
+        
+        const bvh_nodes = this.bvh_nodes = [];
+        const bvh_object_list = this.bvh_object_list = [];
+        const bvh_node_indices = this.bvh_node_indices = {};
+        
+        
         // deal with lights
         for (let light of scene.lights)
             this.adapters.lights.visit(light);
         
         // deal with scene objects
-        this.objects = [];
-        this.inv_transforms = [];
-        const object_id_index_map = this.object_id_index_map = {};
-        for (let object of scene.objects) {
-            object_id_index_map[object.OBJECT_UID] = this.objects.length;
-            this.objects.push({
-                object:      object,
-                transformID: this.transform_store.store(object.inv_transform),
-                geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
-                materialID:  this.adapters.materials.visit( object.material, webgl_helper),
-                does_cast_shadow:  object.does_cast_shadow
-            });
-        }
+        for (let object of scene.objects)
+            this.visitSceneObject(object, webgl_helper);
+
 
         // deal with the bvh data
         if (!(scene instanceof BVHScene))
             scene = new BVHScene(scene.objects, scene.lights, scene.bg_color);
         this.scene = scene;
 
-        const bvh_nodes = this.bvh_nodes = [];
-        const bvh_object_list = this.bvh_object_list = [];
-        const bvh_node_indices = {};
         function BVHVisitorFn(node, parent_node=null, isGreater=false) {
             const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
             const node_data = {
@@ -49,7 +45,7 @@ class WebGLSceneAdapter {
             };
             bvh_nodes.push(node_data);
             
-            if (node.sep_axis >= 0) {
+            if (!node.isLeaf) {
                 BVHVisitorFn(node.greater_node, node_data, true);
                 BVHVisitorFn(node.lesser_node,  node_data, false);
                 node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
@@ -73,6 +69,21 @@ class WebGLSceneAdapter {
             else
                 node_data.missIndex = 0;
         }
+    }
+    visitSceneObject(object, webgl_helper) {
+        if (object.OBJECT_UID in this.object_id_index_map)
+            return this.object_id_index_map[object.OBJECT_UID];
+        
+        this.object_id_index_map[object.OBJECT_UID] = this.objects.length;
+        this.objects.push({
+            object:      object,
+            transformID: this.transform_store.store(object.inv_transform),
+            geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
+            materialID:  this.adapters.materials.visit( object.material, webgl_helper),
+            does_cast_shadow:  object.does_cast_shadow
+        });
+        
+        return this.object_id_index_map[object.OBJECT_UID];
     }
     destroy(gl) {
         gl.deleteTexture(this.indices_texture);

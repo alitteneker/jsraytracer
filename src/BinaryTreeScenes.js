@@ -84,10 +84,11 @@ class BSPSceneTreeNode {
             return;
 
         for (let o of this.spanning_objects) {
-            const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
-            if (distance > minDist && distance < maxDist && distance < ret.distance) {
-                ret.distance = distance;
-                ret.object = o;
+            const intersection = o.intersect(ray, minDist, maxDist, intersectTransparent);
+            if (intersection.distance > minDist && intersection.distance < maxDist && intersection.distance < ret.distance) {
+                ret.distance = intersection.distance;
+                ret.object = intersection.object;
+                ret.invTransform = intersection.invTransform;
             }
         }
 
@@ -141,12 +142,13 @@ class BVHScene extends Scene {
         this.kdtree = BVHSceneTreeNode.build(objects, 0, maxDepth, minNodeSize);
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
-        let ret = { distance: Infinity, object: null };
+        let ret = { distance: Infinity, object: null, invTransform: null };
         for (let o of this.infinite_objects) {
-            const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
-            if (distance > minDist && distance < maxDist && distance < ret.distance) {
-                ret.distance = distance;
-                ret.object = o;
+            const intersection = o.intersect(ray, minDist, maxDist, intersectTransparent);
+            if (intersection.distance > minDist && intersection.distance < maxDist && intersection.distance < ret.distance) {
+                ret.distance = intersection.distance;
+                ret.object = intersection.object;
+                ret.invTransform = intersection.invTransform;
             }
         }
         this.kdtree.cast(ray, ret, minDist, maxDist, intersectTransparent);
@@ -272,10 +274,11 @@ class BVHSceneTreeNode {
         if (aabb_ts && aabb_ts.min <= maxDist && aabb_ts.max >= minDist && aabb_ts.min <= ret.distance) {
             if (this.isLeaf) {
                 for (let o of this.objects) {
-                    const distance = o.intersect(ray, minDist, maxDist, intersectTransparent);
-                    if (distance > minDist && distance < maxDist && distance < ret.distance) {
-                        ret.distance = distance;
-                        ret.object = o;
+                    const intersection = o.intersect(ray, minDist, maxDist, intersectTransparent);
+                    if (intersection.distance > minDist && intersection.distance < maxDist && intersection.distance < ret.distance) {
+                        ret.distance = intersection.distance;
+                        ret.object = intersection.object;
+                        ret.invTransform = intersection.invTransform;
                     }
                 }
             }
