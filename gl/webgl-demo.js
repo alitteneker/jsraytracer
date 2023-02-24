@@ -273,19 +273,27 @@ class WebGLInterface {
     keySpeed = 3.0;
     mouseSpeed = 0.0013;
     handleMovement(timeDelta) {
+        const beforeCameraTransform    = this.renderer_adapter.getCameraTransform(),
+              beforeCameraInvTransform = this.renderer_adapter.getCameraInverseTransform();
+        
         const mouseDelta = [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
         const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : mouseDelta;
         if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
             const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
+            
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
         }
         
         if (this.selectedObject && this.selectedObject.isBeingTransformed) {
             const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.selectedObject.selectDepth);
             const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.selectedObject.selectDepth);
-            const new_transform     = Mat4.translation(nextPos3D.minus(lastPos3D)).times(this.selectedObject.object.transform),
-                  new_inv_transform = this.selectedObject.object.inv_transform.times(Mat4.translation(lastPos3D.minus(nextPos3D)));
+            
+            const cameraDeltaTransform    = this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform),
+                  cameraDeltaInvTransform = beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform());
+            
+            const new_transform     = Mat4.translation(nextPos3D.minus(lastPos3D)).times(cameraDeltaTransform).times(this.selectedObject.object.transform),
+                  new_inv_transform = this.selectedObject.object.inv_transform.times(cameraDeltaInvTransform).times(Mat4.translation(lastPos3D.minus(nextPos3D)));
             this.renderer_adapter.setTransform(this.selectedObject.transform.index, new_inv_transform);
             
             this.selectedObject.object.setTransform(new_transform, new_inv_transform);
@@ -365,7 +373,8 @@ class WebGLInterface {
             const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
             if (this.selectedObject) {
                 const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]);
-                this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite() ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray);
+                this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
+                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray);
                 this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;
             }
             this.nextMousePos = this.lastMousePos = mousePos;
