@@ -131,7 +131,7 @@ class BVHScene extends Scene {
             }
         }
         
-        this.kdtree = new BVHSceneTreeNode(objects, 0, maxDepth, minNodeSize);
+        this.kdtree = BVHSceneTreeNode.build(objects, 0, maxDepth, minNodeSize);
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
         let ret = { distance: Infinity, object: null };
@@ -154,38 +154,27 @@ class BVHScene extends Scene {
 }
 class BVHSceneTreeNode {
     static _NODE_UID_GEN=0;
-    constructor(objects=[], depth, maxDepth, minNodeSize) {
-        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
-        this.depth = depth;
-        
+    static build(objects, depth, maxDepth, minNodeSize) {
         if (depth >= maxDepth || objects.length <= minNodeSize) {
-            this.isLeaf = true;
-            this.objects = objects;
-            this.aabb = this.objects.length > 0
-                ? AABB.hull(this.objects.map(o => o.getBoundingBox()))
+            const aabb = objects.length > 0
+                ? AABB.hull(objects.map(o => o.getBoundingBox()))
                 : AABB.empty();
+            return new BVHSceneTreeNode(depth, true, objects, aabb, null, null);
         }
         else {
             const split = BVHSceneTreeNode.split_objects(objects);
             if (split) {
-                this.isLeaf = false;
-                this.sep_axis = split.sep_axis;
-                this.sep_value = split.sep_value;
-                this.aabb = split.bounds;
-
-                this.greater_node = new BVHSceneTreeNode(split.greater_objs, depth+1, maxDepth, minNodeSize);
-                this.lesser_node  = new BVHSceneTreeNode(split.lesser_objs,  depth+1, maxDepth, minNodeSize);
+                return new BVHSceneTreeNode(depth, false, [], split.bounds, 
+                    BVHSceneTreeNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize),
+                    BVHSceneTreeNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize));
             }
             else {
-                this.isLeaf = true;
-                this.objects = objects;
-                this.aabb = this.objects.length > 0
-                    ? AABB.hull(this.objects.map(o => o.getBoundingBox()))
+                const aabb = objects.length > 0
+                    ? AABB.hull(objects.map(o => o.getBoundingBox()))
                     : AABB.empty();
+                return new BVHSceneTreeNode(depth, true, objects, aabb, null, null);
             }
         }
-        if (!this.aabb)
-            throw("Empty aabb for BVH node");
     }
     static split_objects(objects, binsPerAxis=8) {
         if (objects.length < 2)
@@ -253,6 +242,23 @@ class BVHSceneTreeNode {
             greater_objs: objects.filter(o => o.getBoundingBox().center[best_axis] >= best_sep_value)
         };
     }
+    
+    constructor(depth, isLeaf, objects, aabb, greater_node, lesser_node) {
+        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
+        
+        this.depth = depth;
+        this.isLeaf = isLeaf;
+        
+        this.objects = objects;
+        this.aabb = aabb;
+        
+        this.greater_node = greater_node;
+        this.lesser_node  = lesser_node;
+        
+        if (!this.aabb)
+            throw("Empty aabb for BVH node");
+    }
+    
     cast(ray, ret, minDist, maxDist, intersectTransparent=true) {
         const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
         if (aabb_ts && aabb_ts.min <= maxDist && aabb_ts.max >= minDist && aabb_ts.min <= ret.distance) {
