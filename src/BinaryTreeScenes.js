@@ -11,23 +11,17 @@ class BSPScene extends Scene {
 }
 
 class BSPSceneTreeNode {
-    constructor(objects, depth=0, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
-        this.depth = depth;
-        
+    static build(objects, depth=0, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
         const split = BSPSceneTreeNode.split_objects(objects, min, max);
         if (split) {
-            this.sep_axis = split.sep_axis;
-            this.sep_value = split.sep_value;
-            this.spanning_objects = split.spanning_objs;
-            this.lesser_node  = new BSPSceneTreeNode(split.lesser_objs.concat( split.spanning_objs), depth+1,
-                min, Vec.min(max, Vec.axis(split.sep_axis, 4, split.sep_value,  Infinity)));
-            this.greater_node = new BSPSceneTreeNode(split.greater_objs.concat(split.spanning_objs), depth+1,
-                Vec.max(min, Vec.axis(split.sep_axis, 4, split.sep_value, -Infinity)), max);
+            return new BSPSceneTreeNode(depth, split.spanning_objs, split.sep_axis, split.sep_value,
+                BSPSceneTreeNode.build(split.lesser_objs.concat( split.spanning_objs), depth+1,
+                    min, Vec.min(max, Vec.axis(split.sep_axis, 4, split.sep_value,  Infinity))),
+                BSPSceneTreeNode.build(split.greater_objs.concat(split.spanning_objs), depth+1,
+                    Vec.max(min, Vec.axis(split.sep_axis, 4, split.sep_value, -Infinity)), max));
         }
-        else {
-            this.sep_axis = -1;
-            this.spanning_objects = objects;
-        }
+        else
+            return new BSPSceneTreeNode(depth, objects, -1, null, null, null);
     }
     static split_objects(objects, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
         if (objects.length < 2)
@@ -72,6 +66,19 @@ class BSPSceneTreeNode {
             spanning_objs: best_spanning_objects
         };
     }
+    
+    constructor(depth, spanning_objects, sep_axis, sep_value, lesser_node, greater_node) {
+        this.depth = depth;
+        
+        this.spanning_objects = spanning_objs;
+        
+        this.sep_axis = split.sep_axis;
+        this.sep_value = split.sep_value;
+        
+        this.lesser_node  = lesser_node;
+        this.greater_node = greater_node;
+    }
+    
     cast(ray, ret, minDist, maxDist, intersectTransparent=true, minBound=minDist, maxBound=maxDist) {
         if (minDist > maxDist)
             return;
@@ -152,6 +159,7 @@ class BVHScene extends Scene {
         return this.kdtree.nodeCount();
     }
 }
+
 class BVHSceneTreeNode {
     static _NODE_UID_GEN=0;
     static build(objects, depth, maxDepth, minNodeSize) {
@@ -165,8 +173,8 @@ class BVHSceneTreeNode {
             const split = BVHSceneTreeNode.split_objects(objects);
             if (split) {
                 return new BVHSceneTreeNode(depth, false, [], split.bounds, 
-                    BVHSceneTreeNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize),
-                    BVHSceneTreeNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize));
+                    BVHSceneTreeNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize),
+                    BVHSceneTreeNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize));
             }
             else {
                 const aabb = objects.length > 0
@@ -243,7 +251,7 @@ class BVHSceneTreeNode {
         };
     }
     
-    constructor(depth, isLeaf, objects, aabb, greater_node, lesser_node) {
+    constructor(depth, isLeaf, objects, aabb, lesser_node, greater_node) {
         this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
         
         this.depth = depth;
@@ -252,8 +260,8 @@ class BVHSceneTreeNode {
         this.objects = objects;
         this.aabb = aabb;
         
-        this.greater_node = greater_node;
         this.lesser_node  = lesser_node;
+        this.greater_node = greater_node;
         
         if (!this.aabb)
             throw("Empty aabb for BVH node");
