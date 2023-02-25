@@ -17,6 +17,13 @@ body {
     margin-top: 10px;
 }
 
+#transform-controls {
+    width: fit-content;
+    display: block;
+    /* align-items: center; */
+    margin: auto;
+}
+
 output {
     width: 50px;
     display: inline-block;

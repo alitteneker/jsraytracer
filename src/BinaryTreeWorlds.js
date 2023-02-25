@@ -72,8 +72,8 @@ class BSPWorldTreeNode {
         
         this.spanning_objects = spanning_objs;
         
-        this.sep_axis = split.sep_axis;
-        this.sep_value = split.sep_value;
+        this.sep_axis = sep_axis;
+        this.sep_value = sep_value;
         
         this.lesser_node  = lesser_node;
         this.greater_node = greater_node;

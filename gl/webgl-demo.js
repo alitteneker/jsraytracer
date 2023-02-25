@@ -43,6 +43,9 @@ class WebGLInterface {
         
         $("#test-select").on("change", this.testChange.bind(this));
         
+        $("#transform-controls input").on("change", this.transformModeChange.bind(this));
+        
+        
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
         
@@ -143,7 +146,7 @@ class WebGLInterface {
         }
         if (this.renderer_adapter) {
             if (this.selectedObject)
-                this.selectedObject = null;
+                this.deselectObject();
             this.renderer_adapter.destroy();
             this.renderer_adapter = null;
         }
@@ -235,13 +238,19 @@ class WebGLInterface {
     selectObjectAt(x, y) {
         if (!this.renderer_adapter)
             return;
+
+        this.selectObject(this.renderer_adapter.selectObjectAt(x, y));
         
-        this.selectedObject = this.renderer_adapter.selectObjectAt(x, y);
+        // update the rest of the display?
+    }
+    selectObject(selectedObject) {
+        this.selectedObject = selectedObject;
         if (this.selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
         }
-        
-        // update the rest of the display?
+    }
+    deselectObject() {
+        this.selectedObject = null;
     }
     
     changeLensSettings() {
@@ -278,8 +287,7 @@ class WebGLInterface {
         const beforeCameraTransform    = this.renderer_adapter.getCameraTransform(),
               beforeCameraInvTransform = this.renderer_adapter.getCameraInverseTransform();
         
-        const mouseDelta = [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
-        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : mouseDelta;
+        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
         if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
             const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
@@ -287,22 +295,50 @@ class WebGLInterface {
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
         }
         
-        if (this.selectedObject && this.selectedObject.isBeingTransformed) {
-            const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.selectedObject.selectDepth);
-            const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.selectedObject.selectDepth);
-            
-            const cameraDeltaTransform    = this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform),
-                  cameraDeltaInvTransform = beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform());
-            
-            const new_transform     = Mat4.translation(nextPos3D.minus(lastPos3D)).times(cameraDeltaTransform).times(this.selectedObject.object.transform),
-                  new_inv_transform = this.selectedObject.object.inv_transform.times(cameraDeltaInvTransform).times(Mat4.translation(lastPos3D.minus(nextPos3D)));
-            this.renderer_adapter.setTransform(this.selectedObject.transform.index, new_inv_transform);
-            
-            this.selectedObject.object.setTransform(new_transform, new_inv_transform);
-            this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
-        }
+        if ((this.selectedObject && this.selectedObject.isBeingTransformed))
+            this.transformObject(beforeCameraTransform, beforeCameraInvTransform);
         
         this.lastMousePos = this.nextMousePos;
+    }
+    transformMode = "translate";
+    transformRotateRate = 0.001;
+    transformScaleRate = 0.01;
+    transformModeChange() {
+        this.transformMode = $("#transform-controls input:checked").val();
+    }
+    transformObject(beforeCameraTransform, beforeCameraInvTransform) {
+        let deltaTransform = Mat4.identity(), deltaInvTransform = Mat4.identity();
+        if (this.lastMousePos[0] != this.nextMousePos[0] || this.lastMousePos[1] != this.nextMousePos[1]) {
+            if (this.transformMode == "translate") {
+                const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.selectedObject.selectDepth);
+                const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.selectedObject.selectDepth);
+                
+                deltaTransform    = Mat4.translation(nextPos3D.minus(lastPos3D));
+                deltaInvTransform = Mat4.translation(lastPos3D.minus(nextPos3D));
+            }
+            if (this.transformMode == "rotate") {
+                const rotateDelta = [0,1].map(i => (this.nextMousePos[i] - this.lastMousePos[i]) * this.transformRotateRate);
+                const rotation = Mat4.rotation(rotateDelta[0], beforeCameraTransform.times(Vec.of(0,1,0,0)))
+                          .times(Mat4.rotation(rotateDelta[1], beforeCameraTransform.times(Vec.of(1,0,0,0))));
+                
+                deltaTransform    = Mat4.translation(this.selectedObject.aabb.center).times(rotation             ).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+                deltaInvTransform = Mat4.translation(this.selectedObject.aabb.center).times(rotation.transposed()).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+            }
+            if (this.transformMode == "scale") {
+                const scale = 1 + (this.nextMousePos[1] - this.lastMousePos[1]) * this.transformScaleRate;
+                
+                deltaTransform    = Mat4.translation(this.selectedObject.aabb.center).times(Mat4.scale(scale)      ).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+                deltaInvTransform = Mat4.translation(this.selectedObject.aabb.center).times(Mat4.scale(1 / scale)).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+            }
+        }
+        
+        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.object.transform),
+              new_inv_transform = this.selectedObject.object.inv_transform.times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
+
+        this.renderer_adapter.setTransform(this.selectedObject.transform.index, new_inv_transform);
+        
+        this.selectedObject.object.setTransform(new_transform, new_inv_transform);
+        this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
     }
     
     
