@@ -41,7 +41,7 @@ class WebGLInterface {
         
         this.buildLineShader(gl);
         
-        $("#test-select").on("change", this.worldChange.bind(this));
+        $("#test-select").on("change", this.testChange.bind(this));
         
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
@@ -136,12 +136,14 @@ class WebGLInterface {
     }
     
     renderer_adapter = null;
-    worldChange() {
+    testChange() {
         if (this.animation_request_id) {
             window.cancelAnimationFrame(this.animation_request_id);
             this.animation_request_id = null;
         }
         if (this.renderer_adapter) {
+            if (this.selectedObject)
+                this.selectedObject = null;
             this.renderer_adapter.destroy();
             this.renderer_adapter = null;
         }
