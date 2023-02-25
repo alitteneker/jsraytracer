@@ -8,7 +8,7 @@ export function configureTest(callback) {
         Vec.of(1, 1, 1),
         5000
     )];
-    const objs = [new SceneObject(
+    const objs = [new WorldObject(
         new Plane(),
         new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100),
         Mat4.translation([0,-1.5,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];
@@ -25,7 +25,7 @@ export function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new SimpleRenderer(new BVHScene(triangles.concat(objs), lights), camera, 4),
+                renderer: new SimpleRenderer(new BVHWorld(triangles.concat(objs), lights), camera, 4),
                 width: 600,
                 height: 600
             });

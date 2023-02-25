@@ -123,7 +123,7 @@ class Material {
     constructor() {
         this.MATERIAL_UID = Material.MATERIAL_UID_GEN++;
     }
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         throw "Material subclass has not implemented color";
     }
 }
@@ -134,22 +134,22 @@ class SolidColorMaterial extends Material {
         super();
         this._color = MaterialColor.coerce(color);
     }
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         return this._color.color(data);
     }
 }
 
 // transparent material: 
-// NB: this will still cast a shadow unless the containing SceneObject has isTransparent set to true
+// NB: this will still cast a shadow unless the containing WorldObject has isTransparent set to true
 class TransparentMaterial extends Material {
     constructor(color, opacity) {
         super();
         this._color = MaterialColor.coerce(color);
         this._opacity = opacity;
     }
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         return this._color.color(data).times(this._opacity).plus(
-            scene.color(new Ray(data.position, data.ray.direction),
+            world.color(new Ray(data.position, data.ray.direction),
                 recursionDepth, 0.0001).times(1-this._opacity));
     }
 }
@@ -163,10 +163,10 @@ class PositionalUVMaterial extends Material {
         this.u_axis = u_axis;
         this.v_axis = v_axis;
     }
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         const delta = this.origin.minus(data.position);
         data.UV = Vec.of(this.u_axis.dot(delta), this.v_axis.dot(delta));
-        return this.baseMaterial.color(data, scene, recursionDepth);
+        return this.baseMaterial.color(data, world, recursionDepth);
     }
 }
 
@@ -211,17 +211,17 @@ class PhongMaterial extends Material {
         });
     }
 
-    colorFromLights(data, scene) {
+    colorFromLights(data, world) {
         let ret = this.ambient.color(data);
         
-        // compute contribution from each light in the scene on this fragment
-        for (let l of scene.lights) {
+        // compute contribution from each light in the world on this fragment
+        for (let l of world.lights) {
             let light_sample_count = 0,
                 light_color = Vec.of(0,0,0);
             for (const light_sample of l.sampleIterator(data.position)) {
                 ++light_sample_count;
                 // test whether this light sample is shadowed
-                const shadowDist = scene.cast(new Ray(data.position, light_sample.direction), 0.0001, 1, false).distance;
+                const shadowDist = world.cast(new Ray(data.position, light_sample.direction), 0.0001, 1, false).distance;
                 if (shadowDist > 0 && shadowDist < 1)
                     continue;
                 light_color = light_color.plus(this.colorFromLightSample(light_sample, data));
@@ -242,22 +242,22 @@ class PhongMaterial extends Material {
             .plus(light_sample.color.mult_pairs(data.specularity.times(specular)));
     }
 
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         this.getBaseFactors(data);
 
-        let surfaceColor = this.colorFromLights(data, scene);
+        let surfaceColor = this.colorFromLights(data, world);
 
         // reflection
         if (data.reflectivity.squarednorm() > 0) {
             surfaceColor = surfaceColor.plus(
-                scene.color(new Ray(data.position, data.R), recursionDepth, 0.0001)
+                world.color(new Ray(data.position, data.R), recursionDepth, 0.0001)
                     .mult_pairs(data.reflectivity));
         }
         
         // transmission: partial opacity
         if (data.transmissivity.squarednorm() > 0) {
             surfaceColor = surfaceColor.plus(
-                scene.color(new Ray(data.position, data.ray.direction.normalized()), recursionDepth, 0.0001)
+                world.color(new Ray(data.position, data.ray.direction.normalized()), recursionDepth, 0.0001)
                     .mult_pairs(data.transmissivity));
         }
         
@@ -277,17 +277,17 @@ class FresnelPhongMaterial extends PhongMaterial {
             refractionDirection : this.getRefractionDirection(data)
         });
     }
-    color(data, scene, recursionDepth) {
+    color(data, world, recursionDepth) {
         this.getBaseFactors(data);
 
-        let surfaceColor = this.colorFromLights(data, scene);
+        let surfaceColor = this.colorFromLights(data, world);
         
         // reflection
         if (data.kr > 0) {
             let [dir, col] = this.scatter(data.R, data.N, data);
             if (dir)
                 surfaceColor = surfaceColor.plus(
-                    scene.color(new Ray(data.position, dir), recursionDepth, 0.0001)
+                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001)
                         .times(col).times(data.reflectivity).times(data.kr));
         }
 
@@ -296,7 +296,7 @@ class FresnelPhongMaterial extends PhongMaterial {
             let [dir, col] = this.scatter(data.refractionDirection, data.N.times(-1), data);
             if (dir && col)
                 surfaceColor = surfaceColor.plus(
-                    scene.color(new Ray(data.position, dir), recursionDepth, 0.0001)
+                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001)
                         .times(col).times(data.transmissivity).times(1 - data.kr));
         }
         

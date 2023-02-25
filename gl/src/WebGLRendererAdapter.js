@@ -27,10 +27,10 @@ class WebGLRendererAdapter {
         this.textures = [0, 1].map(() => this.webgl_helper.createTexture(4, "FLOAT", canvas.width, canvas.height));
         gl.bindTexture(gl.TEXTURE_2D, null);
         
-        // Create the adapters for the scene, which will also validate the data for the scene
+        // Create the adapters for the world, which will also validate the data for the world
         this.adapters = {
             camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper, gl),
-            scene:  new WebGLSceneAdapter( renderer.scene,  this.webgl_helper, gl)
+            world:  new WebGLWorldAdapter( renderer.world,  this.webgl_helper, gl)
         };
     }
     
@@ -52,7 +52,7 @@ class WebGLRendererAdapter {
     }
 
     reset() {
-        this.adapters.scene.reset( this.gl, this.webgl_helper);
+        this.adapters.world.reset( this.gl, this.webgl_helper);
         this.adapters.camera.reset(this.gl, this.webgl_helper);
     }
     destroy() {
@@ -65,7 +65,7 @@ class WebGLRendererAdapter {
             this.gl.deleteFramebuffer(this.framebuffer);
         
         this.webgl_helper.destroy(   this.gl);
-        this.adapters.scene.destroy( this.gl);
+        this.adapters.world.destroy( this.gl);
         this.adapters.camera.destroy(this.gl);
     }
     
@@ -189,7 +189,7 @@ class WebGLRendererAdapter {
             ret += `
                 uniform int uMaxBounceDepth;` + "\n";
         return ret
-            + this.adapters.scene.getShaderSourceDeclarations() + "\n"
+            + this.adapters.world.getShaderSourceDeclarations() + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
     }
     getShaderSource() {
@@ -249,7 +249,7 @@ class WebGLRendererAdapter {
                         
                         vec4 intersect_position = vec4(0);
                         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_position, nextRays);
+                        total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
                         
                         if (remaining_bounces > 0 && intersect_position.w != 0.0) {
                             if (i == 0)
@@ -291,7 +291,7 @@ class WebGLRendererAdapter {
                     for (int i = 0; i < uMaxBounceDepth; ++i) {
                         vec4 intersect_position = vec4(0);
                         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                        total_color += attenuation_color * sceneRayColorShallow(r, random_seed, intersect_position, nextRays);
+                        total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
                         
                         if (intersect_position.w == 0.0)
                             break;
@@ -336,7 +336,7 @@ class WebGLRendererAdapter {
                 }`;
         return ret
             + this.webgl_helper.getShaderSource()
-            + this.adapters.scene.getShaderSource()
+            + this.adapters.world.getShaderSource()
             + this.adapters.camera.getShaderSource();
     }
     
@@ -346,7 +346,7 @@ class WebGLRendererAdapter {
         gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
         
         this.webgl_helper.writeShaderData(gl, this.tracerShaderProgram);
-        this.adapters.scene.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
+        this.adapters.world.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
         this.adapters.camera.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
     }
     
@@ -388,7 +388,7 @@ class WebGLRendererAdapter {
     
     setTransform(transform_index, new_transform) {
         this.gl.useProgram(this.tracerShaderProgram);
-        this.adapters.scene.setTransform(transform_index, new_transform, this.gl, this.tracerShaderProgram);
+        this.adapters.world.setTransform(transform_index, new_transform, this.gl, this.tracerShaderProgram);
         this.resetDrawCount();
     }
     
@@ -405,10 +405,10 @@ class WebGLRendererAdapter {
         return this.adapters.camera.camera.getRayForPixel(x, y);
     }
     selectObjectAt(x, y) {
-        return this.adapters.scene.intersectRay(this.getRayForPixel(x, y));
+        return this.adapters.world.intersectRay(this.getRayForPixel(x, y));
     }
 
-    drawScene(timestamp) {
+    drawWorld(timestamp) {
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
         // Tell WebGL to use our program when drawing

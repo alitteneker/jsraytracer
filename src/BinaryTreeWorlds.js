@@ -1,7 +1,7 @@
-class BSPScene extends Scene {
+class BSPWorld extends World {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0)) {
         super(objects, lights, bg_color);
-        this.kdtree = new BSPSceneTreeNode(Array.from(objects));
+        this.kdtree = new BSPWorldTreeNode(Array.from(objects));
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
         let ret = { distance: Infinity, object: null };
@@ -10,18 +10,18 @@ class BSPScene extends Scene {
     }
 }
 
-class BSPSceneTreeNode {
+class BSPWorldTreeNode {
     static build(objects, depth=0, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
-        const split = BSPSceneTreeNode.split_objects(objects, min, max);
+        const split = BSPWorldTreeNode.split_objects(objects, min, max);
         if (split) {
-            return new BSPSceneTreeNode(depth, split.spanning_objs, split.sep_axis, split.sep_value,
-                BSPSceneTreeNode.build(split.lesser_objs.concat( split.spanning_objs), depth+1,
+            return new BSPWorldTreeNode(depth, split.spanning_objs, split.sep_axis, split.sep_value,
+                BSPWorldTreeNode.build(split.lesser_objs.concat( split.spanning_objs), depth+1,
                     min, Vec.min(max, Vec.axis(split.sep_axis, 4, split.sep_value,  Infinity))),
-                BSPSceneTreeNode.build(split.greater_objs.concat(split.spanning_objs), depth+1,
+                BSPWorldTreeNode.build(split.greater_objs.concat(split.spanning_objs), depth+1,
                     Vec.max(min, Vec.axis(split.sep_axis, 4, split.sep_value, -Infinity)), max));
         }
         else
-            return new BSPSceneTreeNode(depth, objects, -1, null, null, null);
+            return new BSPWorldTreeNode(depth, objects, -1, null, null, null);
     }
     static split_objects(objects, min=Vec.of(-Infinity, -Infinity, -Infinity, -Infinity), max=Vec.of(Infinity, Infinity, Infinity, Infinity)) {
         if (objects.length < 2)
@@ -67,7 +67,7 @@ class BSPSceneTreeNode {
         };
     }
     
-    constructor(depth, spanning_objects, sep_axis, sep_value, lesser_node, greater_node) {
+    constructor(depth, spanning_objs, sep_axis, sep_value, lesser_node, greater_node) {
         this.depth = depth;
         
         this.spanning_objects = spanning_objs;
@@ -124,7 +124,7 @@ class BSPSceneTreeNode {
     }
 }
 
-class BVHScene extends Scene {
+class BVHWorld extends World {
     constructor(objects=[], lights=[], bg_color=Vec.of(0, 0, 0), maxDepth=Infinity, minNodeSize=1) {
         super(objects, lights, bg_color);
         objects = Array.from(objects);
@@ -139,7 +139,7 @@ class BVHScene extends Scene {
             }
         }
         
-        this.kdtree = BVHSceneTreeNode.build(objects, 0, maxDepth, minNodeSize);
+        this.kdtree = BVHWorldTreeNode.build(objects, 0, maxDepth, minNodeSize);
     }
     cast(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
         let ret = { distance: Infinity, object: null, invTransform: null };
@@ -162,27 +162,27 @@ class BVHScene extends Scene {
     }
 }
 
-class BVHSceneTreeNode {
+class BVHWorldTreeNode {
     static _NODE_UID_GEN=0;
     static build(objects, depth, maxDepth, minNodeSize) {
         if (depth >= maxDepth || objects.length <= minNodeSize) {
             const aabb = objects.length > 0
                 ? AABB.hull(objects.map(o => o.getBoundingBox()))
                 : AABB.empty();
-            return new BVHSceneTreeNode(depth, true, objects, aabb, null, null);
+            return new BVHWorldTreeNode(depth, true, objects, aabb, null, null);
         }
         else {
-            const split = BVHSceneTreeNode.split_objects(objects);
+            const split = BVHWorldTreeNode.split_objects(objects);
             if (split) {
-                return new BVHSceneTreeNode(depth, false, [], split.bounds, 
-                    BVHSceneTreeNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize),
-                    BVHSceneTreeNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize));
+                return new BVHWorldTreeNode(depth, false, [], split.bounds, 
+                    BVHWorldTreeNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize),
+                    BVHWorldTreeNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize));
             }
             else {
                 const aabb = objects.length > 0
                     ? AABB.hull(objects.map(o => o.getBoundingBox()))
                     : AABB.empty();
-                return new BVHSceneTreeNode(depth, true, objects, aabb, null, null);
+                return new BVHWorldTreeNode(depth, true, objects, aabb, null, null);
             }
         }
     }
@@ -254,7 +254,7 @@ class BVHSceneTreeNode {
     }
     
     constructor(depth, isLeaf, objects, aabb, lesser_node, greater_node) {
-        this.NODE_UID = BVHSceneTreeNode._NODE_UID_GEN++;
+        this.NODE_UID = BVHWorldTreeNode._NODE_UID_GEN++;
         
         this.depth = depth;
         this.isLeaf = isLeaf;

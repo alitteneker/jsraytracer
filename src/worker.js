@@ -2,7 +2,7 @@
 
 importScripts(
     'math.js',
-    'scene.js',
+    'world.js',
     'pixelbuffer.js',
     'geometry.js',
     'materials.js',
@@ -10,7 +10,7 @@ importScripts(
     'renderers.js',
     'lights.js',
     'objloader.js',
-    'BinaryTreeScenes.js');
+    'BinaryTreeWorlds.js');
 
 
 onmessage = function(e) {

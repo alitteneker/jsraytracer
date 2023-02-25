@@ -19,7 +19,7 @@ export function configureTest(callback) {
         )];
         
     const objs = []
-    objs.push(new SceneObject(
+    objs.push(new WorldObject(
         new Plane(),
         new PhongMaterial(
             new CheckerboardMaterialColor(Vec.of(0.5,0.5,0.5), Vec.of(0.1,0.1,0.1)),
@@ -38,7 +38,7 @@ export function configureTest(callback) {
         function(triangles) {
 
             callback({
-                renderer: new SimpleRenderer(new BVHScene(objs.concat(triangles), lights, Vec.of(0.9, 0.9, 0.9)), camera, 4),
+                renderer: new SimpleRenderer(new BVHWorld(objs.concat(triangles), lights, Vec.of(0.9, 0.9, 0.9)), camera, 4),
                 width: 600,
                 height: 600
             });

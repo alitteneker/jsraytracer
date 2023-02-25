@@ -1,6 +1,6 @@
-class WebGLSceneAdapter {
+class WebGLWorldAdapter {
     USE_SCENE_BVH = false;
-    constructor(scene, webgl_helper) {
+    constructor(world, webgl_helper) {
         [this.indices_texture_unit,  this.indices_texture ] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.bvh_node_texture_unit, this.bvh_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.bvh_aabb_texture_unit, this.bvh_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
@@ -22,18 +22,18 @@ class WebGLSceneAdapter {
         
         
         // deal with lights
-        for (let light of scene.lights)
+        for (let light of world.lights)
             this.adapters.lights.visit(light);
         
-        // deal with scene objects
-        for (let object of scene.objects)
-            this.visitSceneObject(object, webgl_helper);
+        // deal with world objects
+        for (let object of world.objects)
+            this.visitWorldObject(object, webgl_helper);
 
 
         // deal with the bvh data
-        if (!(scene instanceof BVHScene))
-            scene = new BVHScene(scene.objects, scene.lights, scene.bg_color);
-        this.scene = scene;
+        if (!(world instanceof BVHWorld))
+            world = new BVHWorld(world.objects, world.lights, world.bg_color);
+        this.world = world;
 
         function BVHVisitorFn(node, parent_node=null, isGreater=false) {
             const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
@@ -56,9 +56,9 @@ class WebGLSceneAdapter {
             }
         };
         bvh_nodes.push({ raw_node: null, aabb: AABB.empty(), hitIndex: -1, missIndex: 0 });
-        bvh_object_list.push(...this.scene.infinite_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
+        bvh_object_list.push(...this.world.infinite_objects.map(o => object_id_index_map[o.OBJECT_UID]), -1);
 
-        BVHVisitorFn(this.scene.kdtree);
+        BVHVisitorFn(this.world.kdtree);
         
         for (let node_data of bvh_nodes) {
             let n = node_data;
@@ -70,7 +70,7 @@ class WebGLSceneAdapter {
                 node_data.missIndex = 0;
         }
     }
-    visitSceneObject(object, webgl_helper) {
+    visitWorldObject(object, webgl_helper) {
         if (object.OBJECT_UID in this.object_id_index_map)
             return this.object_id_index_map[object.OBJECT_UID];
         
@@ -96,7 +96,7 @@ class WebGLSceneAdapter {
     }
     
     intersectRay(ray) {
-        const intersect = this.scene.cast(ray);
+        const intersect = this.world.cast(ray);
         if (!intersect.object)
             return null;
         
@@ -118,23 +118,23 @@ class WebGLSceneAdapter {
     }
     
     writeShaderData(gl, program, webgl_helper) {
-        // write global scene properties
-        gl.uniform1i( gl.getUniformLocation(program, "uNumObjects"), this.scene.objects.length);
-        gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.scene.bg_color);
+        // write global world properties
+        gl.uniform1i( gl.getUniformLocation(program, "uNumObjects"), this.world.objects.length);
+        gl.uniform3fv(gl.getUniformLocation(program, "uBackgroundColor"), this.world.bg_color);
         
         // write transforms
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
         
         // write geometry ids, material ids, transform ids, shadow flags
-        webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uSceneObjects", program,
+        webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uWorldObjects", program,
             this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat());
         
         // Write BVH data
-        gl.uniform1i(gl.getUniformLocation(program, "uUseBVHSceneIntersect"), this.USE_SCENE_BVH);
-        gl.uniform1i(gl.getUniformLocation(program, "uSceneBVHNodeCount"), this.bvh_nodes.length);
-        webgl_helper.setDataTexturePixelsUnit(this.bvh_aabb_texture, 4, "FLOAT",   this.bvh_aabb_texture_unit, "uSceneBVHAABBs", program,
+        gl.uniform1i(gl.getUniformLocation(program, "uUseBVHWorldIntersect"), this.USE_SCENE_BVH);
+        gl.uniform1i(gl.getUniformLocation(program, "uWorldBVHNodeCount"), this.bvh_nodes.length);
+        webgl_helper.setDataTexturePixelsUnit(this.bvh_aabb_texture, 4, "FLOAT",   this.bvh_aabb_texture_unit, "uWorldBVHAABBs", program,
             this.bvh_nodes.map(n => n.aabb ? [...n.aabb.center, ...n.aabb.half_size] : [0,0,0,0,0,0,0,0]).flat());
-        webgl_helper.setDataTexturePixelsUnit(this.bvh_node_texture, 4, "INTEGER", this.bvh_node_texture_unit, "uSceneBVHNodeData", program,
+        webgl_helper.setDataTexturePixelsUnit(this.bvh_node_texture, 4, "INTEGER", this.bvh_node_texture_unit, "uWorldBVHNodeData", program,
             this.bvh_nodes.map(n => [n.hitIndex, n.missIndex]).flat().concat(this.bvh_object_list));
         
         // let our contained adapters do their own thing too
@@ -144,8 +144,8 @@ class WebGLSceneAdapter {
     }
     getShaderSourceDeclarations() {
         return `
-            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
-            vec3 sceneRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations() + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
             + this.adapters.materials.getShaderSourceDeclarations() + "\n";
@@ -157,25 +157,25 @@ class WebGLSceneAdapter {
 
             uniform mat4 uTransforms[16]; // TODO: should safety check the size of this
 
-            uniform isampler2D uSceneObjects;
+            uniform isampler2D uWorldObjects;
             
-            struct SceneObject {
+            struct WorldObject {
                 int geometry_id;
                 int material_id;
                 int transform_id;
                 bool castsShadow;
             };
-            SceneObject getSceneObjectIDs(in int objectID) {
-                ivec4 indices = itexelFetchByIndex(objectID, uSceneObjects);
-                return SceneObject(indices.r, indices.g, indices.b, bool(indices.a));
+            WorldObject getWorldObjectIDs(in int objectID) {
+                ivec4 indices = itexelFetchByIndex(objectID, uWorldObjects);
+                return WorldObject(indices.r, indices.g, indices.b, bool(indices.a));
             }
             mat4 getTransform(in int index) {
                 return uTransforms[index];
             }
 
             // ---- Intersection ----
-            float sceneObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
-                SceneObject obj = getSceneObjectIDs(objectID);
+            float worldObjectIntersect(in int objectID, in Ray r, in float minDistance, in bool shadowFlag) {
+                WorldObject obj = getWorldObjectIDs(objectID);
                 if (shadowFlag && !obj.castsShadow)
                     return minDistance - 1.0;
                 mat4 objectInverseTransform = getTransform(obj.transform_id);
@@ -183,10 +183,10 @@ class WebGLSceneAdapter {
             }
 
             // ---- Brute Force Intersection ----
-            float sceneRayCastBruteForce(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
+            float worldRayCastBruteForce(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
                 for (int i = 0; i < uNumObjects; ++i) {
-                    float t = sceneObjectIntersect(i, r, minT, shadowFlag);
+                    float t = worldObjectIntersect(i, r, minT, shadowFlag);
                     if (t >= minT && (min_found_t < minT || t < min_found_t)) {
                         min_found_t = t;
                         objectID = i;
@@ -197,9 +197,9 @@ class WebGLSceneAdapter {
             
             
             // ---- BVH Intersection ----
-            uniform int uSceneBVHNodeCount;
-            uniform isampler2D uSceneBVHNodeData;
-            uniform  sampler2D uSceneBVHAABBs;
+            uniform int uWorldBVHNodeCount;
+            uniform isampler2D uWorldBVHNodeData;
+            uniform  sampler2D uWorldBVHAABBs;
             
             struct BVHBounds {
                 vec4 center;
@@ -210,35 +210,35 @@ class WebGLSceneAdapter {
                 int missIndex; // index of next node to visit if this is a leaf or the ray misses the aabb
             };
             BVHNode getBVHNode(in int node_index) {
-                ivec4 texel = itexelFetchByIndex(node_index / 2, uSceneBVHNodeData);
+                ivec4 texel = itexelFetchByIndex(node_index / 2, uWorldBVHNodeData);
                 if (node_index % 2 == 0) 
                     return BVHNode(texel.x, texel.y);
                 return BVHNode(texel.z, texel.w);
             }
-            int getBVHSceneObject(in int start_index, in int offset) {
-                int texIndex = uSceneBVHNodeCount * 2 - start_index + offset - 1;
-                return itexelFetchByIndex(texIndex / 4, uSceneBVHNodeData)[texIndex % 4];
+            int getBVHWorldObject(in int start_index, in int offset) {
+                int texIndex = uWorldBVHNodeCount * 2 - start_index + offset - 1;
+                return itexelFetchByIndex(texIndex / 4, uWorldBVHNodeData)[texIndex % 4];
             }
             BVHBounds getBVHAABB(in int node_index) {
                 return BVHBounds(
-                    texelFetchByIndex(node_index * 2,     uSceneBVHAABBs),
-                    texelFetchByIndex(node_index * 2 + 1, uSceneBVHAABBs));
+                    texelFetchByIndex(node_index * 2,     uWorldBVHAABBs),
+                    texelFetchByIndex(node_index * 2 + 1, uWorldBVHAABBs));
             }
-            float sceneRayCastBVH(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
+            float worldRayCastBVH(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
                 float min_found_t = minT - 1.0;
                 float local_minT = minT, local_maxT = maxT;
                 
                 // deal with infinitely large objects, stored specially in the list starting at index 0
                 {
                     BVHNode root_node = getBVHNode(0);
-                    int object_id = getBVHSceneObject(root_node.hitIndex, 0);
+                    int object_id = getBVHWorldObject(root_node.hitIndex, 0);
                     for (int i = 0; object_id >= 0; ++i) {
-                        float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                        float t = worldObjectIntersect(object_id, r, minT, shadowFlag);
                         if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
                             min_found_t = t;
                             objectID = object_id;
                         }
-                        object_id = getBVHSceneObject(root_node.hitIndex, i);
+                        object_id = getBVHWorldObject(root_node.hitIndex, i);
                     }
                 }
 
@@ -254,14 +254,14 @@ class WebGLSceneAdapter {
 
                         // check if this is a leaf node, check all objects in this node
                         if (node.hitIndex < 0) {
-                            int object_id = getBVHSceneObject(node.hitIndex, 0);
+                            int object_id = getBVHWorldObject(node.hitIndex, 0);
                             for (int i = 0; object_id >= 0; ++i) {
-                                float t = sceneObjectIntersect(object_id, r, minT, shadowFlag);
+                                float t = worldObjectIntersect(object_id, r, minT, shadowFlag);
                                 if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
                                     min_found_t = t;
                                     objectID = object_id;
                                 }
-                                object_id = getBVHSceneObject(node.hitIndex, i);
+                                object_id = getBVHWorldObject(node.hitIndex, i);
                             }
                         }
 
@@ -279,33 +279,33 @@ class WebGLSceneAdapter {
             }
             
             // ---- Generic Intersection ----
-            uniform bool uUseBVHSceneIntersect;
-            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
-                if (uUseBVHSceneIntersect)
-                    return sceneRayCastBVH(r, minT, maxT, shadowFlag, objectID);
-                return sceneRayCastBruteForce(r, minT, maxT, shadowFlag, objectID);
+            uniform bool uUseBVHWorldIntersect;
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int objectID) {
+                if (uUseBVHWorldIntersect)
+                    return worldRayCastBVH(r, minT, maxT, shadowFlag, objectID);
+                return worldRayCastBruteForce(r, minT, maxT, shadowFlag, objectID);
             }
-            float sceneRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
                 int objectID = -1;
-                return sceneRayCast(r, minT, maxT, shadowFlag, objectID);
+                return worldRayCast(r, minT, maxT, shadowFlag, objectID);
             }
 
-            // ---- Scene Color ----
-            vec3 sceneObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
-                SceneObject ids = getSceneObjectIDs(objectID);
+            // ---- World Color ----
+            vec3 worldObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+                WorldObject ids = getWorldObjectIDs(objectID);
                 GeometricMaterialData geomatdata;
                 mat4 inverseTransform = getTransform(ids.transform_id);
                 getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
                 return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
             }
-            vec3 sceneRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
                 int objectID = -1;
-                float intersect_time = sceneRayCast(in_ray, EPSILON, 1E20, false, objectID);
+                float intersect_time = worldRayCast(in_ray, EPSILON, 1E20, false, objectID);
                 if (objectID == -1)
                     return uBackgroundColor;
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
-                return sceneObjectColor(objectID, intersect_position, in_ray, random_seed, nextRays);
+                return worldObjectColor(objectID, intersect_position, in_ray, random_seed, nextRays);
             }`
             + this.adapters.lights.getShaderSource()
             + this.adapters.materials.getShaderSource()

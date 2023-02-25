@@ -21,14 +21,14 @@ export function configureTest(callback) {
 
 
     const objects = [];
-    objects.push(new SceneObject(
+    objects.push(new WorldObject(
         new Sphere(),
         new FresnelPhongMaterial(Vec.of(1,1,1), 0.05, 0.4, 0.9, 100, 1.3),
         Mat4.translation([0, 0, -5])));
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new Scene(objects, lights), camera, 16, 4),
+            new World(objects, lights), camera, 16, 4),
         width: 600,
         height: 600
     });

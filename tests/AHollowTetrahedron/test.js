@@ -17,13 +17,13 @@ export function configureTest(callback) {
             .times(Mat4.scale(0.3)),
 
         function(objects) {
-            objects.push(new SceneObject(
+            objects.push(new WorldObject(
                 new Plane(Vec.of(0, 1, 0, 0), -1),
                 new PhongMaterial(Vec.of(0.7,0.7,1), 0.1, 0.4, 0.6, 100, 0.2),
                 Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
 
             callback({
-                renderer: new SimpleRenderer(new BVHScene(objects, lights), camera, 4),
+                renderer: new SimpleRenderer(new BVHWorld(objects, lights), camera, 4),
                 width: 600,
                 height: 600
             });

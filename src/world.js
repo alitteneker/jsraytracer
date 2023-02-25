@@ -1,4 +1,4 @@
-class Scene {
+class World {
     constructor(objects, lights=[], bg_color=Vec.of(0, 0, 0)) {
         this.bg_color = bg_color;
         this.objects = objects;
@@ -22,10 +22,10 @@ class Scene {
         return intersection.object.color(ray, intersection.distance, this, recursionDepth - 1);
     }
 }
-class SceneObject {
+class WorldObject {
     static _OBJECT_UID_GEN = 0;
     constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=true) {
-        this.OBJECT_UID = SceneObject._OBJECT_UID_GEN++;
+        this.OBJECT_UID = WorldObject._OBJECT_UID_GEN++;
 
         this.geometry = geometry;
         this.material = material;
@@ -45,7 +45,7 @@ class SceneObject {
             object: this
         };
     }
-    color(ray, distance, scene, recursionDepth) {
+    color(ray, distance, world, recursionDepth) {
         let base_data = Object.assign({
                 ray: ray,
                 distance: distance,
@@ -55,7 +55,7 @@ class SceneObject {
         if ('normal' in material_data)
             material_data.normal = this.inv_transform.transposed().times(material_data.normal).to4(0).normalized();
         material_data.position = ray.getPoint(distance);
-        return this.material.color(material_data, scene, recursionDepth);
+        return this.material.color(material_data, world, recursionDepth);
     }
     setTransform(transform, inv_transform=Mat4.inverse(transform)) {
         this.transform = transform;
@@ -63,7 +63,7 @@ class SceneObject {
         this.boundingBox = null;
     }
     getTransformed(transform, inv_transform=Mat4.inverse(transform)) {
-        return new SceneObject(
+        return new WorldObject(
             this.geometry,
             this.material,
             

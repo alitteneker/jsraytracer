@@ -1,6 +1,6 @@
 class SimpleRenderer {
-    constructor(scene, camera, maxRecursionDepth=3) {
-        this.scene = scene;
+    constructor(world, camera, maxRecursionDepth=3) {
+        this.world = world;
         this.camera = camera;
         this.maxRecursionDepth = maxRecursionDepth;
     }
@@ -40,19 +40,19 @@ class SimpleRenderer {
         return img;
     }
     getPixelColor(x, y, pixel_width, pixel_height) {
-        return this.scene.color(this.camera.getRayForPixel(x, y), this.maxRecursionDepth);
+        return this.world.color(this.camera.getRayForPixel(x, y), this.maxRecursionDepth);
     }
 }
 
 class RandomMultisamplingRenderer extends SimpleRenderer {
-    constructor(scene, camera, samplesPerPixel, maxRecursionDepth=3) {
-        super(scene, camera, maxRecursionDepth);
+    constructor(world, camera, samplesPerPixel, maxRecursionDepth=3) {
+        super(world, camera, maxRecursionDepth);
         this.samplesPerPixel = samplesPerPixel;
     }
     getPixelColor(x, y, pixel_width, pixel_height) {
         let color = Vec.of(0, 0, 0);
         for (let i = 0; i < this.samplesPerPixel; ++i) {
-            color = color.plus(this.scene.color(
+            color = color.plus(this.world.color(
                 this.camera.getRayForPixel(
                     x + pixel_width  * (Math.random() - 0.5),
                     y + pixel_height * (Math.random() - 0.5)),
@@ -63,8 +63,8 @@ class RandomMultisamplingRenderer extends SimpleRenderer {
 }
 
 class IncrementalMultisamplingRenderer extends SimpleRenderer {
-    constructor(scene, camera, samplesPerPixel, maxRecursionDepth=3) {
-        super(scene, camera, maxRecursionDepth);
+    constructor(world, camera, samplesPerPixel, maxRecursionDepth=3) {
+        super(world, camera, maxRecursionDepth);
         this.samplesPerPixel = samplesPerPixel;
     }
     render(img, timelimit=0, callback=false, x_offset = 0, x_delt = 1) {

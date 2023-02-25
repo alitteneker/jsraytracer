@@ -24,14 +24,14 @@ export function configureTest(callback) {
     ];
     
     const objs = []
-    objs.push(new SceneObject(
+    objs.push(new WorldObject(
         new Plane(),
         new PhongMaterial(Vec.of(0.3,0.3,0.3), 0.3, 0.4, 0.6, 100, 0.4),
         Mat4.translation([0,1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     const sphere_transform = Mat4.translation([-0.15, 1.86, -2.73])
              .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
              .times(Mat4.scale([0.01, 0.01, 1.5]));
-    objs.push(new SceneObject(
+    objs.push(new WorldObject(
         new Sphere(),
         new FresnelPhongMaterial(Vec.of(0,1,0), 0.2, 0.4, 0.5, 100, 1.3),
         sphere_transform, Mat4.inverse(sphere_transform), {}, false));
@@ -47,7 +47,7 @@ export function configureTest(callback) {
         function(triangles) {
             callback({
                 renderer: new IncrementalMultisamplingRenderer(
-                    new BVHScene(objs.concat(triangles), lights), camera, 16, 4),
+                    new BVHWorld(objs.concat(triangles), lights), camera, 16, 4),
                 width: 600,
                 height: 600
             });

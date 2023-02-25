@@ -333,7 +333,7 @@ class WebGLMaterialsAdapter {
                 for (int i = 0; i < uNumLights; ++i) {
                     LightSample lightSample = sampleLight(i, rp, random_seed);
                     
-                    float shadowIntersection = sceneRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
+                    float shadowIntersection = worldRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     

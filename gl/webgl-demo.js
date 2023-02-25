@@ -22,7 +22,7 @@ $(document).ready(function() {
     
     
     
-    // Populate the list of scenes with the default test list
+    // Populate the list of worlds with the default test list
     fetch("../tests/list.json").then(response => response.json()).then(function(json) {
         for (let o of json.sort())
             $("#test-select").append(`<option value="tests/${o}">${o}</option>`);
@@ -41,7 +41,7 @@ class WebGLInterface {
         
         this.buildLineShader(gl);
         
-        $("#test-select").on("change", this.sceneChange.bind(this));
+        $("#test-select").on("change", this.worldChange.bind(this));
         
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
@@ -136,7 +136,7 @@ class WebGLInterface {
     }
     
     renderer_adapter = null;
-    sceneChange() {
+    worldChange() {
         if (this.animation_request_id) {
             window.cancelAnimationFrame(this.animation_request_id);
             this.animation_request_id = null;
@@ -146,15 +146,15 @@ class WebGLInterface {
             this.renderer_adapter = null;
         }
         
-        const scene_select = $("#test-select");
-        if (scene_select.value === "")
+        const world_select = $("#test-select");
+        if (world_select.value === "")
             return;
-        const scene_path = scene_select.val();
+        const world_path = world_select.val();
 
         $("#loading-img").css('visibility', 'visible');
         
-        myconsole.log("Loading " + scene_path + "...");
-        import("../" + scene_path + "/test.js").then(function(module) {
+        myconsole.log("Loading " + world_path + "...");
+        import("../" + world_path + "/test.js").then(function(module) {
             module.configureTest(function(test) {
                 this.canvas.attr("width", test.width);
                 this.canvas.attr("height", test.height);
@@ -172,7 +172,7 @@ class WebGLInterface {
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
                         this.mouseMoveDelta = [0,0];
                         
-                        myconsole.log("Starting draw scene loop...");
+                        myconsole.log("Starting draw world loop...");
                         this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
 
                         $("#loading-img").css('visibility', 'hidden');
@@ -191,13 +191,13 @@ class WebGLInterface {
         const currentTimestamp = performance.now();
         const timeDelta = this.lastDrawTimestamp ? (currentTimestamp - this.lastDrawTimestamp) : 1;
         
-        // draw the scene, and request the next frame of animation
+        // draw the world, and request the next frame of animation
         if (this.renderer_adapter) {
             $('#fps-display').text((1000 / timeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
             
             this.handleMovement(timeDelta);
             
-            this.renderer_adapter.drawScene(currentTimestamp);
+            this.renderer_adapter.drawWorld(currentTimestamp);
             
             if (this.selectedObject)
                 this.drawWireframe(this.selectedObject.aabb)
@@ -215,7 +215,7 @@ class WebGLInterface {
                 gl.useProgram(this.lineShader.program);
                 gl.bindTexture(gl.TEXTURE_2D, null);
                 
-                gl.uniform4fv(      this.lineShader.uniforms.lineColor,      this.isObjectBeingTransformed ? Vec.of(1,0,0,1) : Vec.of(1,1,1,1));
+                gl.uniform4fv(      this.lineShader.uniforms.lineColor,      this.selectedObject.isBeingTransformed ? Vec.of(1,0,0,1) : Vec.of(1,1,1,1));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
@@ -261,7 +261,7 @@ class WebGLInterface {
             $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
         else
             $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
-                renderer_adapter.adapters.scene.scene.kdtree.aabb.center).norm()); // TODO
+                renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
         
         $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
         $('#fov-range').val(-renderer_adapter.getCameraFOV());
