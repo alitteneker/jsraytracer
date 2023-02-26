@@ -260,6 +260,7 @@ class WebGLInterface {
                 gl.useProgram(this.lineShader.program);
                 gl.bindTexture(gl.TEXTURE_2D, null);
                 
+                gl.uniform1f(       this.lineShader.uniforms.maxDepth,       this.renderer_adapter.maxDepth);
                 gl.uniform4fv(      this.lineShader.uniforms.lineColor,      this.selectedObject.isBeingTransformed ? Vec.of(1,0,0,1) : Vec.of(1,1,1,1));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));

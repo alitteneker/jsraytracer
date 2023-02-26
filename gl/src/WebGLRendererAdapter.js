@@ -11,6 +11,7 @@ class WebGLRendererAdapter {
         
         // Sometimes it's useful to render into log color space, scaled to an appropriate level
         this.colorLogScale = 0.0;
+        this.maxDepth = 1000.0;
         
         // store the canvas and renderer for future usage
         this.canvas = canvas;
@@ -117,6 +118,7 @@ class WebGLRendererAdapter {
                     uniform sampler2D uPreviousSamplesTexture;
                     in vec2 textureCoord;
                     
+                    uniform float uMaxDepth;
                     uniform float uColorLogScale;
                     
                     out vec4 outTexelColor;
@@ -134,7 +136,7 @@ class WebGLRendererAdapter {
                             sampleColor = vec4(log(sampleColor.rgb + 1.0) / uColorLogScale, sampleColor.a);
                         
                         outTexelColor = vec4(sampleColor.rgb, 1.0);
-                        gl_FragDepth = min(sampleColor.a / 1000.0, 1.0-EPSILON);
+                        gl_FragDepth = min(sampleColor.a / uMaxDepth, 1.0-EPSILON);
                     }`
             }], 
             ([tracerShaderProgram, passthroughShaderProgram]) => {
@@ -156,7 +158,8 @@ class WebGLRendererAdapter {
                             maxBounceDepth:                    gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
                             tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
                             passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture"),
-                            colorLogScale:                     gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale")
+                            colorLogScale:                     gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
+                            maxDepth:                          gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth")
                         };
                         
                         if (callback)
@@ -450,6 +453,7 @@ class WebGLRendererAdapter {
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[1]);
         this.gl.uniform1i(this.uniforms.passthroughPreviousSamplesTexture, this.webgl_helper.textureUnitIndex(this.renderTextureUnit));
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
+        this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         // Ping-pong the textures, so the next texture read from is the last texture rendered.
