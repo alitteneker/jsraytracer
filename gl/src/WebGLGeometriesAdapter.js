@@ -7,6 +7,22 @@ class WebGLGeometriesAdapter {
     static CYLINDER_ID     = 5;
     static MIN_TRIANGLE_ID = 6;
     
+    static TypeStringLabel(type) {
+        if (type == WebGLGeometriesAdapter.PLANE_ID)
+            return "Plane";
+        if (type == WebGLGeometriesAdapter.SPHERE_ID)
+            return "Sphere";
+        if (type == WebGLGeometriesAdapter.UNITBOX_ID)
+            return "UnitBox";
+        if (type == WebGLGeometriesAdapter.CIRCLE_ID)
+            return "Circle";
+        if (type == WebGLGeometriesAdapter.SQUARE_ID)
+            return "Square";
+        if (type == WebGLGeometriesAdapter.CYLINDER_ID)
+            return "Cylinder";
+        return "Triangle";
+    }
+    
     constructor(webgl_helper) {
         this.id_map = {};
         this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder() ];
@@ -52,6 +68,9 @@ class WebGLGeometriesAdapter {
             return this.id_map[geometry.GEOMETRY_UID];
         }
         throw "Unsupported geometry type";
+    }
+    getGeometry(index) {
+        return this.geometries[index];
     }
     writeShaderData(gl, program, webgl_helper) {
         // Write triangle data, as all other types need no data written for geometry

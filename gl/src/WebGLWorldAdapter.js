@@ -95,21 +95,28 @@ class WebGLWorldAdapter {
         this.adapters.materials.destroy(gl);
     }
     
-    intersectRay(ray) {
-        const intersect = this.world.cast(ray);
-        if (!intersect.object)
-            return null;
-        
-        const index = this.object_id_index_map[intersect.object.OBJECT_UID];
+    wrapObject(object) {
+        const index = this.object_id_index_map[object.OBJECT_UID];
         const webgl_ids = this.objects[index];
         
         return {
             index: index,
             object: webgl_ids.object,
             transform: { index: webgl_ids.transformID, value: this.transform_store.get(webgl_ids.transformID) },
+            geometry:  { index: webgl_ids.geometryID,  value: this.adapters.geometries.getGeometry(webgl_ids.geometryID) },
             material:  { index: webgl_ids.materialID,  value: this.adapters.materials.getMaterial(webgl_ids.materialID) },
             does_cast_shadow: webgl_ids.does_cast_shadow
         };
+    }
+    intersectRay(ray) {
+        const intersect = this.world.cast(ray);
+        return (!intersect.object) ? null : this.wrapObject(intersect.object);
+    }
+    getLights() {
+        //return this.adapters.world.getLights();
+    }
+    getObjects() {
+        return this.world.objects.map(o => this.wrapObject(o));
     }
     setTransform(transform_index, new_transform, gl, program) {
         // TODO: also update all usages of this transform

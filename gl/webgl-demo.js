@@ -41,17 +41,8 @@ class WebGLInterface {
         
         this.buildLineShader(gl);
         
-        $("#test-select").on("change", this.testChange.bind(this));
-        
-        $("#transform-controls input").on("change", this.transformModeChange.bind(this));
-        
-        
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
-        
-        
-        // setup standard listeners for changing lens settings
-        $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
         
         $("#renderer-depth").on('spin', (e, ui) => {
             if (this.renderer_adapter)
@@ -59,13 +50,23 @@ class WebGLInterface {
         });
         
         
+        // setup standard listeners for changing lens settings
+        $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
+        
+        
+        $("#transform-controls input").checkboxradio({ icon: false, disabled: true });
+        $("#transform-controls input").on("change", this.transformModeChange.bind(this));
+        
         // Setup the UI to pretty things up...
-        $("#control-panel").accordion({ animate: false, collapsible:true, active: -1 });
+        $("#control-panel").accordion({ animate: false, collapsible:true, active: -1, heightStyle: "content" });
         $(".control-group").controlgroup();
         $("#help-button").button({
             icon: "ui-icon-help",
             showLabel: false
         });
+        
+        
+        $("#test-select").on("change", this.testChange.bind(this));
     }
     
     lineShader = null;
@@ -174,6 +175,8 @@ class WebGLInterface {
                         // Set the initial values for the controls
                         this.getDefaultControlValues(adapter);
                         
+                        this.populateControls(adapter);
+                        
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
                         this.mouseMoveDelta = [0,0];
                         
@@ -234,6 +237,38 @@ class WebGLInterface {
         }
     }
     
+    objects = [];
+    populateControls(adapter) {
+        $("#objects-controls").empty();
+        if (this.objects.length)
+            $("#objects-controls").accordion('destroy');
+        const objects = this.objects = adapter.getObjects();
+        for (let o of objects) {
+            $("#objects-controls").append(`
+                <h4 data-object-index="${o.index}">${WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)}</h4>
+                <div>
+                    <span>${o.index}</span>
+                </div>
+            `);
+        }
+        $("#objects-controls").accordion({
+            collapsible: true,
+            active: false,
+            heightStyle: "content",
+            animate: false,
+            activate: function(e, ui) {
+                this.selectObject(this.objects[ui.newHeader.attr("data-object-index")]);
+            }.bind(this) });
+        
+        $("#lights-controls").empty();
+        // for (let l of adapter.getLights()) {
+            // $("#lights-controls").append(`
+                // <div>
+                    // <input type="color" d>
+                // </div>`);
+        // }
+    }
+    
     selectedObject = null;
     selectObjectAt(x, y) {
         if (!this.renderer_adapter)
@@ -247,10 +282,12 @@ class WebGLInterface {
         this.selectedObject = selectedObject;
         if (this.selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
+            $("#transform-controls input").checkboxradio("enable");
         }
     }
     deselectObject() {
         this.selectedObject = null;
+        $("#transform-controls input").checkboxradio("disable");
     }
     
     changeLensSettings() {

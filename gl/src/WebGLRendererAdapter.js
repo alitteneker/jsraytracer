@@ -407,6 +407,12 @@ class WebGLRendererAdapter {
     selectObjectAt(x, y) {
         return this.adapters.world.intersectRay(this.getRayForPixel(x, y));
     }
+    getLights() {
+        return this.adapters.world.getLights();
+    }
+    getObjects() {
+        return this.adapters.world.getObjects();
+    }
 
     drawWorld(timestamp) {
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
