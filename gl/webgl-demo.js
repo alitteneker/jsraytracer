@@ -103,9 +103,10 @@ class WebGLInterface {
             in vec3 vertexPosition;
             uniform vec3 uCameraPosition;
             uniform vec4 uLineColor;
+            uniform float uMaxDepth;
             out vec4 outTexelColor;
             void main() {
-                gl_FragDepth = min(length(uCameraPosition - vertexPosition) / 1000.0, 1.0-EPSILON);
+                gl_FragDepth = min(length(uCameraPosition - vertexPosition) / uMaxDepth, 1.0-EPSILON);
                 outTexelColor = uLineColor;
             }`,
             (shaderProgram) => {
@@ -115,6 +116,7 @@ class WebGLInterface {
                     lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
                     cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
                     cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
+                    maxDepth:            gl.getUniformLocation(shaderProgram, "uMaxDepth"),
                     cameraPosition:      gl.getUniformLocation(shaderProgram, "uCameraPosition"),
                     modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
                 };
