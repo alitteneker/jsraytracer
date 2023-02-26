@@ -1,6 +1,9 @@
 class WebGLMaterialsAdapter {
     static SPECIAL_COLOR_CHECKERBOARD = 1;
     static SPECIAL_COLOR_TEXTURE = 2;
+    
+    static MATERIAL_PROPERTIES = ["ambient", "diffuse", "specular", "reflectivity", "transmissivity", "specularFactor", "refractiveIndexRatio", "mirrorProbability"];
+    
     constructor(webgl_helper) {
         this.webgl_helper = webgl_helper;
         
@@ -18,17 +21,32 @@ class WebGLMaterialsAdapter {
     }
     destroy() {}
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
-        if (mc instanceof SolidMaterialColor)
-            return { _id: this.solid_colors.store(mc._color.times(scale)), color: mc._color, scale: scale };
-        else if (mc instanceof ScaledMaterialColor)
-            return this.collapseMaterialColor(mc._mc, webgl_helper, scale.times(mc._scale));
+        if (mc instanceof SolidMaterialColor) {
+            const color = mc._color.times(scale);
+            return {
+                _id: this.solid_colors.store(color),
+                color: color,
+                mc: mc,
+                scale: scale,
+                type: "solid"
+            };
+        }
         else if (mc instanceof CheckerboardMaterialColor) {
-            this.special_colors.push([
-                WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD,
-                this.solid_colors.store(mc.color1.toSolidColor()._color.times(scale)),
-                this.solid_colors.store(mc.color2.toSolidColor()._color.times(scale))
-            ]);
-            return { _id: -this.special_colors.length, color: mc, scale: scale };
+            const color1 = mc.color1.toSolidColor()._color.times(scale),
+                  color2 = mc.color2.toSolidColor()._color.times(scale);
+            const id1 = this.solid_colors.store(color1),
+                  id2 = this.solid_colors.store(color2);
+            this.special_colors.push([ WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD, id1, id2 ]);
+            return {
+                _id: -this.special_colors.length,
+                id1: id1,
+                id2: id2,
+                color1: color1,
+                color2: color2,
+                mc: mc,
+                scale: scale,
+                type: "checkerboard"
+            };
         }
         else if (mc instanceof TextureMaterialColor) {
             if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
@@ -37,19 +55,33 @@ class WebGLMaterialsAdapter {
                 [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
                 this.textures.push(td);
             }
+            const scaleID = this.solid_colors.store(scale);
             this.special_colors.push([
                 WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
                 this.texture_id_map[mc.MATERIALCOLOR_UID],
-                this.solid_colors.store(scale)]);
-            return { _id: -this.special_colors.length, color: mc, scale: scale };
+                scaleID ]);
+            
+            return { 
+                _id: -this.special_colors.length,
+                scaleID: scaleID,
+                scale: scale,
+                mc: mc,
+                type: "texture"
+            };
         }
+        else if (mc instanceof ScaledMaterialColor)
+            return this.collapseMaterialColor(mc._mc, webgl_helper, scale.times(mc._scale));
         throw "Unsupported material color type";
     }
     visitMaterialColor(mc, webgl_helper) {
         return this.collapseMaterialColor(mc, webgl_helper);
     }
     visitMaterialScalar(s) {
-        return { _id: this.solid_colors.store(Vec.of(s, 0, 0)), color: Vec.of(s,0,0), scale: Vec.of(1,1,1) };
+        return {
+            _id: this.solid_colors.store(Vec.of(s, 0, 0)),
+            value: s,
+            type: "scalar"
+        };
     }
     visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)

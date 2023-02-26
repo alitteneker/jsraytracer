@@ -7,6 +7,25 @@ Math.range = function(start, stop, step = 1) {
     return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
 }
 
+function componentToHex(c) {
+    const hex = Math.round(c).toString(16);
+    return (hex.length == 1) ? ("0" + hex) : hex;
+}
+
+function rgbToHex([r, g, b]) {
+    return "#" + componentToHex(r * 255) + componentToHex(g * 255) + componentToHex(b * 255);
+}
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? Vec.of(
+        parseInt(result[1], 16) / 255,
+        parseInt(result[2], 16) / 255,
+        parseInt(result[3], 16) / 255
+    ) : null;
+}
+
+
 function isPowerOf2(value) {
     return (value & (value - 1)) === 0;
 }
@@ -121,7 +140,13 @@ class Vec extends Float32Array {
         this.forEach((x, i, a) => a[i] *= s)
     }
     times(s) {
-        return (s instanceof Vec) ? this.map((x,i) => s[i] * x) : this.map(x => s * x)
+        return (s instanceof Vec) ? this.map((x,i) => x * s[i]) : this.map(x => x * s);
+    }
+    divide(s) {
+        return (s instanceof Vec) ? this.map((x,i) => x / s[i]) : this.map(x => x / s);
+    }
+    inverse() {
+        return Vec.from(this.map(x => 1 / x));
     }
     static min(a,b) {
         return a.map((x, i) => Math.min(x, b[i]));
@@ -562,5 +587,22 @@ class Mat4 extends Mat {
         }
         
         return ret;
+    }
+    
+    static transformFromParts(position, rotation, scale) {
+        return Mat4.translation(position).times(Mat4.eulerRotation(rotation)).times(Mat4.scale(scale));
+    }
+    static transformAndInverseFromParts(position, rotation, scale) {
+        const r = Mat4.eulerRotation(rotation);
+        return [
+            Mat4.translation(position).times(r).times(Mat4.scale(scale)),
+            Mat4.scale(scale.inverse()).times(r.transposed()).times(Mat4.translation(position.times(-1)))
+        ];
+    }
+    static breakdownTransform(m) {
+        const scale = Vec.of(m.column(0).norm(), m.column(1).norm(), m.column(2).norm());
+        const rotation = Mat4.getEulerAngles(Mat4.scale([1/scale[0], 1/scale[1], 1/scale[2]]).times(m));
+        const position = m.column(3);
+        return [position, rotation, scale];
     }
 }

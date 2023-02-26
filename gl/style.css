@@ -24,6 +24,27 @@ body {
     margin: auto;
 }
 
+#objects-controls .ui-spinner-input {
+    width: 60px;
+}
+#objects-controls input[type="color"] {
+    width: 100%;
+}
+div.object-control-container {
+    display: flex;
+}
+div.object-geometry-controls {
+    flex-grow: 1;
+    display: flex;
+}
+div.object-geometry-controls > div {
+    margin-top: auto;
+    margin-bottom: auto;
+}
+div.object-material-controls {
+    flex-grow: 1;
+}
+
 output {
     width: 50px;
     display: inline-block;

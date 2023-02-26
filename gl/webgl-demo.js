@@ -57,6 +57,15 @@ class WebGLInterface {
         $("#transform-controls input").checkboxradio({ icon: false, disabled: true });
         $("#transform-controls input").on("change", this.transformModeChange.bind(this));
         
+        $("#objects-controls").accordion({
+            collapsible: true,
+            active: false,
+            heightStyle: "content",
+            animate: false,
+            activate: function(e, ui) {
+                this.selectObject(this.objects[ui.newHeader.attr("data-object-index")]);
+            }.bind(this) });
+        
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: -1, heightStyle: "content" });
         $(".control-group").controlgroup();
@@ -147,7 +156,7 @@ class WebGLInterface {
         }
         if (this.renderer_adapter) {
             if (this.selectedObject)
-                this.deselectObject();
+                this.selectObject(null);
             this.renderer_adapter.destroy();
             this.renderer_adapter = null;
         }
@@ -175,7 +184,7 @@ class WebGLInterface {
                         // Set the initial values for the controls
                         this.getDefaultControlValues(adapter);
                         
-                        this.populateControls(adapter);
+                        this.initializeWorldControls(adapter);
                         
                         // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
                         this.mouseMoveDelta = [0,0];
@@ -191,6 +200,34 @@ class WebGLInterface {
                 }
             }.bind(this));
         }.bind(this));
+    }
+    
+    
+    changeLensSettings() {
+        const focusValue  =  Number.parseFloat($('#focus-distance').val()),
+              sensorValue =  Number.parseFloat($('#sensor-size').val()),
+              fovValue    = -Number.parseFloat($('#fov-range').val());
+        if (this.renderer_adapter)
+            this.renderer_adapter.changeLensSettings(focusValue, sensorValue, fovValue);
+        $('#focus-output').text(focusValue.toFixed(2));
+        $('#sensor-output').text(sensorValue.toFixed(2));
+        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
+    }
+    
+    getDefaultControlValues(renderer_adapter) {
+        $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
+        
+        const focus_distance = renderer_adapter.getCameraFocusDistance();
+        if (renderer_adapter.getCameraFocusDistance() != 1.0)
+            $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
+        else
+            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
+                renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
+        
+        $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
+        $('#fov-range').val(-renderer_adapter.getCameraFOV());
+        
+        this.changeLensSettings();
     }
     
 
@@ -237,37 +274,7 @@ class WebGLInterface {
         }
     }
     
-    objects = [];
-    populateControls(adapter) {
-        $("#objects-controls").empty();
-        if (this.objects.length)
-            $("#objects-controls").accordion('destroy');
-        const objects = this.objects = adapter.getObjects();
-        for (let o of objects) {
-            $("#objects-controls").append(`
-                <h4 data-object-index="${o.index}">${WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)}</h4>
-                <div>
-                    <span>${o.index}</span>
-                </div>
-            `);
-        }
-        $("#objects-controls").accordion({
-            collapsible: true,
-            active: false,
-            heightStyle: "content",
-            animate: false,
-            activate: function(e, ui) {
-                this.selectObject(this.objects[ui.newHeader.attr("data-object-index")]);
-            }.bind(this) });
-        
-        $("#lights-controls").empty();
-        // for (let l of adapter.getLights()) {
-            // $("#lights-controls").append(`
-                // <div>
-                    // <input type="color" d>
-                // </div>`);
-        // }
-    }
+    
     
     selectedObject = null;
     selectObjectAt(x, y) {
@@ -279,71 +286,76 @@ class WebGLInterface {
         // update the rest of the display?
     }
     selectObject(selectedObject) {
-        this.selectedObject = selectedObject;
-        if (this.selectedObject) {
+        if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
+            $("#objects-controls").accordion("option", "active", selectedObject.index);
             $("#transform-controls input").checkboxradio("enable");
         }
-    }
-    deselectObject() {
-        this.selectedObject = null;
-        $("#transform-controls input").checkboxradio("disable");
-    }
-    
-    changeLensSettings() {
-        const focusValue  =  Number.parseFloat($('#focus-distance').val()),
-              sensorValue =  Number.parseFloat($('#sensor-size').val()),
-              fovValue    = -Number.parseFloat($('#fov-range').val());
-        if (this.renderer_adapter)
-            this.renderer_adapter.changeLensSettings(focusValue, sensorValue, fovValue);
-        $('#focus-output').text(focusValue.toFixed(2));
-        $('#sensor-output').text(sensorValue.toFixed(2));
-        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
-    }
-    
-    getDefaultControlValues(renderer_adapter) {
-        $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
-        
-        const focus_distance = renderer_adapter.getCameraFocusDistance();
-        if (renderer_adapter.getCameraFocusDistance() != 1.0)
-            $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
-        else
-            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
-                renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
-        
-        $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
-        $('#fov-range').val(-renderer_adapter.getCameraFOV());
-        
-        this.changeLensSettings();
-    }
-    
-    
-    keySpeed = 3.0;
-    mouseSpeed = 0.0013;
-    handleMovement(timeDelta) {
-        const beforeCameraTransform    = this.renderer_adapter.getCameraTransform(),
-              beforeCameraInvTransform = this.renderer_adapter.getCameraInverseTransform();
-        
-        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
-        if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
-            const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
-            const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
-            
-            this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+        else {
+            $("#objects-controls").accordion("option", "active", false);
+            $("#transform-controls input").checkboxradio("disable");
         }
-        
-        if ((this.selectedObject && this.selectedObject.isBeingTransformed))
-            this.transformObject(beforeCameraTransform, beforeCameraInvTransform);
-        
-        this.lastMousePos = this.nextMousePos;
     }
+    
+    
+    
+    objects = [];
+    initializeWorldControls(adapter) {
+        $("#objects-controls").empty();
+        const objects = this.objects = adapter.getObjects();
+        let oc = "";
+        for (let o of objects) {
+            oc += `<h4 data-object-index="${o.index}">${WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)}</h4><div class="object-control-container">`;
+            
+            const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
+            oc += `<div class="object-geometry-controls"><div><table>
+                        <tr><td>Position</td><td>
+                            <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}" value="${pos[1].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}" value="${pos[2].toFixed(2)}">
+                        </td></tr>
+                        <tr><td>Rotation</td><td>
+                            <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
+                        </td></tr>
+                        <tr><td>Scale</td><td>
+                            <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}" value="${scale[0].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}" value="${scale[1].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}" value="${scale[2].toFixed(2)}">
+                        </td></tr>
+                   </table></div></div>`;
+            
+            const material = o.material.value;
+            oc += `<div class="object-material-controls"><table>`;
+            for (let mk of WebGLMaterialsAdapter.MATERIAL_PROPERTIES) {
+                if (material[mk].type == "solid")
+                    oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-material-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
+                               <td><label for="material-${o.index}-${material[mk]._id}">${mk}</label></td></tr>`;
+                if (material[mk].type == "scalar")
+                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-material-id="${material[mk]._id}" value="${material[mk].value}"></td>
+                               <td><label for="material-${o.index}-${material[mk]._id}">${mk}</label></td></tr>`;
+            }
+            oc += "</table></div></div>";
+        }
+        $("#objects-controls").append(oc);
+        $("#objects-controls input[data-transform-type]").on('spinstop', this.transformSelectedObjectValues.bind(this))
+        $("#objects-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
+        $("#objects-controls").accordion("refresh");
+        
+        $("#lights-controls").empty();
+        // for (let l of adapter.getLights()) {
+        // }
+    }
+    
+    
     transformMode = "translate";
     transformRotateRate = 0.001;
     transformScaleRate = 0.01;
     transformModeChange() {
         this.transformMode = $("#transform-controls input:checked").val();
     }
-    transformObject(beforeCameraTransform, beforeCameraInvTransform) {
+    transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform) {
         let deltaTransform = Mat4.identity(), deltaInvTransform = Mat4.identity();
         if (this.lastMousePos[0] != this.nextMousePos[0] || this.lastMousePos[1] != this.nextMousePos[1]) {
             if (this.transformMode == "translate") {
@@ -372,11 +384,57 @@ class WebGLInterface {
         const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.object.transform),
               new_inv_transform = this.selectedObject.object.inv_transform.times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
 
-        this.renderer_adapter.setTransform(this.selectedObject.transform.index, new_inv_transform);
+        this.setSelectedObjectTransform(new_transform, new_inv_transform);
         
-        this.selectedObject.object.setTransform(new_transform, new_inv_transform);
+        const [pos, rot, scale] = Mat4.breakdownTransform(new_transform);
+        for (let i of [0,1,2]) {
+            $(`input[data-transform-type="pos${i}"][data-object-id="${this.selectedObject.index}"]`  ).val(pos[i].toFixed(2));
+            $(`input[data-transform-type="scale${i}"][data-object-id="${this.selectedObject.index}"]`).val(scale[i].toFixed(2));
+            $(`input[data-transform-type="rot${i}"][data-object-id="${this.selectedObject.index}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
+        }
+    }
+    
+    transformSelectedObjectValues() {
+        const [pos, rot, scale] = [Vec.of(0,0,0), Vec.of(0,0,0), Vec.of(0,0,0)];
+        for (let i of [0,1,2]) {
+            pos[i]   = Number.parseFloat($(`input[data-transform-type="pos${i}"][data-object-id="${this.selectedObject.index}"]`  ).val());
+            scale[i] = Number.parseFloat($(`input[data-transform-type="scale${i}"][data-object-id="${this.selectedObject.index}"]`).val());
+            rot[i]   = Number.parseFloat($(`input[data-transform-type="rot${i}"][data-object-id="${this.selectedObject.index}"]`  ).val()) * Math.PI / 180;
+        }
+        this.setSelectedObjectTransform(...Mat4.transformAndInverseFromParts(pos, rot, scale));
+    }
+    
+    setSelectedObjectTransform(transform, inv_transform) {
+        this.renderer_adapter.setTransform(this.selectedObject.transform.index, inv_transform);
+        
+        this.selectedObject.object.setTransform(transform, inv_transform);
         this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
     }
+    
+    
+    
+    
+        
+    keySpeed = 3.0;
+    mouseSpeed = 0.0013;
+    handleMovement(timeDelta) {
+        const beforeCameraTransform    = this.renderer_adapter.getCameraTransform(),
+              beforeCameraInvTransform = this.renderer_adapter.getCameraInverseTransform();
+        
+        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
+        if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
+            const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
+            const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
+            
+            this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+        }
+        
+        if ((this.selectedObject && this.selectedObject.isBeingTransformed))
+            this.transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform);
+        
+        this.lastMousePos = this.nextMousePos;
+    }
+
     
     
     
