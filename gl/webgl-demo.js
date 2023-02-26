@@ -292,6 +292,7 @@ class WebGLInterface {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
             $("#objects-controls").accordion("option", "active", selectedObject.index);
+            // TODO: update transform/material settings
             $("#transform-controls input").checkboxradio("enable");
         }
         else {

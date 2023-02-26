@@ -319,7 +319,7 @@ class WebGLMaterialsAdapter {
                 return glossyScatter(R, N, matParams, outDirection, outColor, random_seed);
             }
             
-            vec3 phongBDRF(in vec4 N, in vec4 R, in vec4 lightDir, in float kr, in vec4 refractionDir, in PhongMaterialParameters matParams) {
+            vec3 phongBRDF(in vec4 N, in vec4 R, in vec4 lightDir, in float kr, in vec4 refractionDir, in PhongMaterialParameters matParams) {
                 vec4 L = normalize(lightDir);
                 float ldotn = dot(L, N);
                 
@@ -369,7 +369,7 @@ class WebGLMaterialsAdapter {
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
                     
-                    totalColor += lightSample.color * phongBDRF(N, R, lightSample.direction, kr, refractionDirection, matParams);
+                    totalColor += lightSample.color * phongBRDF(N, R, lightSample.direction, kr, refractionDirection, matParams);
                 }
                 
                 // reflection/refraction
