@@ -394,6 +394,10 @@ class WebGLRendererAdapter {
         this.adapters.world.setTransform(transform_index, transform, inv_transform, this.gl, this.tracerShaderProgram);
         this.resetDrawCount();
     }
+    modifyMaterialSolidColor(material_color_index, new_color) {
+        this.adapters.world.modifyMaterialSolidColor(material_color_index, new_color);
+        this.resetDrawCount();
+    }
     
     changeMaxBounceDepth(newBounceDepth) {
         if (newBounceDepth != this.maxBounceDepth) {

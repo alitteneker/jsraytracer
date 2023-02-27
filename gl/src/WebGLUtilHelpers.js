@@ -386,7 +386,6 @@ class WebGLTexture {
         if (data && !(data instanceof type_data.array_type))
             data = type_data.array_type.from(data);
         
-        this.data = data;
         this.channels = channels;
         this.type = type;
         this.width = width;
@@ -416,5 +415,21 @@ class WebGLTexture {
         this.setDataPixels(data, channels, type);
         if (texture_unit && uniform_name && shader_program)
             this.gl.uniform1i(this.gl.getUniformLocation(shader_program, uniform_name), WebGLHelper.textureUnitIndex(texture_unit));
+    }
+    modifyPixel(x, y, new_value) {
+        const channel_str = WebGLTexture.channels_map[this.channels],
+              type_data   = WebGLTexture.type_map[this.type];
+        if (!channel_str || !type_data)
+            throw "Invalid texture channels or type passed";
+        
+        if (new_value && !(new_value instanceof type_data.array_type))
+            new_value = type_data.array_type.from(new_value);
+        
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
+        this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0,
+            x, y, 1, 1, this.gl[channel_str + type_data.format], this.gl[type_data.type], new_value);
+    }
+    modifyDataPixel(index, new_value) {
+        this.modifyPixel(index % this.width, Math.floor(index / this.width), new_value);
     }
 }

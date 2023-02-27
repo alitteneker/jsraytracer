@@ -123,11 +123,15 @@ class WebGLWorldAdapter {
     getObjects() {
         return this.world.objects.map(o => this.wrapObject(o));
     }
+    
     setTransform(transform_index, new_transform, new_inv_transform, gl, program) {
         for (let object of this.transform_object_map[transform_index])
             object.setTransform(new_transform, new_inv_transform);
         this.transform_store.set(transform_index, new_inv_transform);
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
+    }
+    modifyMaterialSolidColor(material_color_index, new_color) {
+        this.adapters.materials.modifySolidColor(material_color_index, new_color);
     }
     
     writeShaderData(gl, program, webgl_helper) {

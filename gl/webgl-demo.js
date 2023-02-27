@@ -335,22 +335,32 @@ class WebGLInterface {
             oc += `<div class="object-material-controls"><table>`;
             for (let mk of WebGLMaterialsAdapter.MATERIAL_PROPERTIES) {
                 if (material[mk].type == "solid")
-                    oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-material-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
+                    oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
                                <td><label for="material-${o.index}-${material[mk]._id}">${mk}</label></td></tr>`;
                 if (material[mk].type == "scalar")
-                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-material-id="${material[mk]._id}" value="${material[mk].value}"></td>
+                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${material[mk].value}"></td>
                                <td><label for="material-${o.index}-${material[mk]._id}">${mk}</label></td></tr>`;
             }
             oc += "</table></div></div>";
         }
         $("#objects-controls").append(oc);
-        $("#objects-controls input[data-transform-type]").on('spinstop', this.transformSelectedObjectValues.bind(this))
+        
+        $(`#objects-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
+        
         $("#objects-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
+        $("#objects-controls input[data-transform-type]").on('spinstop', this.transformSelectedObjectValues.bind(this))
+        
         $("#objects-controls").accordion("refresh");
         
         $("#lights-controls").empty();
         // for (let l of adapter.getLights()) {
         // }
+    }
+    
+    
+    modifyMaterialColor(e) {
+        const target = $(e.target);
+        this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), hexToRgb(target.val()));
     }
     
     

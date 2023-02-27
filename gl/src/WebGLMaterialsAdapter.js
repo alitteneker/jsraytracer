@@ -8,6 +8,7 @@ class WebGLMaterialsAdapter {
         this.webgl_helper = webgl_helper;
         
         this.solid_colors = new WebGLVecStore(3, false);
+        this.solid_mc_map = {};
         
         this.textures = [];
         this.texture_id_map = {};
@@ -19,17 +20,22 @@ class WebGLMaterialsAdapter {
         [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
     }
-    destroy() {}
+    destroy() {
+        this.material_colors_texture.destroy();
+        this.material_indices_texture.destroy();
+    }
+    storeSolidColor(color) {
+        const id = this.solid_colors.store(color);
+        const ret = { _id: id, color: color };
+        this.solid_mc_map[id] = ret;
+        return ret;
+    }
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
         if (mc instanceof SolidMaterialColor) {
-            const color = mc._color.times(scale);
-            return {
-                _id: this.solid_colors.store(color),
-                color: color,
+            return Object.assign(this.storeSolidColor(mc._color.times(scale)), {
                 mc: mc,
-                scale: scale,
                 type: "solid"
-            };
+            });
         }
         else if (mc instanceof CheckerboardMaterialColor) {
             const color1 = mc.color1.toSolidColor()._color.times(scale),
@@ -39,12 +45,9 @@ class WebGLMaterialsAdapter {
             this.special_colors.push([ WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD, id1, id2 ]);
             return {
                 _id: -this.special_colors.length,
-                id1: id1,
-                id2: id2,
-                color1: color1,
-                color2: color2,
+                color1: this.storeSolidColor(mc.color1.toSolidColor()._color.times(scale)),
+                color2: this.storeSolidColor(mc.color2.toSolidColor()._color.times(scale)),
                 mc: mc,
-                scale: scale,
                 type: "checkerboard"
             };
         }
@@ -55,16 +58,16 @@ class WebGLMaterialsAdapter {
                 [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
                 this.textures.push(td);
             }
-            const scaleID = this.solid_colors.store(scale);
+            const scaleColorData = this.storeSolidColor(scale);
             this.special_colors.push([
                 WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
                 this.texture_id_map[mc.MATERIALCOLOR_UID],
-                scaleID ]);
+                scaleColorData._id ]);
             
             return { 
                 _id: -this.special_colors.length,
-                scaleID: scaleID,
-                scale: scale,
+                scale: scaleColorData,
+                texture: this.texture_id_map[mc.MATERIALCOLOR_UID],
                 mc: mc,
                 type: "texture"
             };
@@ -77,11 +80,10 @@ class WebGLMaterialsAdapter {
         return this.collapseMaterialColor(mc, webgl_helper);
     }
     visitMaterialScalar(s) {
-        return {
-            _id: this.solid_colors.store(Vec.of(s, 0, 0)),
+        return Object.assign(this.storeSolidColor(Vec.of(s, 0, 0)), {
             value: s,
             type: "scalar"
-        };
+        });
     }
     visit(material, webgl_helper) {
         if (material.MATERIAL_UID in this.material_id_map)
@@ -117,6 +119,11 @@ class WebGLMaterialsAdapter {
     getMaterial(index) {
         return this.materials[index];
     }
+    modifySolidColor(solid_color_index, new_color) {
+        this.solid_colors.set(solid_color_index, new_color);
+        this.material_colors_texture.modifyDataPixel(solid_color_index, new_color);
+        this.solid_mc_map[solid_color_index].color = new_color;
+    }
     writeShaderData(gl, program, webgl_helper) {
         this.material_colors_texture.setDataPixelsUnit(this.solid_colors.flat(), this.material_colors_texture_unit, "umMaterialColors", program);
         this.material_indices_texture.setDataPixelsUnit(
@@ -127,7 +134,7 @@ class WebGLMaterialsAdapter {
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
         if (this.textures.length)
             gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
-                this.textures.map(t => webgl_helper.textureUnitIndex(t.texture_unit)));
+                this.textures.map(t => WebGLHelper.textureUnitIndex(t.texture_unit)));
     }
     getShaderSourceDeclarations() {
         return `
