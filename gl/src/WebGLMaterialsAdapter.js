@@ -379,14 +379,14 @@ class WebGLMaterialsAdapter {
                         nextRays.reflectionColor *= matParams.reflectivity;
                 }
                 if (kr < 1.0 && normSquared(refractionDirection) > 0.0) {
-                    nextRays.refractionProbability = 1.0 - kr;
-                    if (samplePhongScatter(refractionDirection, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed))
-                        nextRays.refractionColor *= matParams.transmissivity;
+                    nextRays.transmissionProbability = 1.0 - kr;
+                    if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
+                        nextRays.transmissionColor *= matParams.transmissivity;
                 }
-                else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
-                    nextRays.refractionProbability = 1.0;
-                    if (samplePhongScatter(rd, N, matParams, nextRays.refractionDirection, nextRays.refractionColor, random_seed))
-                        nextRays.refractionColor *= matParams.transmissivity;
+                /* else */ if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
+                    nextRays.transmissionProbability = 1.0;
+                    if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
+                        nextRays.transmissionColor *= matParams.transmissivity;
                 }
                 
                 return totalColor;

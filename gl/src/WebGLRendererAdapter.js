@@ -179,9 +179,9 @@ class WebGLRendererAdapter {
                 vec4  reflectionDirection;
                 vec3  reflectionColor;
                 
-                float refractionProbability;
-                vec4  refractionDirection;
-                vec3  refractionColor;
+                float transmissionProbability;
+                vec4  transmissionDirection;
+                vec3  transmissionColor;
             };
             vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed);` + "\n";
         if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
@@ -267,11 +267,11 @@ class WebGLRendererAdapter {
                                 ++q_len;
                             }
                             
-                            if (dot(nextRays.refractionDirection, nextRays.refractionDirection) > EPSILON
-                                && dot(nextRays.refractionColor, nextRays.refractionColor) > EPSILON)
+                            if (dot(nextRays.transmissionDirection, nextRays.transmissionDirection) > EPSILON
+                                && dot(nextRays.transmissionColor, nextRays.transmissionColor) > EPSILON)
                             {
-                                q_rays[q_len] = Ray(intersect_position, nextRays.refractionDirection);
-                                q_attenuation_colors[q_len] = nextRays.refractionProbability * attenuation_color * nextRays.refractionColor;
+                                q_rays[q_len] = Ray(intersect_position, nextRays.transmissionDirection);
+                                q_attenuation_colors[q_len] = nextRays.transmissionProbability * attenuation_color * nextRays.transmissionColor;
                                 q_remaining_bounces[q_len] = remaining_bounces - 1;
                                 ++q_len;
                             }
@@ -304,35 +304,34 @@ class WebGLRendererAdapter {
                         
                         bool do_next_ray = false;
                         
-                        float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.refractionProbability;
+                        float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.transmissionProbability;
                         if (next_ray_probability_sum > 0.0) {
                         
-                            float next_ray_probability_sample = randf(random_seed) / min(next_ray_probability_sum, 1.0);
+                            float next_ray_probability_sample = randf(random_seed) * max(next_ray_probability_sum, 1.0);
                             
                             next_ray_probability_sample -= nextRays.reflectionProbability;
                             if (next_ray_probability_sample <= 0.0
                                 && normSquared(nextRays.reflectionDirection) > EPSILON)
                             {
                                 r = Ray(intersect_position, nextRays.reflectionDirection);
-                                attenuation_color *= nextRays.reflectionColor;
+                                attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
                                 do_next_ray = true;
                             }
                             
                             else {
-                                next_ray_probability_sample -= nextRays.refractionProbability;
+                                next_ray_probability_sample -= nextRays.transmissionProbability;
                                 if (next_ray_probability_sample <= 0.0
-                                    && normSquared(nextRays.refractionDirection) > EPSILON)
+                                    && normSquared(nextRays.transmissionDirection) > EPSILON)
                                 {
-                                    r = Ray(intersect_position, nextRays.refractionDirection);
-                                    attenuation_color *= nextRays.refractionColor;
+                                    r = Ray(intersect_position, nextRays.transmissionDirection);
+                                    attenuation_color *= nextRays.transmissionColor * max(next_ray_probability_sum, 1.0);
                                     do_next_ray = true;
                                 }
                             }
                         }
                         
-                        if (!do_next_ray) {
+                        if (!do_next_ray)
                             break;
-                        }
                     }
                     
                     return vec4(total_color, ray_depth);
