@@ -61,7 +61,7 @@ class WebGLRendererAdapter {
             this.gl.deleteProgram(this.tracerShaderProgram);
         
         for (let t of this.textures)
-            this.gl.deleteTexture(t);
+            t.destroy();
         if (this.framebuffer)
             this.gl.deleteFramebuffer(this.framebuffer);
         
@@ -431,13 +431,12 @@ class WebGLRendererAdapter {
             this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
         
         // Give the shader access to textures[0] to mix with new samples
-        this.gl.activeTexture(this.renderTextureUnit);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[0]);
-        this.gl.uniform1i(this.uniforms.tracerPreviousSamplesTexture, this.webgl_helper.textureUnitIndex(this.renderTextureUnit));
+        this.textures[0].bind(this.renderTextureUnit);
+        this.gl.uniform1i(this.uniforms.tracerPreviousSamplesTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
         
         // Set the framebuffer to render to textures[1]
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures[1], 0);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures[1].id(), 0);
         if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
             throw "Bad framebuffer texture linking";
         
@@ -446,18 +445,24 @@ class WebGLRendererAdapter {
         this.gl.vertexAttribPointer(this.tracerVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
+        
         // Render textures[1] to the screen with the passthrough shader
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.useProgram(this.passthroughShaderProgram);
-        this.gl.activeTexture(this.renderTextureUnit);
-        this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures[1]);
-        this.gl.uniform1i(this.uniforms.passthroughPreviousSamplesTexture, this.webgl_helper.textureUnitIndex(this.renderTextureUnit));
+        this.textures[1].bind(this.renderTextureUnit);
+        this.gl.uniform1i(this.uniforms.passthroughPreviousSamplesTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
+        
+        // Set a few needed passthrough uniforms
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
         this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
+        
+        // draw with the passthrough shader
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        
         
         // Ping-pong the textures, so the next texture read from is the last texture rendered.
         this.textures.reverse();
+        
         
         // Update the draw count, which is used for multisample blending.
         ++this.drawCount;

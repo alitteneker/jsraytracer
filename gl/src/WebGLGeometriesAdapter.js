@@ -74,10 +74,10 @@ class WebGLGeometriesAdapter {
     }
     writeShaderData(gl, program, webgl_helper) {
         // Write triangle data, as all other types need no data written for geometry
-        webgl_helper.setDataTexturePixelsUnit(this.triangle_data_texture, 3, "FLOAT", this.triangle_data_texture_unit, "tTriangleData", program,
-            this.triangle_data.flat());
-        webgl_helper.setDataTexturePixelsUnit(this.triangle_indices_texture, 3, "INTEGER", this.triangle_indices_texture_unit, "tTriangleIndices", program,
-            this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat());
+        this.triangle_data_texture.setDataPixelsUnit(this.triangle_data.flat(), this.triangle_data_texture_unit, "tTriangleData", program);
+        this.triangle_indices_texture.setDataPixelsUnit(
+            this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat(),
+            this.triangle_indices_texture_unit, "tTriangleIndices", program);
     }
     getShaderSourceDeclarations() {
         return `

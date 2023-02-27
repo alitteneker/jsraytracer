@@ -72,89 +72,37 @@ class WebGLHelper {
         gl.getExtension('EXT_color_buffer_float');
         gl.getExtension('EXT_float_blend');
         
-        this.channels_map = [ null, "R", "RG", "RGB", "RGBA" ];
-        this.type_map = {
-            "INTEGER"   : { type: "INT",           internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
-            "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
-            "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: ImageData    },
-
-        };
-        
         this.texture_units = [];
     }
     destroy() {}
+    
     allocateTextureUnit() {
         const ret = this.gl.TEXTURE0 + this.texture_units.length;
         this.texture_units.push(ret);
         this.gl.activeTexture(ret);
         return ret;
     }
-    textureUnitIndex(index) {
-        return index - this.gl.TEXTURE0;
+    static textureUnitIndex(index) {
+        return index - WebGL2RenderingContext.TEXTURE0;
     }
     createTexture(channels=4, type="FLOAT", width=1, height=1, interp=false, data=null) {
-        const texture_id = this.gl.createTexture();
-        this.gl.bindTexture(this.gl.TEXTURE_2D, texture_id);
-        this.setTexturePixels(texture_id, channels, type, width, height, data);
-        if (interp) {
-            if (isPowerOf2(width) && isPowerOf2(height))
-                this.gl.generateMipmap(this.gl.TEXTURE_2D);
-            else
-                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
-        }
-        else {
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-        }
-        return texture_id;
+        return new WebGLTexture(this.gl, channels, type, width, height, interp, data);
     }
     createTextureAndUnit(channels=4, type="FLOAT", width=1, height=1, filter=false, data=null) {
         const texture_unit = this.allocateTextureUnit();
         const texture_id = this.createTexture(channels, type, width, height, filter, data);
         return [texture_unit, texture_id];
     }
-    coerceToDataTextureData(channels, type, data) {
-        if (!this.channels_map[channels] || !this.type_map[type])
-            throw "Invalid texture channels or type passed";
-        if (!data)
-            data = [];
-        const square_size = Math.max(1, Math.ceil(Math.sqrt(data.length / channels)));
-        const square_data = this.type_map[type].array_type.from(Object.assign(new Array(channels * square_size * square_size).fill(0), data));
-        return [square_size, square_data];
-    }
     createDataTexture(channels, type, data=null) {
-        const [square_size, square_data] = this.coerceToDataTextureData(channels, type, data);
+        const [square_size, square_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
         return this.createTexture(channels, type, square_size, square_size, false, square_data);
-    }
-    setTexturePixels(texture_id, channels, type, width, height, data=null) {
-        const channel_str = this.channels_map[channels],
-            type_data = this.type_map[type];
-        if (!channel_str || !type_data)
-            throw "Invalid texture channels or type passed";
-        
-        if (data && !(data instanceof type_data.array_type))
-            data = type_data.array_type.from(data);
-        
-        this.gl.bindTexture(this.gl.TEXTURE_2D, texture_id);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl[channel_str + type_data.internal_format], width, height, 0,
-            this.gl[channel_str + type_data.format], this.gl[type_data.type], data);
-    }
-    setDataTexturePixels(texture_id, channels, type, data=null) {
-        const [square_size, square_data] = this.coerceToDataTextureData(channels, type, data);
-        this.setTexturePixels(texture_id, channels, type, square_size, square_size, square_data);
     }
     createDataTextureAndUnit(channels, type, data=null) {
         const texture_unit = this.allocateTextureUnit();
-        const texture_id = this.createDataTexture(channels, type, data);
-        return [texture_unit, texture_id];
+        const texture = this.createDataTexture(channels, type, data);
+        return [texture_unit, texture];
     }
-    setDataTexturePixelsUnit(texture_id, channels, type, texture_unit=null, uniform_name=null, shader_program=null, data=null) {
-        if (texture_unit)
-            this.gl.activeTexture(texture_unit);
-        this.setDataTexturePixels(texture_id, channels, type, data);
-        if (texture_unit && uniform_name && shader_program)
-            this.gl.uniform1i(this.gl.getUniformLocation(shader_program, uniform_name), this.textureUnitIndex(texture_unit));
-    }
+    
     getShaderSourceDeclarations() {
         return `
             precision highp int;
@@ -391,5 +339,82 @@ class WebGLHelper {
         gl.compileShader(shader);
 
         return shader;
+    }
+}
+
+class WebGLTexture {
+    static channels_map = [ null, "R", "RG", "RGB", "RGBA" ];
+    static type_map = {
+        "INTEGER"   : { type: "INT",           internal_format: "32I", format: "_INTEGER", array_type: Int32Array   },
+        "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
+        "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: ImageData    },
+    };
+    static coerceToDataTextureData(channels, type, data) {
+        if (!WebGLTexture.channels_map[channels] || !WebGLTexture.type_map[type])
+            throw "Invalid texture channels or type passed";
+        if (!data)
+            data = [];
+        const square_size = Math.max(1, Math.ceil(Math.sqrt(data.length / channels)));
+        const square_data = WebGLTexture.type_map[type].array_type.from(Object.assign(new Array(channels * square_size * square_size).fill(0), data));
+        return [square_size, square_data];
+    }
+    
+    constructor(gl, channels=4, type="FLOAT", width=1, height=1, interp=false, data=null) {
+        this.gl = gl;
+        this.interp = interp;
+        
+        this.texture_id = gl.createTexture();
+        this.setPixels(data, channels, type, width, height);
+    }
+    destroy() {
+        this.gl.deleteTexture(this.texture_id);
+    }
+    id() {
+        return this.texture_id;
+    }
+    bind(texture_unit=null) {
+        if (texture_unit)
+            this.gl.activeTexture(texture_unit);
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
+    }
+    setPixels(data=null, channels=this.channels, type=this.type, width=this.width, height=this.height) {
+        const channel_str = WebGLTexture.channels_map[channels],
+              type_data   = WebGLTexture.type_map[type];
+        if (!channel_str || !type_data)
+            throw "Invalid texture channels or type passed";
+        
+        if (data && !(data instanceof type_data.array_type))
+            data = type_data.array_type.from(data);
+        
+        this.data = data;
+        this.channels = channels;
+        this.type = type;
+        this.width = width;
+        this.height = height;
+        
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl[channel_str + type_data.internal_format], width, height, 0,
+            this.gl[channel_str + type_data.format], this.gl[type_data.type], data);
+        if (this.interp) {
+            if (isPowerOf2(width) && isPowerOf2(height))
+                this.gl.generateMipmap(this.gl.TEXTURE_2D);
+            else
+                this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);
+        }
+        else {
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        }
+    }
+    setDataPixels(data=null, channels=this.channels, type=this.type) {
+        const [square_size, square_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
+        this.setPixels(square_data, channels, type, square_size, square_size);
+    }
+    setDataPixelsUnit(data=null, texture_unit=null, uniform_name=null, shader_program=null, channels=this.channels, type=this.type) {
+        if (texture_unit)
+            this.gl.activeTexture(texture_unit);
+        this.setDataPixels(data, channels, type);
+        if (texture_unit && uniform_name && shader_program)
+            this.gl.uniform1i(this.gl.getUniformLocation(shader_program, uniform_name), WebGLHelper.textureUnitIndex(texture_unit));
     }
 }

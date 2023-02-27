@@ -86,9 +86,9 @@ class WebGLWorldAdapter {
         return this.object_id_index_map[object.OBJECT_UID];
     }
     destroy(gl) {
-        gl.deleteTexture(this.indices_texture);
-        gl.deleteTexture(this.bvh_node_texture);
-        gl.deleteTexture(this.bvh_aabb_texture);
+        this.indices_texture.destroy();
+        this.bvh_node_texture.destroy();
+        this.bvh_aabb_texture.destroy();
         
         this.adapters.lights.destroy(gl);
         this.adapters.geometries.destroy(gl);
@@ -133,16 +133,19 @@ class WebGLWorldAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
         
         // write geometry ids, material ids, transform ids, shadow flags
-        webgl_helper.setDataTexturePixelsUnit(this.indices_texture, 4, "INTEGER", this.indices_texture_unit, "uWorldObjects", program,
-            this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat());
+        this.indices_texture.setDataPixelsUnit(
+            this.objects.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat(),
+            this.indices_texture_unit, "uWorldObjects", program);
         
         // Write BVH data
         gl.uniform1i(gl.getUniformLocation(program, "uUseBVHWorldIntersect"), this.USE_SCENE_BVH);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldBVHNodeCount"), this.bvh_nodes.length);
-        webgl_helper.setDataTexturePixelsUnit(this.bvh_aabb_texture, 4, "FLOAT",   this.bvh_aabb_texture_unit, "uWorldBVHAABBs", program,
-            this.bvh_nodes.map(n => n.aabb ? [...n.aabb.center, ...n.aabb.half_size] : [0,0,0,0,0,0,0,0]).flat());
-        webgl_helper.setDataTexturePixelsUnit(this.bvh_node_texture, 4, "INTEGER", this.bvh_node_texture_unit, "uWorldBVHNodeData", program,
-            this.bvh_nodes.map(n => [n.hitIndex, n.missIndex]).flat().concat(this.bvh_object_list));
+        this.bvh_aabb_texture.setDataPixelsUnit(
+            this.bvh_nodes.map(n => n.aabb ? [...n.aabb.center, ...n.aabb.half_size] : [0,0,0,0,0,0,0,0]).flat(),
+            this.bvh_aabb_texture_unit, "uWorldBVHAABBs", program);
+        this.bvh_node_texture.setDataPixelsUnit(
+            this.bvh_nodes.map(n => [n.hitIndex, n.missIndex]).flat().concat(this.bvh_object_list),
+            this.bvh_node_texture_unit, "uWorldBVHNodeData", program);
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);

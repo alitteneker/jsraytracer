@@ -17,7 +17,7 @@ class WebGLMaterialsAdapter {
         this.material_id_map = {};
         
         [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
-        [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
+        [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
     }
     destroy() {}
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
@@ -118,17 +118,10 @@ class WebGLMaterialsAdapter {
         return this.materials[index];
     }
     writeShaderData(gl, program, webgl_helper) {
-        webgl_helper.setDataTexturePixelsUnit(this.material_colors_texture, 3, "FLOAT", this.material_colors_texture_unit, "umMaterialColors", program,
-            this.solid_colors.flat());
-        webgl_helper.setDataTexturePixelsUnit(this.material_indices_texture, 4, "INTEGER", this.material_indices_texture_unit, "umMaterialIndices", program,
-            this.materials.map(m => [...["ambient",
-                                         "diffuse",
-                                         "specular",
-                                         "reflectivity",
-                                         "transmissivity",
-                                         "specularFactor",
-                                         "refractiveIndexRatio",
-                                         "mirrorProbability"].map(k => m[k]._id)]).flat());
+        this.material_colors_texture.setDataPixelsUnit(this.solid_colors.flat(), this.material_colors_texture_unit, "umMaterialColors", program);
+        this.material_indices_texture.setDataPixelsUnit(
+            this.materials.map(m => WebGLMaterialsAdapter.MATERIAL_PROPERTIES.map(k => m[k]._id)).flat(),
+            this.material_indices_texture_unit, "umMaterialIndices", program);
         
         if (this.special_colors.length)
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
