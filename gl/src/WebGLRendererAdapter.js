@@ -389,9 +389,9 @@ class WebGLRendererAdapter {
             this.resetDrawCount();
     }
     
-    setTransform(transform_index, new_transform) {
+    setTransform(transform_index, transform, inv_transform) {
         this.gl.useProgram(this.tracerShaderProgram);
-        this.adapters.world.setTransform(transform_index, new_transform, this.gl, this.tracerShaderProgram);
+        this.adapters.world.setTransform(transform_index, transform, inv_transform, this.gl, this.tracerShaderProgram);
         this.resetDrawCount();
     }
     

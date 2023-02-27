@@ -34,8 +34,8 @@ class WebGLGeometriesAdapter {
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
     }
     destroy(gl) {
-        gl.deleteTexture(this.triangle_data_texture);
-        gl.deleteTexture(this.triangle_indices_texture);
+        this.triangle_data_texture.destroy();
+        this.triangle_indices_texture.destroy();
     }
     visit(geometry) {
         if (geometry instanceof Plane)

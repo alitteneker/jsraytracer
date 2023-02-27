@@ -292,8 +292,9 @@ class WebGLInterface {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
             $("#objects-controls").accordion("option", "active", selectedObject.index);
-            // TODO: update transform/material settings
             $("#transform-controls input").checkboxradio("enable");
+            
+            this.updateSelectedObjectTransformValues();
         }
         else {
             $("#objects-controls").accordion("option", "active", false);
@@ -314,19 +315,19 @@ class WebGLInterface {
             const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
             oc += `<div class="object-geometry-controls"><div><table>
                         <tr><td>Position</td><td>
-                            <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}" value="${pos[1].toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}" value="${pos[2].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}">
                         </td></tr>
                         <tr><td>Rotation</td><td>
-                            <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}">
                         </td></tr>
                         <tr><td>Scale</td><td>
-                            <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}" value="${scale[0].toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}" value="${scale[1].toFixed(2)}">
-                            <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}" value="${scale[2].toFixed(2)}">
+                            <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}">
+                            <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}">
                         </td></tr>
                    </table></div></div>`;
             
@@ -389,13 +390,7 @@ class WebGLInterface {
               new_inv_transform = this.selectedObject.object.inv_transform.times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
 
         this.setSelectedObjectTransform(new_transform, new_inv_transform);
-        
-        const [pos, rot, scale] = Mat4.breakdownTransform(new_transform);
-        for (let i of [0,1,2]) {
-            $(`input[data-transform-type="pos${i}"][data-object-id="${this.selectedObject.index}"]`  ).val(pos[i].toFixed(2));
-            $(`input[data-transform-type="scale${i}"][data-object-id="${this.selectedObject.index}"]`).val(scale[i].toFixed(2));
-            $(`input[data-transform-type="rot${i}"][data-object-id="${this.selectedObject.index}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
-        }
+        this.updateSelectedObjectTransformValues();
     }
     
     transformSelectedObjectValues() {
@@ -408,10 +403,19 @@ class WebGLInterface {
         this.setSelectedObjectTransform(...Mat4.transformAndInverseFromParts(pos, rot, scale));
     }
     
+    updateSelectedObjectTransformValues() {
+        if (!this.selectedObject)
+            return;
+        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.object.transform);
+        for (let i of [0,1,2]) {
+            $(`input[data-transform-type="pos${i}"][data-object-id="${this.selectedObject.index}"]`  ).val(pos[i].toFixed(2));
+            $(`input[data-transform-type="scale${i}"][data-object-id="${this.selectedObject.index}"]`).val(scale[i].toFixed(2));
+            $(`input[data-transform-type="rot${i}"][data-object-id="${this.selectedObject.index}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
+        }
+    }
+    
     setSelectedObjectTransform(transform, inv_transform) {
-        this.renderer_adapter.setTransform(this.selectedObject.transform.index, inv_transform);
-        
-        this.selectedObject.object.setTransform(transform, inv_transform);
+        this.renderer_adapter.setTransform(this.selectedObject.transform.index, transform, inv_transform);
         this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
     }
     

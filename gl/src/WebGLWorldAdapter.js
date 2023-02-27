@@ -13,7 +13,7 @@ class WebGLWorldAdapter {
         };
         
         this.objects = [];
-        this.inv_transforms = [];
+        this.transform_object_map = {};
         const object_id_index_map = this.object_id_index_map = {};
         
         const bvh_nodes = this.bvh_nodes = [];
@@ -83,6 +83,11 @@ class WebGLWorldAdapter {
             does_cast_shadow:  object.does_cast_shadow
         });
         
+        const transformID = this.objects[this.objects.length-1].transformID;
+        if (!(transformID in this.transform_object_map))
+            this.transform_object_map[transformID] = [];
+        this.transform_object_map[transformID].push(object);
+        
         return this.object_id_index_map[object.OBJECT_UID];
     }
     destroy(gl) {
@@ -118,9 +123,10 @@ class WebGLWorldAdapter {
     getObjects() {
         return this.world.objects.map(o => this.wrapObject(o));
     }
-    setTransform(transform_index, new_transform, gl, program) {
-        // TODO: also update all usages of this transform
-        this.transform_store.set(transform_index, new_transform);
+    setTransform(transform_index, new_transform, new_inv_transform, gl, program) {
+        for (let object of this.transform_object_map[transform_index])
+            object.setTransform(new_transform, new_inv_transform);
+        this.transform_store.set(transform_index, new_inv_transform);
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
     }
     
