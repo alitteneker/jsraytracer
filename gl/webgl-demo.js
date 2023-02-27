@@ -44,6 +44,11 @@ class WebGLInterface {
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
         
+        this.samplesPerDraw = 1;
+        $("#samples-per-draw").on('spin', (e, ui) => {
+            this.samplesPerDraw = Number.parseInt(ui.value);
+        });
+        
         $("#renderer-depth").on('spin', (e, ui) => {
             if (this.renderer_adapter)
                 this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
@@ -163,6 +168,8 @@ class WebGLInterface {
             this.renderer_adapter = null;
         }
         
+        $("#samples-per-draw").val(this.samplesPerDraw = 1);
+        
         const world_select = $("#test-select");
         if (world_select.value === "")
             return;
@@ -244,7 +251,8 @@ class WebGLInterface {
             
             this.handleMovement(timeDelta);
             
-            this.renderer_adapter.drawWorld(currentTimestamp);
+            for (let i = 0; i < this.samplesPerDraw; ++i)
+                this.renderer_adapter.drawWorld(currentTimestamp);
             
             if (this.selectedObject)
                 this.drawWireframe(this.selectedObject.aabb)

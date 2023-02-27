@@ -60,7 +60,8 @@ class WebGLMaterialsAdapter {
             this.special_colors.push([
                 WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
                 this.texture_id_map[mc.MATERIALCOLOR_UID],
-                scaleColorData._id ]);
+                scaleColorData._id
+            ]);
             
             return { 
                 _id: -this.special_colors.length,
