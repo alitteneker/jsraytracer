@@ -133,6 +133,9 @@ class WebGLWorldAdapter {
     modifyMaterialSolidColor(material_color_index, new_color) {
         this.adapters.materials.modifySolidColor(material_color_index, new_color);
     }
+    modifyMaterialScalar(material_index, new_scalar) {
+        this.adapters.materials.modifyScalar(material_index, new_scalar);
+    }
     
     writeShaderData(gl, program, webgl_helper) {
         // write global world properties

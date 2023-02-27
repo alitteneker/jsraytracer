@@ -7,8 +7,16 @@ Math.range = function(start, stop, step = 1) {
     return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
 }
 
+Math.isPowerOf2 = function(value) {
+    return (value & (value - 1)) === 0;
+}
+
+Math.clamp = function(a, min, max) {
+    return Math.min(Math.max(a, min), max);
+}
+
 function componentToHex(c) {
-    const hex = Math.round(c).toString(16);
+    const hex = Math.round(Math.clamp(c, 0, 255)).toString(16);
     return (hex.length == 1) ? ("0" + hex) : hex;
 }
 
@@ -23,15 +31,6 @@ function hexToRgb(hex) {
         parseInt(result[2], 16) / 255,
         parseInt(result[3], 16) / 255
     ) : null;
-}
-
-
-function isPowerOf2(value) {
-    return (value & (value - 1)) === 0;
-}
-
-function clamp(a, min, max) {
-    return Math.min(Math.max(a, min), max);
 }
 
 
@@ -511,7 +510,7 @@ class Mat4 extends Mat {
         switch ( order ) {
 
             case 'XYZ':
-                ret[1] = Math.asin( clamp( m13, - 1, 1 ) );
+                ret[1] = Math.asin( Math.clamp( m13, - 1, 1 ) );
                 if ( Math.abs( m13 ) < 1-EPSILON ) {
                     ret[0] = Math.atan2( - m23, m33 );
                     ret[2] = Math.atan2( - m12, m11 );
@@ -523,7 +522,7 @@ class Mat4 extends Mat {
                 break;
 
             case 'YXZ':
-                ret[0] = Math.asin( - clamp( m23, - 1, 1 ) );
+                ret[0] = Math.asin( - Math.clamp( m23, - 1, 1 ) );
                 if ( Math.abs( m23 ) < 1-EPSILON ) {
                     ret[1] = Math.atan2( m13, m33 );
                     ret[2] = Math.atan2( m21, m22 );
@@ -535,7 +534,7 @@ class Mat4 extends Mat {
                 break;
 
             case 'ZXY':
-                ret[0] = Math.asin( clamp( m32, - 1, 1 ) );
+                ret[0] = Math.asin( Math.clamp( m32, - 1, 1 ) );
                 if ( Math.abs( m32 ) < 1-EPSILON ) {
                     ret[1] = Math.atan2( - m31, m33 );
                     ret[2] = Math.atan2( - m12, m22 );
@@ -547,7 +546,7 @@ class Mat4 extends Mat {
                 break;
 
             case 'ZYX':
-                ret[1] = Math.asin( - clamp( m31, - 1, 1 ) );
+                ret[1] = Math.asin( - Math.clamp( m31, - 1, 1 ) );
                 if ( Math.abs( m31 ) < 1-EPSILON ) {
                     ret[0] = Math.atan2( m32, m33 );
                     ret[2] = Math.atan2( m21, m11 );
@@ -559,7 +558,7 @@ class Mat4 extends Mat {
                 break;
 
             case 'YZX':
-                ret[2] = Math.asin( clamp( m21, - 1, 1 ) );
+                ret[2] = Math.asin( Math.clamp( m21, - 1, 1 ) );
                 if ( Math.abs( m21 ) < 1-EPSILON ) {
                     ret[0] = Math.atan2( - m23, m22 );
                     ret[1] = Math.atan2( - m31, m11 );
@@ -571,7 +570,7 @@ class Mat4 extends Mat {
                 break;
 
             case 'XZY':
-                ret[2] = Math.asin( - clamp( m12, - 1, 1 ) );
+                ret[2] = Math.asin( - Math.clamp( m12, - 1, 1 ) );
                 if ( Math.abs( m12 ) < 1-EPSILON ) {
                     ret[0] = Math.atan2( m32, m22 );
                     ret[1] = Math.atan2( m13, m11 );

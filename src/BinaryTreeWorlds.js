@@ -33,7 +33,7 @@ class BSPWorldTreeNode {
             best_greater_objs = [],
             best_spanning_objects = new Array(objects.length + 1);
         for (let i = 0; i < 3; ++i) {
-            const axis_median = median(objects.map(o => [o.getBoundingBox().min[i], o.getBoundingBox().max[i]]).flat().map(x => clamp(x, min[i], max[i])));
+            const axis_median = median(objects.map(o => [o.getBoundingBox().min[i], o.getBoundingBox().max[i]]).flat().map(x => Math.clamp(x, min[i], max[i])));
             
             let lesser_objs = [], greater_objs = [], spanning_objects = [];
             for (let o of objects) {

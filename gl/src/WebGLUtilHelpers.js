@@ -395,7 +395,7 @@ class WebGLTexture {
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl[channel_str + type_data.internal_format], width, height, 0,
             this.gl[channel_str + type_data.format], this.gl[type_data.type], data);
         if (this.interp) {
-            if (isPowerOf2(width) && isPowerOf2(height))
+            if (Math.isPowerOf2(width) && Math.isPowerOf2(height))
                 this.gl.generateMipmap(this.gl.TEXTURE_2D);
             else
                 this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.LINEAR);

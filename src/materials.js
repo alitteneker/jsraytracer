@@ -82,7 +82,7 @@ class TextureMaterialColor extends MaterialColor {
         return new TextureMaterialColor(context.getImageData(0, 0, bitmap.width, bitmap.height));
     }
     static normalizeUV(c, doClamp) {
-        if (doClamp) return clamp(c, 0, 1);
+        if (doClamp) return Math.clamp(c, 0, 1);
         else         return ((c % 1) + 1) % 1;
     }
     color(data) {
@@ -108,7 +108,7 @@ class TextureMaterialColor extends MaterialColor {
         let ret = [0,0,0,0];
         for (let [px, bx] of xs) {
             for (let [py, by] of ys) {
-                const index = clamp(py, 0, this.height-1) * this.width + clamp(px, 0, this.width-1);
+                const index = Math.clamp(py, 0, this.height-1) * this.width + Math.clamp(px, 0, this.width-1);
                 for (let i = 0; i < 4; ++i)
                     ret[i] += bx * by * (this._imgdata.data[index * 4 + i] / 255);
             }

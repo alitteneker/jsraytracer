@@ -38,15 +38,13 @@ class WebGLMaterialsAdapter {
             });
         }
         else if (mc instanceof CheckerboardMaterialColor) {
-            const color1 = mc.color1.toSolidColor()._color.times(scale),
-                  color2 = mc.color2.toSolidColor()._color.times(scale);
-            const id1 = this.solid_colors.store(color1),
-                  id2 = this.solid_colors.store(color2);
-            this.special_colors.push([ WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD, id1, id2 ]);
+            const color1 = this.storeSolidColor(mc.color1.toSolidColor()._color.times(scale)),
+                  color2 = this.storeSolidColor(mc.color2.toSolidColor()._color.times(scale));
+            this.special_colors.push([ WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD, color1._id, color2._id ]);
             return {
                 _id: -this.special_colors.length,
-                color1: this.storeSolidColor(mc.color1.toSolidColor()._color.times(scale)),
-                color2: this.storeSolidColor(mc.color2.toSolidColor()._color.times(scale)),
+                color1: color1,
+                color2: color2,
                 mc: mc,
                 type: "checkerboard"
             };
@@ -123,6 +121,10 @@ class WebGLMaterialsAdapter {
         this.solid_colors.set(solid_color_index, new_color);
         this.material_colors_texture.modifyDataPixel(solid_color_index, new_color);
         this.solid_mc_map[solid_color_index].color = new_color;
+    }
+    modifyScalar(index, new_scalar) {
+        this.modifySolidColor(index, Vec.of(new_scalar, 0, 0));
+        this.solid_mc_map[index].value = new_scalar;
     }
     writeShaderData(gl, program, webgl_helper) {
         this.material_colors_texture.setDataPixelsUnit(this.solid_colors.flat(), this.material_colors_texture_unit, "umMaterialColors", program);
@@ -372,7 +374,7 @@ class WebGLMaterialsAdapter {
                     totalColor += lightSample.color * phongBRDF(N, R, lightSample.direction, kr, refractionDirection, matParams);
                 }
                 
-                // reflection/refraction
+                // reflection/refraction/transmission
                 if (kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
                     nextRays.reflectionProbability = kr;
                     if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed))
@@ -383,7 +385,7 @@ class WebGLMaterialsAdapter {
                     if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
                 }
-                /* else */ if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
+                else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
                     nextRays.transmissionProbability = 1.0;
                     if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
