@@ -168,7 +168,9 @@ class WebGLInterface {
             this.renderer_adapter = null;
         }
         
+        // Reset some controls and tallies, to avoid cross contamination between setups.
         $("#samples-per-draw").val(this.samplesPerDraw = 1);
+        this.timeDeltaHistory = [];
         
         const world_select = $("#test-select");
         if (world_select.value === "")
@@ -248,24 +250,28 @@ class WebGLInterface {
         const currentTimestamp = performance.now();
         const timeDelta = this.lastDrawTimestamp ? (currentTimestamp - this.lastDrawTimestamp) : 1;
         
-        this.timeDeltaHistory.push(timeDelta);
-        this.timeDeltaHistorySum += timeDelta;
-        if (this.timeDeltaHistory.length > this.timeDeltaHistoryMaxLength)
-            this.timeDeltaHistorySum -= this.timeDeltaHistory.shift();
-        const avgTimeDelta = this.timeDeltaHistorySum / this.timeDeltaHistory.length;
-        
         // draw the world, and request the next frame of animation
         if (this.renderer_adapter) {
+            // Compute a running average of delta times and display a stable FPS count.
+            this.timeDeltaHistory.push(timeDelta);
+            this.timeDeltaHistorySum += timeDelta;
+            if (this.timeDeltaHistory.length > this.timeDeltaHistoryMaxLength)
+                this.timeDeltaHistorySum -= this.timeDeltaHistory.shift();
+            const avgTimeDelta = this.timeDeltaHistorySum / this.timeDeltaHistory.length;
             $('#fps-display').text((1000 / avgTimeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
             
+            // Deal with any camera movements or object transforms that might be present since last frame.
             this.handleMovement(timeDelta);
             
+            // Draw the scene, possibly fetching multiple samples.
             for (let i = 0; i < this.samplesPerDraw; ++i)
                 this.renderer_adapter.drawWorld(currentTimestamp);
             
+            // If any object is selected, draw it's wireframe.
             if (this.selectedObject)
                 this.drawWireframe(this.selectedObject.aabb)
             
+            // Request another frame of animation.
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
         }
         

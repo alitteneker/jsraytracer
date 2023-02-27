@@ -3,7 +3,7 @@ class WebGLLightsAdapter {
         this.lights_data = [];
     }
     destroy() {}
-    visit(light) {
+    visit(light, transform_store, material_adapter) {
         const light_data = {};
         
         if (light instanceof SimplePointLight) {
