@@ -6,6 +6,12 @@ Math.range = function(start, stop, step = 1) {
     }
     return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
 }
+Math.sum = function(arr) {
+    return arr.reduce((acc, x, i) => { return acc + x }, 0);
+}
+Math.average = function(arr) {
+    return (arr.length > 0) ? (Math.sum(arr) / arr.length) : 0;
+}
 
 Math.isPowerOf2 = function(value) {
     return (value & (value - 1)) === 0;
@@ -191,7 +197,7 @@ class Vec extends Float32Array {
         return this.reduce((acc, x, i) => { return acc + x }, 0);
     }
     average() {
-        return this.sum() / this.length;
+        return this.length ? this.sum() / this.length : 0;
     }
     // For avoiding repeatedly typing Vec.of in lists.
     static cast(...args) {

@@ -241,13 +241,22 @@ class WebGLInterface {
     
 
     lastDrawTimestamp = null;
+    timeDeltaHistory = [];
+    timeDeltaHistorySum = 0;
+    timeDeltaHistoryMaxLength = 30;
     draw(timestamp) {
         const currentTimestamp = performance.now();
         const timeDelta = this.lastDrawTimestamp ? (currentTimestamp - this.lastDrawTimestamp) : 1;
         
+        this.timeDeltaHistory.push(timeDelta);
+        this.timeDeltaHistorySum += timeDelta;
+        if (this.timeDeltaHistory.length > this.timeDeltaHistoryMaxLength)
+            this.timeDeltaHistorySum -= this.timeDeltaHistory.shift();
+        const avgTimeDelta = this.timeDeltaHistorySum / this.timeDeltaHistory.length;
+        
         // draw the world, and request the next frame of animation
         if (this.renderer_adapter) {
-            $('#fps-display').text((1000 / timeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
+            $('#fps-display').text((1000 / avgTimeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
             
             this.handleMovement(timeDelta);
             
