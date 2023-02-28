@@ -7,6 +7,9 @@ class WebGLGeometriesAdapter {
     static CYLINDER_ID     = 5;
     static MIN_TRIANGLE_ID = 6;
     
+    static SWITCHABLE_TYPES = [WebGLGeometriesAdapter.PLANE_ID, WebGLGeometriesAdapter.SPHERE_ID, WebGLGeometriesAdapter.UNITBOX_ID, 
+                               WebGLGeometriesAdapter.CIRCLE_ID, WebGLGeometriesAdapter.SQUARE_ID, WebGLGeometriesAdapter.CYLINDER_ID];
+                               
     static TypeStringLabel(type) {
         if (type == WebGLGeometriesAdapter.PLANE_ID)
             return "Plane";

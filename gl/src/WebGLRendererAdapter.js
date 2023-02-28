@@ -423,6 +423,9 @@ class WebGLRendererAdapter {
     getObjects() {
         return this.adapters.world.getObjects();
     }
+    getObject(index) {
+        return this.adapters.world.getObject(index);
+    }
 
     drawWorld(timestamp) {
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);

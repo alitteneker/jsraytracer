@@ -24,12 +24,6 @@ body {
     margin: auto;
 }
 
-#objects-controls .ui-spinner-input {
-    width: 60px;
-}
-#objects-controls input[type="color"] {
-    width: 100%;
-}
 #selected-object-controls .ui-spinner-input {
     width: 40px;
 }

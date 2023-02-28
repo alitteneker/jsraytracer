@@ -62,15 +62,6 @@ class WebGLInterface {
         
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
-        
-        $("#objects-controls").accordion({
-            collapsible: true,
-            active: false,
-            heightStyle: "content",
-            animate: false,
-            activate: function(e, ui) {
-                this.selectObject(this.objects[ui.newHeader.attr("data-object-index")]);
-            }.bind(this) });
             
         $("#selected-object-controls").dialog({ autoOpen: false, title: "Selected Object", minWidth: 400 });
         $("#edit-object-button").on("click", function() { $("#selected-object-controls").dialog("open"); }.bind(this));
@@ -309,22 +300,21 @@ class WebGLInterface {
     selectObjectAt(x, y) {
         if (!this.renderer_adapter)
             return;
-
         this.selectObject(this.renderer_adapter.selectObjectAt(x, y));
-        
-        // update the rest of the display?
     }
     selectObject(selectedObject) {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
-            $("#objects-controls").accordion("option", "active", selectedObject.index);
-             $('#object-control-bar').controlgroup("enable");
+            $.ui.fancytree.getTree("#world-objects").getNodeByKey(selectedObject.index).setActive();
+            $('#object-control-bar').controlgroup("enable");
             
             this.buildSelectedObjectControls();
         }
         else {
-            $("#object-controls").accordion("option", "active", false);
-             $('#object-control-bar').controlgroup("disable");
+            const activeNode = $.ui.fancytree.getTree("#world-objects").getActiveNode();
+            if (activeNode)
+                activeNode.setActive(false);
+            $('#object-control-bar').controlgroup("disable");
         }
     }
     
@@ -333,6 +323,8 @@ class WebGLInterface {
         let oc = "";
         
         $("#selected-object-controls").empty();
+        
+        // TODO: select of type?
         
         const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
         oc += `<div class="object-geometry-controls"><div><table>
@@ -383,22 +375,24 @@ class WebGLInterface {
     
     objects = [];
     initializeWorldControls(adapter) {
-        $("#objects-controls").empty();
+        $("#world-objects").empty();
         const objects = this.objects = adapter.getObjects();
-        let oc = "";
+        const object_list = [];
         for (let o of objects) {
-            oc += `<h4 data-object-index="${o.index}">${WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)}</h4><div class="object-control-container">`;
-            
-            oc += "</div>";
+            object_list.push({ key: o.index, title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) });
         }
-        $("#objects-controls").append(oc);
-        $("#objects-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         
-        $("#lights-controls").empty();
+        
         // for (let l of adapter.getLights()) {
         // }
         
-        $("#objects-controls").accordion("refresh");
+        $("#world-objects").fancytree({ source: [
+                { title: "Objects", folder: true, clickFolderMode: 2, expanded: true, children: object_list },
+                { title: "Lights",  folder: true, clickFolderMode: 2, expanded: true, children: [] }
+            ],
+            activate: function(e, d) {
+                this.selectObject(this.renderer_adapter.getObject(d.node.key));
+            }.bind(this) });
     }
     
     

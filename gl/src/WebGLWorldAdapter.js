@@ -101,6 +101,9 @@ class WebGLWorldAdapter {
     }
     
     wrapObject(object) {
+        if (!object)
+            return null;
+        
         const index = this.object_id_index_map[object.OBJECT_UID];
         const webgl_ids = this.objects[index];
         
@@ -122,6 +125,9 @@ class WebGLWorldAdapter {
     }
     getObjects() {
         return this.world.objects.map(o => this.wrapObject(o));
+    }
+    getObject(index) {
+        return this.wrapObject(this.world.objects[index]);
     }
     
     setTransform(transform_index, new_transform, new_inv_transform, gl, program) {
