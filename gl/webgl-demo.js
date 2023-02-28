@@ -11,6 +11,7 @@ $(document).ready(function() {
         error: function(...args) {
             console.error(...args);
             console_output.append('<p class="error">' + args.join("\t") + "</p>");
+            $("#control-panel").accordion("option", "active", -1);
         }
     };
     
@@ -78,7 +79,7 @@ class WebGLInterface {
             }.bind(this) });
         
         // Setup the UI to pretty things up...
-        $("#control-panel").accordion({ animate: false, collapsible:true, active: -1, heightStyle: "content" });
+        $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
         $("#help-button").button({ icon: "ui-icon-help", showLabel: false });
         
         
