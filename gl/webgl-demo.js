@@ -64,6 +64,9 @@ $(document).ready(function() {
             module.configureTest(function(test) {
                 i.changeTest(test);
             });
+        }, function(e) {
+            myconsole.error(e);
+            $("#loading-img").css('visibility', 'hidden');
         });
     }
 });
