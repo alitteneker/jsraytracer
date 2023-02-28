@@ -355,7 +355,7 @@ class WebGLInterface {
         
         const material = o.material.value;
         oc += `<div class="object-material-controls"><table>`;
-        for (let mk of WebGLMaterialsAdapter.MATERIAL_PROPERTIES) {
+        for (let mk of Object.keys(material)) {
             const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
             if (material[mk].type == "solid")
                 oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>

@@ -38,8 +38,10 @@ div.object-geometry-controls {
     display: flex;
 }
 div.object-geometry-controls > div {
-    margin-top: auto;
-    margin-bottom: auto;
+    margin: auto;
+}
+div.object-material-controls > table {
+    margin: auto;
 }
 div.object-material-controls {
     flex-grow: 1;
