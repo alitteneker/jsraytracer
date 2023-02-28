@@ -69,6 +69,14 @@ class WebGLInterface {
         $("#deselect-object-button").on("click", function() { this.selectObject(null); }.bind(this));
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
+        
+        $("#world-objects").fancytree({ source: [
+                { title: "Objects", key: "_objects", folder: true, clickFolderMode: 2, expanded: true, children: [] },
+                { title: "Lights",  key: "_lights",  folder: true, clickFolderMode: 2, expanded: true, children: [] }],
+            activate: function(e, d) {
+                this.selectObject(this.renderer_adapter.getObject(d.node.key));
+            }.bind(this) });
+        
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: -1, heightStyle: "content" });
         $("#help-button").button({ icon: "ui-icon-help", showLabel: false });
@@ -375,24 +383,21 @@ class WebGLInterface {
     
     objects = [];
     initializeWorldControls(adapter) {
-        $("#world-objects").empty();
         const objects = this.objects = adapter.getObjects();
         const object_list = [];
         for (let o of objects) {
             object_list.push({ key: o.index, title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) });
         }
         
+        const objects_root = $.ui.fancytree.getTree("#world-objects").getNodeByKey("_objects");
+        objects_root.removeChildren();
+        objects_root.addChildren(object_list);
+        objects_root.setExpanded(true);
         
         // for (let l of adapter.getLights()) {
         // }
         
-        $("#world-objects").fancytree({ source: [
-                { title: "Objects", folder: true, clickFolderMode: 2, expanded: true, children: object_list },
-                { title: "Lights",  folder: true, clickFolderMode: 2, expanded: true, children: [] }
-            ],
-            activate: function(e, d) {
-                this.selectObject(this.renderer_adapter.getObject(d.node.key));
-            }.bind(this) });
+        
     }
     
     
