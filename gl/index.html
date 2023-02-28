@@ -13,6 +13,7 @@
         <script src="./jquery-3.6.0.min.js"></script>
         <script src="./jquery-ui.js"></script>
         <link rel="stylesheet" href="./jquery-ui.css">
+        <script src="./jquery.fancytree-all.min.js"></script>
         <script type="module" src="./webgl-demo.js" defer></script>
 
         <script src="../src/math.js" defer></script>
@@ -52,10 +53,14 @@
         <div class="canvas-widget">
             <canvas id="glcanvas" tabindex="0"></canvas>
         </div>
-        <div><div class="control-group" id="transform-controls">
-            <input type="radio" id="transform-translate" name="transform" value="translate" checked><label for="transform-translate">Translate</label>
-            <input type="radio" id="transform-rotate"    name="transform" value="rotate"           ><label for="transform-rotate"   >Rotate   </label>
-            <input type="radio" id="transform-scale"     name="transform" value="scale"            ><label for="transform-scale"    >Scale    </label>
+        <div><div class="control-group" id="object-control-bar">
+            <button id="deselect-object-button">Deselect</button>
+            <select id="transform-mode">
+                <option value="translate">Translate</option>
+                <option value="rotate"   >Rotate   </option>
+                <option value="scale"    >Scale    </option>
+            </select>
+            <button id="edit-object-button">Edit</button>
         </div></div>
         <hr>
         <div id="control-panel">
@@ -77,5 +82,7 @@
             <h3>Log</h3>
             <div id="console_output"></div>
         </div>
+        <div id="selected-object-controls"></div>
+        <div id="help-dialog"></div>
     </body>
 </html>

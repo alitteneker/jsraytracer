@@ -28,7 +28,7 @@ export function configureTest(callback) {
 
     loadObjFile(
         "../assets/diamond.obj",
-        new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.8, 100, 1.3),
+        new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.8, 100, 2.4),
 
         Mat4.translation([-0.2,1.5,-10])
             .times(Mat4.rotation(-0.4, Vec.of(0,1,0)))

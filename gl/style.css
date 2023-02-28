@@ -17,7 +17,7 @@ body {
     margin-top: 10px;
 }
 
-#transform-controls {
+#object-control-bar {
     width: fit-content;
     display: block;
     /* align-items: center; */
@@ -29,6 +29,12 @@ body {
 }
 #objects-controls input[type="color"] {
     width: 100%;
+}
+#selected-object-controls .ui-spinner-input {
+    width: 40px;
+}
+#selected-object-controls input[type="color"] {
+    width: 40%;
 }
 div.object-control-container {
     display: flex;

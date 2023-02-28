@@ -58,9 +58,10 @@ class WebGLInterface {
         // setup standard listeners for changing lens settings
         $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
         
+        $(".control-group").controlgroup();
         
-        $("#transform-controls input").checkboxradio({ icon: false, disabled: true });
-        $("#transform-controls input").on("change", this.transformModeChange.bind(this));
+        $('#object-control-bar').controlgroup("disable");
+        $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
         
         $("#objects-controls").accordion({
             collapsible: true,
@@ -70,14 +71,16 @@ class WebGLInterface {
             activate: function(e, ui) {
                 this.selectObject(this.objects[ui.newHeader.attr("data-object-index")]);
             }.bind(this) });
+            
+        $("#selected-object-controls").dialog({ autoOpen: false, title: "Selected Object", minWidth: 400 });
+        $("#edit-object-button").on("click", function() { $("#selected-object-controls").dialog("open"); }.bind(this));
+        
+        $("#deselect-object-button").on("click", function() { this.selectObject(null); }.bind(this));
+        $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: -1, heightStyle: "content" });
-        $(".control-group").controlgroup();
-        $("#help-button").button({
-            icon: "ui-icon-help",
-            showLabel: false
-        });
+        $("#help-button").button({ icon: "ui-icon-help", showLabel: false });
         
         
         $("#test-select").on("change", this.testChange.bind(this));
@@ -315,17 +318,68 @@ class WebGLInterface {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
             $("#objects-controls").accordion("option", "active", selectedObject.index);
-            $("#transform-controls input").checkboxradio("enable");
+             $('#object-control-bar').controlgroup("enable");
             
-            this.updateSelectedObjectTransformValues();
+            this.buildSelectedObjectControls();
         }
         else {
-            $("#objects-controls").accordion("option", "active", false);
-            $("#transform-controls input").checkboxradio("disable");
+            $("#object-controls").accordion("option", "active", false);
+             $('#object-control-bar').controlgroup("disable");
         }
     }
     
-    
+    buildSelectedObjectControls() {
+        const o = this.selectedObject;
+        let oc = "";
+        
+        $("#selected-object-controls").empty();
+        
+        const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
+        oc += `<div class="object-geometry-controls"><div><table>
+                    <tr><td>Position</td><td>
+                        <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}" value="${pos[1].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}" value="${pos[2].toFixed(2)}">
+                    </td></tr>
+                    <tr><td>Rotation</td><td>
+                        <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
+                    </td></tr>
+                    <tr><td>Scale</td><td>
+                        <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}" value="${scale[0].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}" value="${scale[1].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}" value="${scale[2].toFixed(2)}">
+                    </td></tr>
+               </table></div></div>`;
+        
+        const material = o.material.value;
+        oc += `<div class="object-material-controls"><table>`;
+        for (let mk of WebGLMaterialsAdapter.MATERIAL_PROPERTIES) {
+            const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
+            if (material[mk].type == "solid")
+                oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
+                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+            if (material[mk].type == "scalar")
+                oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${material[mk].value}"></td>
+                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+            if (material[mk].type == "checkerboard")
+                oc += `<tr><td>
+                           <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
+                           <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
+                       </td><td><span>${label}</span></td></tr>`;
+        }
+        oc += "</table></div>";
+        
+        
+        $("#selected-object-controls").append(oc);
+        
+        $("#selected-object-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
+        
+        $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
+        $("#selected-object-controls .object-material-controls input.ui-spinner-input").on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        $("#selected-object-controls input[data-transform-type]").on('spinstop', this.transformSelectedObjectValues.bind(this));
+    }
     
     objects = [];
     initializeWorldControls(adapter) {
@@ -335,55 +389,16 @@ class WebGLInterface {
         for (let o of objects) {
             oc += `<h4 data-object-index="${o.index}">${WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)}</h4><div class="object-control-container">`;
             
-            const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
-            oc += `<div class="object-geometry-controls"><div><table>
-                        <tr><td>Position</td><td>
-                            <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}">
-                        </td></tr>
-                        <tr><td>Rotation</td><td>
-                            <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}">
-                        </td></tr>
-                        <tr><td>Scale</td><td>
-                            <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}">
-                            <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}">
-                        </td></tr>
-                   </table></div></div>`;
-            
-            const material = o.material.value;
-            oc += `<div class="object-material-controls"><table>`;
-            for (let mk of WebGLMaterialsAdapter.MATERIAL_PROPERTIES) {
-                const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
-                if (material[mk].type == "solid")
-                    oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
-                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
-                if (material[mk].type == "scalar")
-                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${material[mk].value}"></td>
-                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
-                if (material[mk].type == "checkerboard")
-                    oc += `<tr><td>
-                               <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
-                               <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
-                           </td><td><span>${label}</span></td></tr>`;
-            }
-            oc += "</table></div></div>";
+            oc += "</div>";
         }
         $("#objects-controls").append(oc);
         $("#objects-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         
-        $(`#objects-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
-        $("#objects-controls .object-material-controls input.ui-spinner-input").on('spin spinstop', this.modifyMaterialScalar.bind(this));
-        $("#objects-controls input[data-transform-type]").on('spinstop', this.transformSelectedObjectValues.bind(this));
-        
-        $("#objects-controls").accordion("refresh");
-        
         $("#lights-controls").empty();
         // for (let l of adapter.getLights()) {
         // }
+        
+        $("#objects-controls").accordion("refresh");
     }
     
     
@@ -403,7 +418,7 @@ class WebGLInterface {
     transformRotateRate = 0.001;
     transformScaleRate = 0.01;
     transformModeChange() {
-        this.transformMode = $("#transform-controls input:checked").val();
+        this.transformMode = $('#transform-mode').val();
     }
     transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform) {
         let deltaTransform = Mat4.identity(), deltaInvTransform = Mat4.identity();
