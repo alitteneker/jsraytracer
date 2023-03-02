@@ -17,17 +17,23 @@ Math.isPowerOf2 = function(value) {
     return (value & (value - 1)) === 0;
 }
 
+Math.normalize = function(c, min, max) {
+    return (c - min) / (max - min);
+}
 Math.clamp = function(a, min, max) {
     return Math.min(Math.max(a, min), max);
 }
 
 function componentToHex(c) {
-    const hex = Math.round(Math.clamp(c, 0, 255)).toString(16);
+    const hex = Math.round(Math.clamp(c, 0, 1) * 255).toString(16);
     return (hex.length == 1) ? ("0" + hex) : hex;
 }
 
 function rgbToHex([r, g, b]) {
-    return "#" + componentToHex(r * 255) + componentToHex(g * 255) + componentToHex(b * 255);
+    const minVal = Math.min(r, g, b, 0), maxVal = Math.max(r, g, b, 1);
+    return "#" + componentToHex(Math.normalize(r, minVal, maxVal))
+               + componentToHex(Math.normalize(g, minVal, maxVal))
+               + componentToHex(Math.normalize(b, minVal, maxVal));
 }
 
 function hexToRgb(hex) {

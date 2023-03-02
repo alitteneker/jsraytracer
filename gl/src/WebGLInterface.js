@@ -172,8 +172,11 @@ class WebGLInterface {
             window.cancelAnimationFrame(this.animation_request_id);
             this.animation_request_id = null;
         }
-        if (this.renderer_adapter)
+        if (this.renderer_adapter) {
+            if (this.selectedObject)
+                this.selectObject(null);
             $('#fps-display').text(this.renderer_adapter.drawCount + " samples");
+        }
         else
             $('#fps-display').text("");
     }
@@ -286,6 +289,8 @@ class WebGLInterface {
             if (activeNode)
                 activeNode.setActive(false);
             $('#object-control-bar').controlgroup("disable");
+            
+            $("#selected-object-controls").empty();
         }
     }
     
@@ -320,17 +325,25 @@ class WebGLInterface {
         oc += `<div class="object-material-controls"><table>`;
         for (let mk of Object.keys(material)) {
             const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
-            if (material[mk].type == "solid")
-                oc += `<tr><td><input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}"></td>
+            if (material[mk].type == "scalar") {
+                oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td>
                            <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
-            if (material[mk].type == "scalar")
-                oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${material[mk].value}"></td>
-                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
-            if (material[mk].type == "checkerboard")
+            }
+            if (material[mk].type == "solid") {
                 oc += `<tr><td>
+                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
+                               <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">
+                           </td>
+                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+            }
+            if (material[mk].type == "checkerboard") {
+                oc += `<tr><td>
+                           <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color1._id}-intensity" data-mc-id="${material[mk].color1._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color1.color)}">
                            <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
+                           <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color2._id}-intensity" data-mc-id="${material[mk].color2._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color2.color)}">
                            <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
                        </td><td><span>${label}</span></td></tr>`;
+            }
         }
         oc += "</table></div>";
         
@@ -340,7 +353,8 @@ class WebGLInterface {
         $("#selected-object-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
-        $("#selected-object-controls .object-material-controls input.ui-spinner-input").on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
+        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]').on('spin spinstop', this.modifyMaterialScalar.bind(this));
         $("#selected-object-controls input[data-transform-type]").on('spinstop', this.modifySelectedObjectTransformValues.bind(this));
     }
     
@@ -373,12 +387,21 @@ class WebGLInterface {
     // Material modification/viewing functionality
     modifyMaterialColor(e) {
         const target = $(e.target);
-        this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), hexToRgb(target.val()));
+        const id = target.attr("data-mc-id");
+        const intensity = $(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || 1;
+        const color = hexToRgb(target.val());
+        this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
+    }
+    modifyMaterialColorIntensity(e, ui) {
+        const target = $(e.target);
+        const id = target.attr("data-mc-id");
+        const intensity = (ui && ui.value !== undefined) ? ui.value : target.val();
+        const color = hexToRgb($(`input[data-mc-id="${id}"][type="color"]`).val());
+        this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
     }
     modifyMaterialScalar(e, ui) {
         const target = $(e.target);
-        const value = (ui && ui.value !== undefined) ? ui.value : target.val();
-        this.renderer_adapter.modifyMaterialScalar(target.attr("data-mc-id"), value);
+        this.renderer_adapter.modifyMaterialScalar(target.attr("data-mc-id"), (ui && ui.value !== undefined) ? ui.value : target.val());
     }
     
     
