@@ -51,7 +51,7 @@ class WorldObject {
                 distance: distance,
                 position: ray.getTransformed(this.inv_transform).getPoint(distance)
             }, this.base_material_data);
-        let material_data = this.geometry.materialData(ray, distance, base_data);
+        let material_data = this.geometry.materialData(base_data, ray.direction);
         if ('normal' in material_data)
             material_data.normal = this.inv_transform.transposed().times(material_data.normal).to4(0).normalized();
         material_data.position = ray.getPoint(distance);

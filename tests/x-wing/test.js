@@ -10,17 +10,13 @@ export function configureTest(callback) {
             5000
         ),
         new RandomSampleAreaLight(
-            new SquareLightArea(Mat4.translation([-0.15, 1.86, -2.73])
+            new Square(),
+            Mat4.translation([-0.15, 1.86, -2.73])
                 .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
                 .times(Mat4.scale([0.01, 0.01, 1.5]))
-                .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0)))),
+                .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0))),
             Vec.of(0,1,0), 10, 4
         )
-        // new SimplePointLight(
-            // Vec.of(-0.15, 1.86, -2.73, 1),
-            // Vec.of(0, 1, 0),
-            // 10
-        // )
     ];
     
     const objs = []

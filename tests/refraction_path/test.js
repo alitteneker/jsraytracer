@@ -13,16 +13,6 @@ export function configureTest(callback) {
 //             .times(Mat4.rotation(-0.8, Vec.of(1,0,0))));
 
     const lights = [
-//         new SimplePointLight(
-//             Vec.of(50, 2, 50, 1),
-//             Vec.of(1, 1, 1),
-//             300000
-//         ),
-//         new RandomSampleAreaLight(
-//             new SquareLightArea(Mat4.translation([-3, 20, -4])
-//                 .times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))
-//                 .times(Mat4.scale(2))),
-//             Vec.of(1,1,1), 15000, 4),
         new SimplePointLight(
             Vec.of(-3, 10, -4, 1),
             Vec.of(1, 1, 1),

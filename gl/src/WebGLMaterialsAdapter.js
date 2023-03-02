@@ -31,6 +31,8 @@ class WebGLMaterialsAdapter {
         return ret;
     }
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
+        if (mc instanceof Vec)
+            return Object.assign(this.storeSolidColor(mc.times(scale)), { type: "solid" });
         if (mc instanceof SolidMaterialColor) {
             return Object.assign(this.storeSolidColor(mc._color.times(scale)), {
                 mc: mc,
@@ -143,6 +145,7 @@ class WebGLMaterialsAdapter {
         return `
             #define MATERIALCOLOR_SPECIAL_CHECKERBOARD ${WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD}
             #define MATERIALCOLOR_SPECIAL_TEXTURE      ${WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE}
+            vec3 getMaterialColor(in int color_index, in vec2 UV);
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }

@@ -3,14 +3,6 @@ export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         Mat4.translation([0, 5, 15]));
 
-    const lights = [];
-    // lights.push(new RandomSampleAreaLight(
-    //     new SquareLightArea(Mat4.translation([0,10,0])
-    //         .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
-    //         .times(Mat4.scale(0.8))),
-    //     Vec.of(1,1,1), 2000/* 1000 */, 16));
-    // lights.push(new SimplePointLight(Vec.of(0,9.9,0), Vec.of(1,1,1), 1000));
-
     const objects = [];
     // floor
     objects.push(new WorldObject(
@@ -70,7 +62,7 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new World(objects, lights), camera, 128, 4),
+            new World(objects, []), camera, 128, 4),
         width:  600,
         height: 600
     });

@@ -6,7 +6,7 @@ class Geometry {
     intersect(ray, minDistance, maxDistance) {
         throw "Geometry subclass nas implemented intersect";
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         throw "Geometry subclass has not implemented materialData";
     }
     getTransformed(transform, inv_transform, inv_transform_transpose) {
@@ -14,6 +14,51 @@ class Geometry {
     }
     getBoundingBox(transform, inv_transform) {
         throw "Geometry subclass has not implemented getBoundingBox";
+    }
+    sampleSurface() {
+        throw "Geometry subclass has not implemented sampleSurface";
+    }
+    sampleVolume() {
+        throw "Geometry subclass has not implemented sampleVolume";
+    }
+}
+
+class OriginPoint extends Geometry {
+    static AABB_SIZE = 5;
+    constructor() {
+        super();
+    }
+    getBoundingBox(transform, inv_transform) {
+        return new AABB(transform.times(Vec.of(0,0,0,1), Vec.of(AABB_SIZE, AABB_SIZE, AABB_SIZE)));
+    }
+    sampleSurface() {
+        return Vec.of(0, 0, 0, 1);
+    }
+    materialData(base_data, direction) {
+        const norm_dir = direction.times(-1).nornalized();
+        return Object.assign(base_data, {
+            UV: Vec.cartesianToSpherical(norm_dir),
+            normal: norm_dir
+        });
+    }
+}
+
+class UnitLine extends Geometry {
+    constructor() {
+        super();
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints([-0.5, 0.5].map(x => transform.times(Vec.of(0, x, 0, 1))));
+    }
+    sampleSurface() {
+        return Vec.of(0, Math.random() - 0.5, 0, 1);
+    }
+    materialData(base_data, direction) {
+        const norm = Vec.of(-direction[0], 0, -direction[1], 0).normalized();
+        return Object.assign(base_data, {
+            UV: Vec.of(Math.atan2(norm[2], norm[0]) / (2 * Math.PI), base_data.position[1]),
+            normal: norm
+        });
     }
 }
 
@@ -141,7 +186,7 @@ class AABB extends Geometry {
         }
         return { min: t_min, max: t_max };
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         const p = base_data.position;
         let norm_dist = 0, norm = Vec.of(0, 0, 0, 0);
         for (let i = 0; i < 3; ++i) {
@@ -153,8 +198,7 @@ class AABB extends Geometry {
                 norm[i] = Math.sign(comp);
             }
         }
-        if (norm.dot(ray.direction) > 0)
-            norm = norm.times(-1);
+        // what to do about UV?
         return Object.assign(base_data, { normal: norm });
     }
     getBoundingBox(transform, inv_transform) {
@@ -176,7 +220,7 @@ class SimplePlane extends Geometry {
     intersect(ray) {
         return (ray.direction[2] != 0) ? -ray.origin[2] / ray.direction[2] : -Infinity;
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         return Object.assign(base_data, {
             normal: Vec.of(0, 0, 1, 0),
             UV: Vec.of(base_data.position[0], base_data.position[1])
@@ -216,6 +260,12 @@ class Square extends SimplePlane {
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints([[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].map(a => Vec.of(...a, 0, 1)).map(p => transform.times(p)));
     }
+    sampleSurface() {
+        return Vec.of(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            0, 1);
+    }
 }
 
 class Circle extends SimplePlane {
@@ -237,6 +287,12 @@ class Circle extends SimplePlane {
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints(Circle.getTransformedEdgePoints(transform, inv_transform));
+    }
+    sampleSurface() {
+        return Vec.of(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            0, 1);
     }
 }
 
@@ -275,7 +331,7 @@ class Triangle extends Geometry {
         const bary = this.toBarycentric(ray.getPoint(distance).to3());
         return bary.every(x => (x >= 0 && x <= 1)) ? distance : -Infinity;
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         const extend_data = {
             normal: this.normal,
             bary: this.toBarycentric(base_data.position)
@@ -339,13 +395,11 @@ class Sphere extends Geometry {
     intersect(r, minDistance) {
         return Sphere.staticIntersect(r, minDistance);
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         const n = base_data.position.normalized();
         return Object.assign(base_data, {
             normal: n,
-            UV: Vec.of(
-                0.5 + Math.atan2(n[2], n[0]) / (2 * Math.PI),
-                0.5 - Math.asin(n[1]) / Math.PI)
+            UV: Vec.cartesianToSpherical(n)
         });
     }
 }
@@ -365,13 +419,13 @@ class Cylinder extends Geometry {
         const t = Sphere.staticIntersect(new Ray(...[r.origin, r.direction].map(v => Vec.of(1,1,0,1).times(v))), minDistance);
         return (Math.abs(r.origin[2] + t * r.direction[2]) <= 1) ? t : -Infinity;
     }
-    materialData(ray, scalar, base_data) {
+    materialData(base_data, direction) {
         const n = base_data.position.normalized();
         return Object.assign(base_data, {
             normal: Vec.of(base_data.position[0], base_data.position[1], 0, 0).normalized(),
             UV: Vec.of(
-                0.5 + Math.atan2(base_data.position[2], base_data.position[0]) / (2 * Math.PI),
-                0.5 + base_data.position[1])
+                0.5 + Math.atan2(base_data.position[1], base_data.position[0]) / (2 * Math.PI),
+                0.5 + base_data.position[2])
         });
     }
 }

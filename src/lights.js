@@ -6,6 +6,12 @@ class Light {
     sampleIterator(position) {
         throw "Light subclass has not implemented sampleIterator";
     }
+    getBoundingBox() {
+        throw "Light subclass has not implemented getBoundingBox";
+    }
+    setTransform(new_transform, new_inv_transform) {
+        throw "Light subclass has not implemented setTransform";
+    }
     static falloff(delta) {
         return 1 / (4 * Math.PI * delta.squarednorm());
     }
@@ -13,58 +19,57 @@ class Light {
 
 // Simple point light source, with a single position and uniform color
 class SimplePointLight extends Light {
-    constructor(position, color, intensity=1) {
+    constructor(position, color_mc, intensity=1) {
         super();
         this.position = position;
-        this.color = color;
-        this.intensity = intensity;
+        this.color_mc = MaterialColor.coerce(color_mc, intensity);
     }
-    *sampleIterator(sample_position) {
-        const delta = this.position.minus(sample_position)
+    getBoundingBox(size=5) {
+        return new AABB(this.position, Vec.of(size, size, size));
+    }
+    setTransform(new_transform, new_inv_transform) {
+        this.position = new_transform.column(3);
+    }
+    *sampleIterator(surface_position) {
+        const delta = this.position.minus(surface_position)
         yield {
             direction: delta,
-            color: this.color.times(this.intensity * Light.falloff(delta))
+            color: this.color_mc.color({
+                UV: Vec.cartesianToSpherical(delta.normalized())
+            }).times(Light.falloff(delta))
         };
     }
 }
 
-class LightArea {
-    sample() {
-        throw "LightArea subclass has not implemented sample";
-    }
-    normal() {
-        throw "LightArea subclass has not implemented normal";
-    }
-}
-class SquareLightArea extends LightArea {
-    constructor(transform) {
-        super();
-        this.transform = transform;
-    }
-    sample() {
-        return this.transform.times(Vec.of(
-            2 * (Math.random() - 0.5),
-            2 * (Math.random() - 0.5),
-            0, 1));
-    }
-    normal() {
-        return this.transform.times(Vec.of(0,0,1,0)).normalized();
-    }
-}
 class RandomSampleAreaLight extends Light {
-    constructor(area, color, intensity=1, samples=1) {
+    constructor(surface_geometry, transform, color_mc, intensity=1, samples=1) {
         super();
-        this.area = area;
-        this.color = color;
+        this.surface_geometry = surface_geometry;
+        this.transform = transform;
+        this.inv_transform = Mat4.inverse(transform);
+        this.color_mc = MaterialColor.coerce(color_mc, intensity);
         this.samples = samples;
-        this.intensity = intensity;
+        this.aabb = this.surface_geometry.getBoundingBox(transform, Mat4.inverse(transform));
     }
-    *sampleIterator(sample_position) {
+    getBoundingBox() {
+        return this.aabb;
+    }
+    setTransform(new_transform, new_inv_transform=Mat4.inverse(new_transform)) {
+        this.transform = new_transform;
+        this.inv_transform = new_inv_transform;
+        this.aabb = this.surface_geometry.getBoundingBox(transform, Mat4.inverse(transform));
+    }
+    *sampleIterator(surface_position) {
         for (let i = 0; i < this.samples; ++i) {
-            const delta = this.area.sample().minus(sample_position);
+            const local_pos = this.surface_geometry.sampleSurface();
+            const world_pos = this.transform.times(local_pos);
+            
+            const delta = world_pos.minus(surface_position);
+            const material_data = this.surface_geometry.materialData({ position: local_pos }, this.inv_transform.times(delta));
             yield {
                 direction: delta,
-                color: this.color.times(this.intensity * Light.falloff(delta) * Math.abs(delta.normalized().dot(this.area.normal())))
+                color: this.color_mc.color(material_data).times(Light.falloff(delta)
+                    * Math.abs(delta.normalized().dot(this.inv_transform.transposed().times(material_data.normal).to4(0).normalized())))
             };
         }
     }

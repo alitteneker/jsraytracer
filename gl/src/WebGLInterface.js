@@ -134,11 +134,11 @@ class WebGLInterface {
         $("#samples-per-draw").val(this.samplesPerDraw = 1);
         this.timeDeltaHistory = [];
         this.timeDeltaHistorySum = 0;
-        
-        this.canvas.attr("width", test.width);
-        this.canvas.attr("height", test.height);
                 
         try {
+            this.canvas.attr("width", test.width);
+            this.canvas.attr("height", test.height);
+            
             const gl = this.gl;
             gl.viewport(0, 0, test.width, test.height);
             

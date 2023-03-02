@@ -5,9 +5,10 @@ export function configureTest(callback) {
 
     const lights = [];
     lights.push(new RandomSampleAreaLight(
-        new SquareLightArea(Mat4.translation([0,10,0])
+        new Square(),
+        Mat4.translation([0,10,0])
             .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
-            .times(Mat4.scale([1,1,1]))),
+            .times(Mat4.scale([1,1,1])),
         Vec.of(1,1,1), 2000, 4));
 //     lights.push(new SimplePointLight(Vec.of(0,9.9,0), Vec.of(1,1,1), 1000));
 

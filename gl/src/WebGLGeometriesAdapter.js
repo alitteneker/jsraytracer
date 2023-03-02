@@ -5,7 +5,9 @@ class WebGLGeometriesAdapter {
     static CIRCLE_ID       = 3;
     static SQUARE_ID       = 4;
     static CYLINDER_ID     = 5;
-    static MIN_TRIANGLE_ID = 6;
+    static ORIGINPOINT_ID  = 6;
+    static UNITLINE_ID     = 7;
+    static MIN_TRIANGLE_ID = 8;
     
     static SWITCHABLE_TYPES = [WebGLGeometriesAdapter.PLANE_ID, WebGLGeometriesAdapter.SPHERE_ID, WebGLGeometriesAdapter.UNITBOX_ID, 
                                WebGLGeometriesAdapter.CIRCLE_ID, WebGLGeometriesAdapter.SQUARE_ID, WebGLGeometriesAdapter.CYLINDER_ID];
@@ -23,12 +25,18 @@ class WebGLGeometriesAdapter {
             return "Square";
         if (type == WebGLGeometriesAdapter.CYLINDER_ID)
             return "Cylinder";
-        return "Triangle";
+        if (type == WebGLGeometriesAdapter.ORIGINPOINT_ID)
+            return "OriginPoint";
+        if (type == WebGLGeometriesAdapter.UNITLINE_ID)
+            return "UnitLine";
+        if (type > WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+            return "Triangle";
+        return "Unknown";
     }
     
     constructor(webgl_helper) {
         this.id_map = {};
-        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder() ];
+        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder(), new OriginPoint(), new UnitLine() ];
         
         this.triangle_data = new WebGLVecStore();
         this.triangles = [];
@@ -53,6 +61,10 @@ class WebGLGeometriesAdapter {
             return WebGLGeometriesAdapter.CIRCLE_ID;
         if (geometry instanceof Square)
             return WebGLGeometriesAdapter.SQUARE_ID;
+        if (geometry instanceof OriginPoint)
+            return WebGLGeometriesAdapter.ORIGINPOINT_ID;
+        if (geometry instanceof UnitLine)
+            return WebGLGeometriesAdapter.UNITLINE_ID;
         
         if (geometry.GEOMETRY_UID in this.id_map)
             return this.id_map[geometry.GEOMETRY_UID];
@@ -89,7 +101,8 @@ class WebGLGeometriesAdapter {
                 vec2 UV;
             };
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
-            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data);
+            GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
+            vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);
             vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`;
     }
     getShaderSource() {
@@ -120,6 +133,9 @@ class WebGLGeometriesAdapter {
                 vec4 p = r.o + t * r.d;
                 return all(lessThanEqual(abs(p.xy), vec2(0.5))) ? t : (minDistance - 1.0);
             }
+            vec4 squareSurfaceSample(inout vec2 random_seed) {
+                return vec4(randf(random_seed) - 0.5, randf(random_seed) - 0.5, 0, 1);
+            }
             void squareMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 planeMaterialData(position, data);
                 data.UV += vec2(0.5);
@@ -137,6 +153,32 @@ class WebGLGeometriesAdapter {
             }
             void circleMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 planeMaterialData(position, data);
+            }
+            
+            
+            // ---- ORIGINPOINT ----
+            #define GEOMETRY_ORIGINPOINT_TYPE ${WebGLGeometriesAdapter.ORIGINPOINT_ID}
+            vec4 originPointSurfaceSample(inout vec2 random_seed) {
+                return vec4(0,0,0,1);
+            }
+            void originPointMaterialData(in vec4 position, in vec4 direction, inout GeometricMaterialData data) {
+                data.normal = normalize(-direction);
+                data.UV.x = 0.5 + atan(data.normal.z, data.normal.x) / (2.0 * PI);
+                data.UV.y = 0.5 - asin(data.normal.y) / PI;
+            }
+            
+            
+            // ---- UNITLINE ----
+            #define GEOMETRY_UNITLINE_TYPE ${WebGLGeometriesAdapter.UNITLINE_ID}
+            vec4 unitLineSurfaceSample(inout vec2 random_seed) {
+                return vec4(0, randf(random_seed) - 0.5, 0, 1);
+            }
+            void unitLineMaterialData(in vec4 position, in vec4 direction, inout GeometricMaterialData data) {
+                vec2 n = normalize(-direction.xz);
+                
+                data.normal = vec4(n.x, 0, n.y, 0);
+                data.UV.x = 0.5 + atan(n.y, n.x) / (2.0 * PI),
+                data.UV.y = 0.5 + position.y;
             }
 
 
@@ -175,11 +217,9 @@ class WebGLGeometriesAdapter {
             }
 
             void cylinderMaterialData(in vec4 position, inout GeometricMaterialData data) {
-                vec4 n = vec4(normalize(position.xyz), 0);
-                
-                data.normal = vec4(normalize(n.xy), 0, 0);
-                data.UV.x = 0.5 + atan(position.z, position.x) / (2.0 * PI),
-                data.UV.y = 0.5 + position.y;
+                data.normal = vec4(normalize(position.xy), 0, 0);
+                data.UV.x = 0.5 + atan(position.y, position.x) / (2.0 * PI),
+                data.UV.y = 0.5 + position.z;
             }
 
 
@@ -213,7 +253,7 @@ class WebGLGeometriesAdapter {
                 vec2 t = AABBIntersects(r, vec4(0,0,0,1), vec4(0.5, 0.5, 0.5, 0), minDistance, 1e20);
                 return (!isinf(t.x) && t.x >= minDistance) ? t.x : t.y;
             }
-            void unitBoxMaterialData(in vec4 p, in vec4 rd, inout GeometricMaterialData data) {
+            void unitBoxMaterialData(in vec4 p, inout GeometricMaterialData data) {
                 float norm_dist = 0.0;
                 data.normal = vec4(0.0);
                 for (int i = 0; i < 3; ++i) {
@@ -225,8 +265,6 @@ class WebGLGeometriesAdapter {
                         data.normal[i] = sign(comp);
                     }
                 }
-                if (dot(data.normal, rd) > 0.0)
-                    data.normal = -1.0 * data.normal;
                 
                 // TODO: what to do about UV?
             }
@@ -318,25 +356,35 @@ class WebGLGeometriesAdapter {
 
             // ---- Generics ----
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
-                if      (geometryID < 0) return minDistance - 1.0;
-                else if (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
+                     if (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
                 else if (geometryID == GEOMETRY_CYLINDER_TYPE) return cylinderIntersect(  r, minDistance);
                 else if (geometryID == GEOMETRY_PLANE_TYPE)    return planeIntersect(     r, minDistance);
                 else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect(    r, minDistance);
                 else if (geometryID == GEOMETRY_SQUARE_TYPE)   return squareIntersect(    r, minDistance);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect(   r, minDistance);
-                else
+                else if (geometryID > GEOMETRY_TRIANGLE_MIN_INDEX)
                     return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                return minDistance - 1.0;
             }
-            void getGeometricMaterialData(in int geometryID, in vec4 position, in Ray r, inout GeometricMaterialData data) {
-                if      (geometryID == GEOMETRY_SPHERE_TYPE)   unitSphereMaterialData(position, data);
-                else if (geometryID == GEOMETRY_CYLINDER_TYPE) cylinderMaterialData(  position, data);
-                else if (geometryID == GEOMETRY_PLANE_TYPE)    planeMaterialData(     position, data);
-                else if (geometryID == GEOMETRY_CIRCLE_TYPE)   circleMaterialData(    position, data);
-                else if (geometryID == GEOMETRY_SQUARE_TYPE)   squareMaterialData(    position, data);
-                else if (geometryID == GEOMETRY_UNITBOX_TYPE)  unitBoxMaterialData(   position, r.d, data);
-                else
+            vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
+                     if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
+                else if (geometryID == GEOMETRY_UNITLINE_TYPE)    return unitLineSurfaceSample(   random_seed);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)      return squareSurfaceSample(     random_seed);
+                return vec4(0);
+            }
+            GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
+                GeometricMaterialData data;
+                if      (geometryID == GEOMETRY_SPHERE_TYPE)      unitSphereMaterialData( position, data);
+                else if (geometryID == GEOMETRY_CYLINDER_TYPE)    cylinderMaterialData(   position, data);
+                else if (geometryID == GEOMETRY_PLANE_TYPE)       planeMaterialData(      position, data);
+                else if (geometryID == GEOMETRY_CIRCLE_TYPE)      circleMaterialData(     position, data);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)      squareMaterialData(     position, data);
+                else if (geometryID == GEOMETRY_UNITBOX_TYPE)     unitBoxMaterialData(    position, data);
+                else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) originPointMaterialData(position, direction, data);
+                else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData(   position, direction, data);
+                else if (geometryID > GEOMETRY_TRIANGLE_MIN_INDEX)
                     triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                return data;
             }`;
     }
 }

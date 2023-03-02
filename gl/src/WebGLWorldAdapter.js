@@ -23,7 +23,7 @@ class WebGLWorldAdapter {
         
         // deal with lights
         for (let light of world.lights)
-            this.adapters.lights.visit(light);
+            this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
         
         // deal with world objects
         for (let object of world.objects)
@@ -322,9 +322,8 @@ class WebGLWorldAdapter {
             // ---- World Color ----
             vec3 worldObjectColor(in int objectID, in vec4 rp, in Ray r, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 WorldObject ids = getWorldObjectIDs(objectID);
-                GeometricMaterialData geomatdata;
                 mat4 inverseTransform = getTransform(ids.transform_id);
-                getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, Ray(inverseTransform * r.o, inverseTransform * r.d), geomatdata);
+                GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
                 return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
             }

@@ -1,24 +1,27 @@
 class WebGLLightsAdapter {
+    static LIGHT_TYPE_WORLD = 1;
+    static LIGHT_TYPE_DIRECTIONAL = 1;
+    
     constructor(webgl_helper) {
         this.lights_data = [];
     }
     destroy() {}
-    visit(light, transform_store, material_adapter) {
-        const light_data = {};
+    visit(light, geometry_adapter, material_adapter, webgl_helper) {
+        const light_data = { light: light };
         
         if (light instanceof SimplePointLight) {
-            light_data.type = 0;
-            light_data.color = light.color.times(light.intensity);
-            light_data.transform = Mat4.translation(light.position);
+            light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
+            light_data.geometry      = geometry_adapter.visit(new OriginPoint());
+            light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
+            light_data.transform     = Mat4.translation(light.position);
+            light_data.inv_transform = Mat4.translation(light.position.times(-1));
         }
         else if (light instanceof RandomSampleAreaLight) {
-            light_data.color = light.color.times(light.intensity);
-            if (light.area instanceof SquareLightArea) {
-                light_data.type = 1;
-                light_data.transform = light.area.transform;
-            }
-            else
-                throw "Unsupported light sample area type";
+            light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
+            light_data.geometry      = geometry_adapter.visit(light.surface_geometry);
+            light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
+            light_data.transform     = light.transform;
+            light_data.inv_transform = light.inv_transform;
         }
         else {
             throw "Unsupported light type";
@@ -30,8 +33,9 @@ class WebGLLightsAdapter {
         gl.uniform1i(gl.getUniformLocation(program, "uNumLights"), this.lights_data.length);
         if (this.lights_data.length > 0) {
             gl.uniform1iv(      gl.getUniformLocation(program, "uLightTypes"),            this.lights_data.map(l => l.type));
-            gl.uniform3fv(      gl.getUniformLocation(program, "uLightColors"),           this.lights_data.map(l => Array.from(l.color)).flat());
-            gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => l.transform)));
+            gl.uniform1iv(      gl.getUniformLocation(program, "uLightGeometries"),       this.lights_data.map(l => l.geometry));
+            gl.uniform1iv(      gl.getUniformLocation(program, "uLightColorMCs"),         this.lights_data.map(l => l.color_mc));
+            gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
         }
     }
     getShaderSourceDeclarations() {
@@ -39,8 +43,10 @@ class WebGLLightsAdapter {
             uniform int uNumLights;
             struct LightStruct {
                 int type;
-                vec3 color;
+                int geometry_id;
+                int color_mc;
                 mat4 transform;
+                mat4 inv_transform;
             };
             struct LightSample {
                 vec4 direction;
@@ -50,10 +56,14 @@ class WebGLLightsAdapter {
     }
     getShaderSource() {
         return `
+            #define LIGHT_TYPE_WORLD ${WebGLLightsAdapter.LIGHT_TYPE_WORLD}
+            #define LIGHT_TYPE_DIRECTIONAL ${WebGLLightsAdapter.LIGHT_TYPE_DIRECTIONAL}
+        
             #define MAX_LIGHTS ${Math.max(3, this.lights_data.length)}
             uniform int  uLightTypes[MAX_LIGHTS];
-            uniform vec3 uLightColors[MAX_LIGHTS];
-            uniform mat4 uLightTransforms[MAX_LIGHTS];
+            uniform int  uLightGeometries[MAX_LIGHTS];
+            uniform int  uLightColorMCs[MAX_LIGHTS];
+            uniform mat4 uLightTransforms[MAX_LIGHTS * 2];
             
             float lightFalloff(in vec4 delta) {
                 float norm_squared = dot(delta, delta);
@@ -63,25 +73,23 @@ class WebGLLightsAdapter {
             }
             LightStruct getLight(in int lightID) {
                 return LightStruct(uLightTypes[lightID],
-                                   uLightColors[lightID],
-                                   uLightTransforms[lightID]);
+                                   uLightGeometries[lightID],
+                                   uLightColorMCs[lightID],
+                                   uLightTransforms[lightID * 2],
+                                   uLightTransforms[lightID * 2 + 1]);
             }
-            LightSample sampleLight(in int lightID, in vec4 position, inout vec2 random_seed) {
+            LightSample sampleLight(in int lightID, in vec4 surface_position, inout vec2 random_seed) {
                 LightStruct light = getLight(lightID);
                 
-                vec4 lightPosition = vec4(0,0,0,1);
-                if (light.type == 1)
-                    lightPosition = vec4(rand2f(random_seed) - 0.5, 0, 1);
-                lightPosition = light.transform * lightPosition;
+                vec4 local_pos = sampleGeometrySurface(light.geometry_id, random_seed);
+                vec4 world_pos = light.transform * local_pos;
                 
-                vec4 delta = lightPosition - position;
-                LightSample ret = LightSample(delta, light.color * lightFalloff(delta));
-                
-                if (light.type == 1)
-                    //ret.color *= abs(dot(normalize(ret.direction), normalize(light.transform * vec4(0,0,1,0))));
-                    ret.color *= max(dot(normalize(ret.direction), normalize(light.transform * vec4(0,0,1,0))), 0.0);
-                
-                return ret;
+                vec4 delta = world_pos - surface_position;
+                GeometricMaterialData material_data = getGeometricMaterialData(light.geometry_id, local_pos, light.inv_transform * delta);
+                return LightSample(delta,
+                    getMaterialColor(light.color_mc, material_data.UV) * lightFalloff(delta)
+                        * abs(dot(normalize(delta.xyz), normalize((transpose(light.inv_transform) * material_data.normal).xyz)))
+                );
             }`;
     }
 }

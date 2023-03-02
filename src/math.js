@@ -105,7 +105,7 @@ function median(arr) {
     return (quickSelect(arr, len2) + quickSelect(arr, len2 + 1)) / 2;
 }
 
-// Much of this file was adapted from code written by Garett Ridge for the library tiny-graphics.js
+// Much of this file was adapted from code written by Garett Ridge for tiny-graphics.js
 class Vec extends Float32Array {
     copy() {
         return Vec.from(this)
@@ -128,6 +128,11 @@ class Vec extends Float32Array {
             Math.cos(theta) *      sin_phi,
                               Math.cos(phi),
             Math.sin(theta) *      sin_phi);
+    }
+    static cartesianToSpherical(n) {
+        return Vec.of(
+            0.5 + Math.atan2(n[2], n[0]) / (2 * Math.PI),
+            0.5 - Math.asin(n[1]) / Math.PI);
     }
     equals(b) {
         return this.every((x, i) => x == b[i])
