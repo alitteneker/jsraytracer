@@ -52,7 +52,7 @@ class WebGLLightsAdapter {
         if (this.lights_data.length > 0) {
             gl.uniform1iv(      gl.getUniformLocation(program, "uLightTypes"),            this.lights_data.map(l => l.type));
             gl.uniform1iv(      gl.getUniformLocation(program, "uLightGeometries"),       this.lights_data.map(l => l.geometry));
-            gl.uniform1iv(      gl.getUniformLocation(program, "uLightColorMCs"),         this.lights_data.map(l => l.color_mc));
+            gl.uniform1iv(      gl.getUniformLocation(program, "uLightColorMCs"),         this.lights_data.map(l => l.color_mc._id));
             gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
         }
     }

@@ -25,9 +25,24 @@ class WebGLInterface {
                 this.renderer_adapter.colorLogScale = Number.parseFloat(ui.value);
         });
         
+        $("#canvas-width").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.resizeCanvas(Number.parseInt(v), this.canvas.attr('height'));
+            }
+        });
+        $("#canvas-height").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.resizeCanvas(this.canvas.attr('width'), Number.parseInt(v));
+            }
+        });
+        
         
         // setup standard listeners for changing lens settings
         $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
+        
+        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
         
         $(".control-group").controlgroup();
         
@@ -54,7 +69,8 @@ class WebGLInterface {
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
-        $("#help-button").button({ icon: "ui-icon-help", showLabel: false });
+        $("#help-button").button({ icon: "ui-icon-help", showLabel: false, click: function() { $('#help-dialog').dialog("open") }  });
+        $('#help-dialog').dialog({ autoOpen: false, title: "Help" })
     }
     
     lineShader = null;
@@ -142,15 +158,15 @@ class WebGLInterface {
         $("#samples-per-draw").val(this.samplesPerDraw = 1);
         this.timeDeltaHistory = [];
         this.timeDeltaHistorySum = 0;
-                
+        
         try {
             this.canvas.attr("width", test.width);
             this.canvas.attr("height", test.height);
             
-            const gl = this.gl;
-            gl.viewport(0, 0, test.width, test.height);
-            
-            WebGLRendererAdapter.build(gl, this.canvas.get(0), test.renderer, function(adapter) {
+            $("#canvas-width").val(test.width);
+            $("#canvas-height").val(test.height);
+
+            WebGLRendererAdapter.build(this.gl, this.canvas.get(0), test.renderer, function(adapter) {
                 this.renderer_adapter = adapter;
                 
                 // Set the initial values for the controls

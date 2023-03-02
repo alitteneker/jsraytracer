@@ -5,7 +5,6 @@ class WebGLCameraAdapter {
         if (camera instanceof PerspectiveCamera) {
             this.FOV = camera.FOV;
             this.tan_fov = camera.tan_fov;
-            this.aspect = camera.aspect; // should aspect instead reflect canvas size/dimensions?
             
             if (camera instanceof DepthOfFieldPerspectiveCamera) {
                 this.focus_distance = camera.focus_distance;
@@ -25,7 +24,6 @@ class WebGLCameraAdapter {
     destroy() {}
     writeShaderData(gl, program) {
         gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov);
-        gl.uniform1f(gl.getUniformLocation(program, "uAspect"),        this.aspect);
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
         gl.uniform1f(gl.getUniformLocation(program, "uSensorSize"),    this.sensor_size);
         
@@ -90,7 +88,7 @@ class WebGLCameraAdapter {
             uniform float uAspect, uTanFOV, uSensorSize, uFocusDistance;
             Ray computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec2 random_seed) {
                 vec4 ro = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
-                vec4 rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * uAspect, canvasPos.y * uTanFOV, -1.0, 0.0);
+                vec4 rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * (pixelSize.y / pixelSize.x), canvasPos.y * uTanFOV, -1.0, 0.0);
                 if (uSensorSize > 0.0 && uFocusDistance >= 0.0) {
                     vec4 offset = uCameraTransform * vec4(uSensorSize * randomCirclePoint(random_seed), 0, 0);
                     ro += offset;

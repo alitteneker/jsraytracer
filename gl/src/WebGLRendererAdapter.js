@@ -3,6 +3,7 @@ class WebGLRendererAdapter {
     
     constructor(gl, canvas, renderer) {
         
+        gl.viewport(0, 0, canvas.width, canvas.height);
         gl.clearDepth(1.0);
         
         // Store some useful initial variable values
@@ -51,11 +52,23 @@ class WebGLRendererAdapter {
                 callback(ret);
         });
     }
-
-    reset() {
-        this.adapters.world.reset( this.gl, this.webgl_helper);
-        this.adapters.camera.reset(this.gl, this.webgl_helper);
+    
+    resizeCanvas(new_width, new_height) {
+        if (isNaN(new_width) || new_width < 1 || isNaN(new_height) || new_height < 1)
+            return;
+        
+        this.canvas.width = new_width;
+        this.canvas.height = new_height;
+        
+        for (let t of this.textures)
+            t.setPixels(null, 4, "FLOAT", new_width, new_height);
+        this.gl.viewport(0, 0, new_width, new_height);
+        
+        this.gl.useProgram(this.tracerShaderProgram);
+        this.gl.uniform2fv(this.gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.of(new_width, new_height));
+        this.resetDrawCount();
     }
+
     destroy() {
         if (this.tracerShaderProgram)
             this.gl.deleteProgram(this.tracerShaderProgram);
