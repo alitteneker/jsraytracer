@@ -20,6 +20,10 @@ class WebGLInterface {
             if (this.renderer_adapter)
                 this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
         });
+        $("#renderer-log-color").on('spin', (e, ui) => {
+            if (this.renderer_adapter)
+                this.renderer_adapter.colorLogScale = Number.parseFloat(ui.value);
+        });
         
         
         // setup standard listeners for changing lens settings
