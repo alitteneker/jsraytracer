@@ -24,7 +24,7 @@ class SimplePointLight extends Light {
         this.position = position;
         this.color_mc = MaterialColor.coerce(color_mc, intensity);
     }
-    getBoundingBox(size=5) {
+    getBoundingBox(size=1) {
         return new AABB(this.position, Vec.of(size, size, size));
     }
     setTransform(new_transform, new_inv_transform) {

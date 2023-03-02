@@ -388,11 +388,6 @@ class WebGLRendererAdapter {
             this.resetDrawCount();
     }
     
-    setTransform(transform_index, transform, inv_transform) {
-        this.gl.useProgram(this.tracerShaderProgram);
-        this.adapters.world.setTransform(transform_index, transform, inv_transform, this.gl, this.tracerShaderProgram);
-        this.resetDrawCount();
-    }
     modifyMaterialSolidColor(material_index, new_color) {
         this.adapters.world.modifyMaterialSolidColor(material_index, new_color);
         this.resetDrawCount();
@@ -415,16 +410,19 @@ class WebGLRendererAdapter {
         return this.adapters.camera.camera.getRayForPixel(x, y);
     }
     selectObjectAt(x, y) {
-        return this.adapters.world.intersectRay(this.getRayForPixel(x, y));
+        return this.adapters.world.intersectRay(this.getRayForPixel(x, y), this, this.gl, this.tracerShaderProgram);
     }
     getLights() {
-        return this.adapters.world.getLights();
+        return this.adapters.world.getLights(this, this.gl, this.tracerShaderProgram);
+    }
+    getLight(index) {
+        return this.adapters.world.getLight(index, this, this.gl, this.tracerShaderProgram);
     }
     getObjects() {
-        return this.adapters.world.getObjects();
+        return this.adapters.world.getObjects(this.gl, this, this.tracerShaderProgram);
     }
     getObject(index) {
-        return this.adapters.world.getObject(index);
+        return this.adapters.world.getObject(index, this, this.gl, this.tracerShaderProgram);
     }
 
     drawWorld(timestamp) {

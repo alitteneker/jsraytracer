@@ -1,13 +1,13 @@
 class WebGLLightsAdapter {
     static LIGHT_TYPE_WORLD = 1;
-    static LIGHT_TYPE_DIRECTIONAL = 1;
+    static LIGHT_TYPE_DIRECTIONAL = 2;
     
     constructor(webgl_helper) {
         this.lights_data = [];
     }
     destroy() {}
     visit(light, geometry_adapter, material_adapter, webgl_helper) {
-        const light_data = { light: light };
+        const light_data = { index: this.lights_data.length, worldtype: "light", light: light };
         
         if (light instanceof SimplePointLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
@@ -28,6 +28,26 @@ class WebGLLightsAdapter {
         }
         
         this.lights_data.push(light_data);
+    }
+    getLights() {
+        return this.lights_data;
+    }
+    getLight(index) {
+        return this.lights_data[index];
+    }
+    setTransform(index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
+        gl.useProgram(program);
+        const light = this.lights_data[index];
+        if (light.light instanceof SimplePointLight)
+            light.light.position = new_transform.column(3);
+        if (light.light instanceof RandomSampleAreaLight) {
+            light.light.transform = new_transform;
+            light.light.inv_transform = new_inv_transform;
+        }
+        light.transform = new_transform;
+        light.inv_transform = new_inv_transform;
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
+        renderer_adapter.resetDrawCount();
     }
     writeShaderData(gl, program) {
         gl.uniform1i(gl.getUniformLocation(program, "uNumLights"), this.lights_data.length);
@@ -83,6 +103,9 @@ class WebGLLightsAdapter {
                 
                 vec4 local_pos = sampleGeometrySurface(light.geometry_id, random_seed);
                 vec4 world_pos = light.transform * local_pos;
+                
+                if (light.type == LIGHT_TYPE_DIRECTIONAL)
+                    world_pos += surface_position;
                 
                 vec4 delta = world_pos - surface_position;
                 GeometricMaterialData material_data = getGeometricMaterialData(light.geometry_id, local_pos, light.inv_transform * delta);

@@ -100,41 +100,85 @@ class WebGLWorldAdapter {
         this.adapters.materials.destroy(gl);
     }
     
-    wrapObject(object) {
+    wrapObject(object, renderer_adapter, gl, program) {
         if (!object)
             return null;
         
+        const me = this;
         const index = this.object_id_index_map[object.OBJECT_UID];
         const webgl_ids = this.objects[index];
         
         return {
+            worldtype: "object",
             index: index,
-            object: webgl_ids.object,
+            
             transform: { index: webgl_ids.transformID, value: this.transform_store.get(webgl_ids.transformID) },
             geometry:  { index: webgl_ids.geometryID,  value: this.adapters.geometries.getGeometry(webgl_ids.geometryID) },
             material:  { index: webgl_ids.materialID,  value: this.adapters.materials.getMaterial(webgl_ids.materialID) },
-            does_cast_shadow: webgl_ids.does_cast_shadow
+            does_cast_shadow: webgl_ids.does_cast_shadow,
+            
+            getBoundingBox: function() {
+                return object.getBoundingBox();
+            },
+            getTransform: function() {
+                return object.transform;
+            },
+            getInvTransform: function() {
+                return object.inv_transform;
+            },
+            intersect(ray) {
+                return object.intersect(ray)
+            },
+            setTransform(new_transform, new_inv_transform) {
+                me.setTransform(webgl_ids.transformID, new_transform, new_inv_transform, renderer_adapter, gl, program);
+            }
         };
     }
-    intersectRay(ray) {
+    wrapLight(light, renderer_adapter, gl, program) {
+        const me = this;
+        return Object.assign({
+            material: { value: { color: light.color_mc } },
+            getBoundingBox: function() {
+                return light.light.getBoundingBox();
+            },
+            getTransform: function() {
+                return light.transform;
+            },
+            getInvTransform: function() {
+                return light.inv_transform;
+            },
+            intersect(ray) {
+                return { object: null, distance: -Infinity }
+            },
+            setTransform(new_transform, new_inv_transform) {
+                me.adapters.lights.setTransform(light.index, new_transform, new_inv_transform, renderer_adapter, gl, program);
+            }
+        }, light);
+    }
+    intersectRay(ray, renderer_adapter, gl, program) {
         const intersect = this.world.cast(ray);
-        return (!intersect.object) ? null : this.wrapObject(intersect.object);
+        return (!intersect.object) ? null : this.wrapObject(intersect.object, renderer_adapter, gl, program);
     }
-    getLights() {
-        //return this.adapters.world.getLights();
+    getLights(renderer_adapter, gl, program) {
+        return this.adapters.lights.getLights().map(l => this.wrapLight(l, renderer_adapter,  gl, program));
     }
-    getObjects() {
-        return this.world.objects.map(o => this.wrapObject(o));
+    getLight(index, renderer_adapter,  gl, program) {
+        return this.wrapLight(this.adapters.lights.getLight(index), renderer_adapter,  gl, program);
     }
-    getObject(index) {
-        return this.wrapObject(this.world.objects[index]);
+    getObjects(renderer_adapter, gl, program) {
+        return this.world.objects.map(o => this.wrapObject(o, renderer_adapter, gl, program));
+    }
+    getObject(index, renderer_adapter, gl, program) {
+        return this.wrapObject(this.world.objects[index], renderer_adapter, gl, program);
     }
     
-    setTransform(transform_index, new_transform, new_inv_transform, gl, program) {
+    setTransform(transform_index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
+        gl.useProgram(program);
         for (let object of this.transform_object_map[transform_index])
             object.setTransform(new_transform, new_inv_transform);
         this.transform_store.set(transform_index, new_inv_transform);
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
+        renderer_adapter.resetDrawCount();
     }
     modifyMaterialSolidColor(material_color_index, new_color) {
         this.adapters.materials.modifySolidColor(material_color_index, new_color);

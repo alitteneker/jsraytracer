@@ -41,7 +41,11 @@ class WebGLInterface {
                 { title: "Objects", key: "_objects", folder: true, clickFolderMode: 2 },
                 { title: "Lights",  key: "_lights",  folder: true, clickFolderMode: 2 }],
             activate: function(e, d) {
-                this.selectObject(this.renderer_adapter.getObject(d.node.key));
+                let selectedObject = null;
+                if (d.node.data._worldtype == "light")
+                    this.selectObject(this.renderer_adapter.getLight(d.node.data._worldindex));
+                else
+                    this.selectObject(this.renderer_adapter.getObject(d.node.data._worldindex));
             }.bind(this) });
         
         // Setup the UI to pretty things up...
@@ -271,8 +275,8 @@ class WebGLInterface {
     }
     selectObject(selectedObject) {
         if (this.selectedObject = selectedObject) {
-            this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
-            $.ui.fancytree.getTree("#world-objects").getNodeByKey(selectedObject.index).setActive();
+            this.selectedObject.aabb = this.selectedObject.getBoundingBox();
+            $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.index).setActive();
             $('#object-control-bar').controlgroup("enable");
             
             this.buildSelectedObjectControls();
@@ -293,7 +297,7 @@ class WebGLInterface {
         
         // TODO: select geometry type?
         
-        const [pos, rot, scale] = Mat4.breakdownTransform(o.object.transform);
+        const [pos, rot, scale] = Mat4.breakdownTransform(o.getTransform());
         oc += `<div class="object-geometry-controls"><div><table>
                     <tr><td>Position</td><td>
                         <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
@@ -342,15 +346,27 @@ class WebGLInterface {
     
     objects = [];
     initializeWorldControls(adapter) {
-        const objects_root = $.ui.fancytree.getTree("#world-objects").getNodeByKey("_objects");
+        const fancytree = $.ui.fancytree.getTree("#world-objects");
+        
+        const objects_root = fancytree.getNodeByKey("_objects");
         objects_root.removeChildren();
-        objects_root.addChildren(adapter.getObjects().map(o => { return { key: o.index, title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) }}));
+        objects_root.addChildren(adapter.getObjects().map(o => { return {
+            key: "o" + o.index, 
+            _worldindex: o.index,
+            _worldtype: "object",
+            title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)
+        }}));
         objects_root.setExpanded(true);
         
-        // for (let l of adapter.getLights()) {
-        // }
-        
-        
+        const lights_root = fancytree.getNodeByKey("_lights");
+        lights_root.removeChildren();
+        lights_root.addChildren(adapter.getLights().map(l => { return {
+            key: "l" + l.index,
+            _worldindex: l.index,
+            _worldtype: "light",
+            title: WebGLGeometriesAdapter.TypeStringLabel(l.geometry)
+        }}));
+        lights_root.setExpanded(true);
     }
     
     
@@ -398,8 +414,8 @@ class WebGLInterface {
             }
         }
         
-        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.object.transform),
-              new_inv_transform = this.selectedObject.object.inv_transform.times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
+        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.getTransform()),
+              new_inv_transform = this.selectedObject.getInvTransform().times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
 
         this.setSelectedObjectTransform(new_transform, new_inv_transform);
         this.updateSelectedObjectTransformValues();
@@ -418,7 +434,7 @@ class WebGLInterface {
     updateSelectedObjectTransformValues() {
         if (!this.selectedObject)
             return;
-        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.object.transform);
+        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.getTransform());
         for (let i of [0,1,2]) {
             $(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="pos${i}"]`  ).val(pos[i].toFixed(2));
             $(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="scale${i}"]`).val(scale[i].toFixed(2));
@@ -427,8 +443,8 @@ class WebGLInterface {
     }
     
     setSelectedObjectTransform(transform, inv_transform) {
-        this.renderer_adapter.setTransform(this.selectedObject.transform.index, transform, inv_transform);
-        this.selectedObject.aabb = this.selectedObject.object.getBoundingBox();
+        this.selectedObject.setTransform(transform, inv_transform);
+        this.selectedObject.aabb = this.selectedObject.getBoundingBox();
     }
     
     
@@ -527,7 +543,7 @@ class WebGLInterface {
             if (this.selectedObject) {
                 const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]);
                 this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
-                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.object.intersect(ray).distance;
+                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.intersect(ray).distance;
                 this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;
             }
             this.nextMousePos = this.lastMousePos = mousePos;
