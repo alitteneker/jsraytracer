@@ -38,14 +38,12 @@ class WebGLLightsAdapter {
     setTransform(index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
         gl.useProgram(program);
         const light = this.lights_data[index];
-        if (light.light instanceof SimplePointLight)
-            light.light.position = new_transform.column(3);
-        if (light.light instanceof RandomSampleAreaLight) {
-            light.light.transform = new_transform;
-            light.light.inv_transform = new_inv_transform;
-        }
+        
+        light.light.setTransform(new_transform, new_inv_transform);
+        
         light.transform = new_transform;
         light.inv_transform = new_inv_transform;
+        
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
         renderer_adapter.resetDrawCount();
     }

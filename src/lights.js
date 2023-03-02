@@ -57,7 +57,7 @@ class RandomSampleAreaLight extends Light {
     setTransform(new_transform, new_inv_transform=Mat4.inverse(new_transform)) {
         this.transform = new_transform;
         this.inv_transform = new_inv_transform;
-        this.aabb = this.surface_geometry.getBoundingBox(transform, Mat4.inverse(transform));
+        this.aabb = this.surface_geometry.getBoundingBox(new_transform, new_inv_transform);
     }
     *sampleIterator(surface_position) {
         for (let i = 0; i < this.samples; ++i) {
