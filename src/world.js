@@ -24,9 +24,24 @@ class World {
 }
 class WorldObject {
     static _OBJECT_UID_GEN = 0;
-    constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=true) {
+    constructor() {
         this.OBJECT_UID = WorldObject._OBJECT_UID_GEN++;
+    }
+    intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
+        throw "WorldObject subclass does not implement intersect";
+    }
+    color(ray, distance, world, recursionDepth) {
+        throw "WorldObject subclass does not implement color";
+    }
+    getBoundingBox() {
+        throw "WorldObject subclass does not implement getBoundingBox";
+    }
+}
 
+class Primitive extends WorldObject {
+    constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), base_material_data={}, does_cast_shadow=true) {
+        super();
+        
         this.geometry = geometry;
         this.material = material;
         

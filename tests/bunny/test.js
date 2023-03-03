@@ -16,7 +16,7 @@ export function configureTest(callback) {
     )];
     
     const objs = []
-    objs.push(new WorldObject(
+    objs.push(new Primitive(
         new Plane(),
         new PhongMaterial(
             new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),

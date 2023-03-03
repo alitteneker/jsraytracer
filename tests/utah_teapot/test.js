@@ -10,7 +10,7 @@ export function configureTest(callback) {
         Vec.of(1, 1, 1),
         7000
     )];
-    const objs = [new WorldObject(
+    const objs = [new Primitive(
         new Plane(),
         new PhongMaterial(Vec.of(0,0,1), 0.1, 0.4, 0.6, 100, 0.4),
         Mat4.translation([0,-1.5,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];

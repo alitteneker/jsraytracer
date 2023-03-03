@@ -22,18 +22,18 @@ export function configureTest(callback) {
 
         function(objects) {
             objects = [];
-            objects.push(new WorldObject(
+            objects.push(new Primitive(
                 new Plane(),
                 new PhongMaterial(
                     new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
                         0.1, 0.4, 0.6, 100, 0.5),
                 Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
-            objects.push(new WorldObject(
+            objects.push(new Primitive(
                 new UnitBox(),
                 new PhongMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 100, 0.5),
                 //new FresnelPhongMaterial(Vec.of(1,1,1), 0, 0.4, 0.6, 100, 1.3, Vec.of(1, 0.5, 0.5), Vec.of(0.5,0.5,1)),
                 Mat4.translation([1.2, 0.2, -7, 1]).times(Mat4.scale(2))));
-            objects.push(new WorldObject(
+            objects.push(new Primitive(
                 new Sphere(),
                 new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5),
                 Mat4.translation([-2, 0.3, -9])));

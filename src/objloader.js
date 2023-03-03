@@ -192,7 +192,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
                         data.UV = abc.map(x => textures[x[1]]);
                     if (abc.every(x => x[2] !== undefined && !isNaN(x[2])))
                         data.normal = abc.map(x => normals[x[2]]);
-                    triangles.push(new WorldObject(
+                    triangles.push(new Primitive(
                         new Triangle(abc.map(x => positions[x[0]]), data),
                         currentMaterial, transform, inv_transform));
                 }
