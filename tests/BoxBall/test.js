@@ -31,6 +31,7 @@ export function configureTest(callback) {
             objects.push(new WorldObject(
                 new UnitBox(),
                 new PhongMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 100, 0.5),
+                //new FresnelPhongMaterial(Vec.of(1,1,1), 0, 0.4, 0.6, 100, 1.3, Vec.of(1, 0.5, 0.5), Vec.of(0.5,0.5,1)),
                 Mat4.translation([1.2, 0.2, -7, 1]).times(Mat4.scale(2))));
             objects.push(new WorldObject(
                 new Sphere(),

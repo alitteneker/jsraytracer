@@ -292,7 +292,7 @@ class WebGLRendererAdapter {
                     }
                     
                     if (q_len == MAX_BOUNCE_QUEUE_LENGTH)
-                        return vec3(1.0, 0.0, 0.5);
+                        return vec4(1.0, 0.0, 0.5, ray_depth);
                     
                     return vec4(total_color, ray_depth);
                 }`;
@@ -411,7 +411,7 @@ class WebGLRendererAdapter {
     }
     
     changeMaxBounceDepth(newBounceDepth) {
-        if (newBounceDepth != this.maxBounceDepth) {
+        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE && newBounceDepth != this.maxBounceDepth) {
             this.maxBounceDepth = newBounceDepth;
             this.resetDrawCount();
         }

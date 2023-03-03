@@ -11,15 +11,25 @@ class WebGLInterface {
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
         
+        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
+        
+        $(".control-group").controlgroup();
+        
+        
         this.samplesPerDraw = 1;
         $("#samples-per-draw").on('spin', (e, ui) => {
             this.samplesPerDraw = Number.parseInt(ui.value);
         });
         
-        $("#renderer-depth").on('spin', (e, ui) => {
-            if (this.renderer_adapter)
-                this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
-        });
+        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
+            $("#renderer-depth").spinner("disable");
+        else {
+            $("#renderer-depth").on('spin', (e, ui) => {
+                if (this.renderer_adapter)
+                    this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
+            });
+        }
+        
         $("#renderer-log-color").on('spin', (e, ui) => {
             if (this.renderer_adapter)
                 this.renderer_adapter.colorLogScale = Number.parseFloat(ui.value);
@@ -41,10 +51,6 @@ class WebGLInterface {
         
         // setup standard listeners for changing lens settings
         $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
-        
-        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
-        
-        $(".control-group").controlgroup();
         
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });

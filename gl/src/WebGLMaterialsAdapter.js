@@ -233,6 +233,8 @@ class WebGLMaterialsAdapter {
                             float Rp = ((ni * cosi) - (nt * cost)) / ((ni * cosi) + (nt * cost));
                             kr = (Rs * Rs + Rp * Rp) / 2.0;
                         }
+                        else
+                            kr = 1.0;
                     }
                     
                     // compute the direction that refracted light would come from
