@@ -40,7 +40,7 @@ export function configureTest(callback) {
                 
             callback({
                 renderer: new IncrementalMultisamplingRenderer(
-                    new BVHWorld(objects, lights), camera, 16, 4),
+                    new World(objects, lights), camera, 16, 4),
                 width: 600,
                 height: 600
             });

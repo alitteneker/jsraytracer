@@ -10,7 +10,7 @@ importScripts(
     'renderers.js',
     'lights.js',
     'objloader.js',
-    'BinaryTreeWorlds.js');
+    'aggregates.js');
 
 
 onmessage = function(e) {

@@ -26,9 +26,10 @@ export function configureTest(callback) {
             .times(Mat4.scale(0.15)),
 
         function(triangles) {
+            objs.push(BVHAggregate.build(triangles));
+            
             callback({
-                renderer: new IncrementalMultisamplingRenderer(
-                    new BVHWorld(objs.concat(triangles), lights), camera, 8, 4),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 8, 4),
                 width: 600,
                 height: 600
             });

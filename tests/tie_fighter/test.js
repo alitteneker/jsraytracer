@@ -13,7 +13,7 @@ export function configureTest(callback) {
             new Square(),
             Mat4.translation([-0.15, 1.86, -2.73])
                 .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
-                .times(Mat4.scale([0.01, 0.01, 1.5]))
+                .times(Mat4.scale([0.01, 0.01, 3]))
                 .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0))),
             Vec.of(0,1,0), 10, 4
         )
@@ -30,7 +30,7 @@ export function configureTest(callback) {
     objs.push(new Primitive(
         new Sphere(),
         new FresnelPhongMaterial(Vec.of(0,1,0), 0.2, 0.4, 0.5, 100, 1.3),
-        sphere_transform, Mat4.inverse(sphere_transform), {}, false));
+        sphere_transform, Mat4.inverse(sphere_transform), false));
 
     loadObjFile(
         "../assets/Tie_Fighter.obj",
@@ -41,9 +41,10 @@ export function configureTest(callback) {
               .times(Mat4.scale(0.2)),
 
         function(triangles) {
+            objs.push(BVHAggregate.build(triangles));
+            
             callback({
-                renderer: new IncrementalMultisamplingRenderer(
-                    new BVHWorld(objs.concat(triangles), lights), camera, 16, 4),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 16, 4),
                 width: 600,
                 height: 600
             });

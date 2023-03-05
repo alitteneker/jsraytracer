@@ -117,7 +117,7 @@ class TextureMaterialColor extends MaterialColor {
     }
 }
 
-// Materials color an object, and can take as parameters MaterialColors
+// Materials color an object, and can take MaterialColors as parameters
 class Material {
     static MATERIAL_UID_GEN = 0;
     constructor() {
@@ -140,7 +140,7 @@ class SolidColorMaterial extends Material {
 }
 
 // transparent material: 
-// NB: this will still cast a shadow unless the containing WorldObject has isTransparent set to true
+// NB: this will still cast a shadow unless the containing Primitive has does_cast_shadow set to false
 class TransparentMaterial extends Material {
     constructor(color, opacity) {
         super();
