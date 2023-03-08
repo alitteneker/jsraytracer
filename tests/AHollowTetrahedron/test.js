@@ -24,12 +24,15 @@ export function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new SimpleRenderer(new World(objects.concat(BVHAggregate.build(triangles,
-                    Mat4.translation([0.5,-1.5,-5])
-                        .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
-                        .times(Mat4.scale(0.3))
-                    // Mat4.identity()
-                )), lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objects.concat(
+                    new Aggregate(triangles,
+                        Mat4.translation([0.5,-1.5,-5])
+                            .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
+                            .times(Mat4.scale(0.3))),
+                    new Aggregate(triangles,
+                        Mat4.translation([0.5,-1.5,-5])
+                            .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
+                            .times(Mat4.scale(0.15)))), lights), camera, 4),
                 width: 600,
                 height: 600
             });

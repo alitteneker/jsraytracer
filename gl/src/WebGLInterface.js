@@ -225,9 +225,9 @@ class WebGLInterface {
         const focus_distance = renderer_adapter.getCameraFocusDistance();
         if (renderer_adapter.getCameraFocusDistance() != 1.0)
             $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
-        else
-            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
-                renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
+        // else
+            // $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
+                // renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
         
         $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
         $('#fov-range').val(-renderer_adapter.getCameraFOV());
@@ -390,12 +390,14 @@ class WebGLInterface {
         
         const objects_root = fancytree.getNodeByKey("_objects");
         objects_root.removeChildren();
-        objects_root.addChildren(adapter.getObjects().map(o => { return {
-            key: "o" + o.index, 
-            _worldindex: o.index,
-            _worldtype: "object",
-            title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)
-        }}));
+        objects_root.addChildren(adapter.getObjects().filter(o => o).map(o => {
+            return {
+                key: "o" + o.index, 
+                _worldindex: o.index,
+                _worldtype: "object",
+                title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)
+            };
+        }));
         objects_root.setExpanded(true);
         
         const lights_root = fancytree.getNodeByKey("_lights");
