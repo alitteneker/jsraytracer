@@ -71,6 +71,26 @@ class WorldObject {
     }
 }
 
+class TransformedWorldObject extends WorldObject {
+    constructor(object, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
+        super(transform, inv_transform);
+        
+        this.object = object;
+        object.parents.push(this);
+    }
+    intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
+        return {
+            distance: this.object.intersect(ray.getTransformed(this.getInvTransform()), minDistance, maxDistance, shadowCast),
+            ancestors: [this],
+            object: this.object
+        };
+    }
+    buildBoundingBox() {
+        return this.object.getBoundingBox().getBoundingBox(this.getTransform(), this.getInvTransform());
+    }
+}
+
+
 class Primitive extends WorldObject {
     constructor(geometry, material, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), does_cast_shadow=true) {
         super(transform, inv_transform);
@@ -82,7 +102,7 @@ class Primitive extends WorldObject {
     }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         if (!this.does_cast_shadow && !shadowCast)
-            return Infinity;
+            return { distance: Infinity, ancestors: [], object: this };
         return {
             distance: this.geometry.intersect(ray.getTransformed(this.getInvTransform()), minDistance, maxDistance),
             ancestors: [],

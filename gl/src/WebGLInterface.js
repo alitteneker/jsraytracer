@@ -6,6 +6,14 @@ class WebGLInterface {
         if (!gl)
             throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
         
+        const ext = gl.getExtension('GMAN_debug_helper');
+        if (ext) {
+            ext.setConfiguration({
+                failUnsetUniforms: false,
+                throwOnError: false
+            });
+        }
+        
         this.buildLineShader(gl);
         
         this.registerPointerEvents(canvas);

@@ -29,7 +29,7 @@ class BVHAggregate extends Aggregate {
         this.infinite_objects = infinite_objects;
         this.kdtree = kdtree;
     }
-    static build(objects, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform), maxDepth=Infinity, minNodeSize=1) {
+    static build(objects, transform=Mat4.identity(), maxDepth=Infinity, minNodeSize=1, inv_transform=Mat4.inverse(transform)) {
         objects = Array.from(objects);
         
         const infinite_objects = [];

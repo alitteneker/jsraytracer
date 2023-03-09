@@ -21,6 +21,7 @@ class WebGLWorldAdapter {
         this.object_aggregates_index_list = [];
         this.transform_object_map = {};
         this.object_id_index_map = {};
+        this.BVH_node_id_index_map = {};
 
         this.world = world;
         
@@ -34,47 +35,88 @@ class WebGLWorldAdapter {
         //this.visitWorldObject(world.objects[0], webgl_helper, 0);
     }
     visitWorldObject(object, webgl_helper, depth, isUnderBVH=false) {
-        if (object.OBJECT_UID in this.object_id_index_map)
-            return this.object_id_index_map[object.OBJECT_UID];
-        
         this.max_node_depth = Math.max(depth, this.max_node_depth);
         
-        if (object instanceof Primitive) {
-            const index = this.object_id_index_map[object.OBJECT_UID] = this.world_nodes.length;
-            const prim = {
-                index:       index,
-                object:      object,
-                transformID: this.registerTransform(object.getInvTransform(), object),
-                geometryID:  this.adapters.geometries.visit(object.geometry, webgl_helper),
-                materialID:  this.adapters.materials.visit( object.material, webgl_helper),
-                does_cast_shadow:  object.does_cast_shadow
-            };
-            prim.node_vec = [Number(prim.does_cast_shadow), prim.geometryID, prim.materialID, prim.transformID];
-            this.world_nodes.push(prim);
+        if (object.OBJECT_UID in this.object_id_index_map)
+            return this.object_id_index_map[object.OBJECT_UID];
+
+        const index = this.object_id_index_map[object.OBJECT_UID] = this.world_nodes.length;
+        const world_node = {
+            index:       index,
+            object:      object,
+            transformID: this.registerTransform(object.getInvTransform(), object)
         }
-        else if (object instanceof BVHAggregateNode) {
-            // TODO
+        this.world_nodes.push(world_node);
+        
+        if (object instanceof Primitive) {
+            Object.assign(world_node, {
+                type:              "primitive",
+                geometryID:        this.adapters.geometries.visit(object.geometry, webgl_helper),
+                materialID:        this.adapters.materials.visit( object.material, webgl_helper),
+                does_cast_shadow:  object.does_cast_shadow
+            });
+            world_node.node_vec = [Number(world_node.does_cast_shadow), world_node.geometryID, world_node.materialID, world_node.transformID];
+        }
+        else if (object instanceof TransformedWorldObject) {
+            Object.assign(world_node, {
+                type:    "transformed_object",
+                childID: this.visitWorldObject(object.object, webgl_helper, depth+1, isUnderBVH)
+            });
+            world_node.node_vec = [WebGLWorldAdapter.WORLD_NODE_TRANSFORMED_NODE_TYPE, world_node.transformID, world_node.childID, 0];
         }
         else if (object instanceof BVHAggregate) {
-            // TODO
+            Object.assign(world_node, {
+                type:    "BVH_aggregate",
+                childID: this.visitBVHAggregateNode(object.kdtree, webgl_helper, depth+1)
+            });
+            world_node.node_vec = [WebGLWorldAdapter.WORLD_NODE_TRANSFORMED_NODE_TYPE, world_node.transformID, world_node.childID, 0];
         }
         else if (object instanceof Aggregate) {
-            const index = this.object_id_index_map[object.OBJECT_UID] = this.world_nodes.length;
-            const obj = {
-                index:          index,
-                object:         object,
-                transformID:    this.registerTransform(object.getInvTransform(), object),
+            Object.assign(world_node, {
+                type:           "aggregate",
                 nodeListStart:  this.object_aggregates_index_list.length,
                 nodeListLength: object.objects.length
-            };
-            obj.node_vec = [WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE, obj.transformID, obj.nodeListStart, obj.nodeListLength];
-            this.world_nodes.push(obj);
+            });
+            world_node.node_vec = [WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE, world_node.transformID, world_node.nodeListStart, world_node.nodeListLength];
+            
             this.object_aggregates_index_list.push(...object.objects.map(o => null));
             for (let [i, o] of object.objects.entries())
-                this.object_aggregates_index_list[i + obj.nodeListStart] = this.visitWorldObject(o, webgl_helper, depth+1);
+                this.object_aggregates_index_list[i + world_node.nodeListStart] = this.visitWorldObject(o, webgl_helper, depth+1, isUnderBVH);
         }
         
-        return this.object_id_index_map[object.OBJECT_UID];
+        return index;
+    }
+    visitBVHAggregateNode(node, webgl_helper, depth) {
+        this.max_node_depth = Math.max(depth, this.max_node_depth);
+        
+        if (node.NODE_UID in this.BVH_node_id_index_map)
+            return this.BVH_node_id_index_map[node.NODE_UID];
+        
+        this.BVH_node_id_index_map[node.NODE_UID] = this.world_nodes.length;
+        const world_node = {
+            type:       "bvh_node",
+            bvh_node:   node,
+            index:      this.world_nodes.length,
+            aabb_index: this.world_aabbs.length
+        };
+        this.world_nodes.push(world_node);
+        this.world_aabbs.push(node.aabb);
+        
+        if (node.isLeaf) {
+            world_node.nodeListStart = this.object_aggregates_index_list.length;
+            world_node.nodeListLength = node.objects.length;
+            this.object_aggregates_index_list.push(...node.objects.map(o => null));
+            for (let [i, o] of node.objects.entries())
+                this.object_aggregates_index_list[i + world_node.nodeListStart] = this.visitWorldObject(o, webgl_helper, depth+1, true);
+            world_node.node_vec = [WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE, -1 - world_node.nodeListStart, world_node.nodeListLength, world_node.aabb_index];
+        }
+        else {
+            world_node.greater_index = this.visitBVHAggregateNode(node.greater_node, webgl_helper, depth+1);
+            world_node.lesser_index  = this.visitBVHAggregateNode(node.lesser_node,  webgl_helper, depth+1);
+            world_node.node_vec = [WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE, world_node.greater_index, world_node.lesser_index, world_node.aabb_index];
+        }
+        
+        return this.BVH_node_id_index_map[node.NODE_UID];
     }
     registerTransform(transform, object) {
         const transformID = this.transform_store.store(transform);
@@ -195,7 +237,7 @@ class WebGLWorldAdapter {
             this.world_node_texture_unit, "uWorldObjectGraph", program);
             
         this.world_aabb_texture.setDataPixelsUnit(
-            this.world_aabbs.map(aabb => aabb ? [...n.aabb.center, ...n.aabb.half_size] : [0,0,0,0,0,0,0,0]).flat(),
+            this.world_aabbs.map(aabb => [...aabb.center, ...aabb.half_size]).flat(),
             this.world_aabb_texture_unit, "uWorldAABBs", program);
         
         // let our contained adapters do their own thing too
@@ -265,7 +307,7 @@ class WebGLWorldAdapter {
                 return itexelFetchByIndex(uNumWorldGraphNodes + (index / 4), uWorldObjectGraph)[index % 4];
             }
             
-            #define WORLD_MAX_SCENE_GRAPH_DEPTH ${Math.max(1, this.max_node_depth+1)}
+            #define WORLD_MAX_SCENE_GRAPH_DEPTH ${Math.max(10, this.max_node_depth+1)}
             
             struct WorldNodeTraversal {
                 int index;
@@ -290,10 +332,16 @@ class WebGLWorldAdapter {
                 
                 int count = 0;
                 while (nodeDepth >= 0) {
+                    ++count;
+                    // if (count > 1000)
+                        // break;
+                    if (nodeDepth > 20)
+                        break;
+                    
                     ivec4 node = nodeTraversalStack[nodeDepth].nodeData;
                     
-                    if (node.r < 2) {             // primitive
-                        float t = worldObjectIntersect(Primitive(node.g, node.b, node.a, bool(node.r)), r, nodeTraversalStack[nodeDepth].ancestorInvTransform, minT, shadowFlag);
+                    if (node[0] < 2) {             // primitive
+                        float t = worldObjectIntersect(Primitive(node[1], node[2], node[3], bool(node[0])), r, nodeTraversalStack[nodeDepth].ancestorInvTransform, minT, shadowFlag);
                         if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
                             min_found_t = t;
                             primID = nodeTraversalStack[nodeDepth].index;
@@ -302,41 +350,41 @@ class WebGLWorldAdapter {
                         --nodeDepth;
                         continue;
                     }
-                    else if (node.r == WORLD_NODE_AGGREGATE_TYPE) {   // agregate
-                        if (nodeTraversalStack[nodeDepth].nextChildIndex < node.a) {
+                    else if (node[0] == WORLD_NODE_AGGREGATE_TYPE) {   // agregate
+                        if (nodeTraversalStack[nodeDepth].nextChildIndex < node[3]) {
                             if (nodeTraversalStack[nodeDepth].nextChildIndex == 0)
-                                nodeTraversalStack[nodeDepth].ancestorInvTransform = nodeTraversalStack[nodeDepth].ancestorInvTransform * getTransform(node.g);
-                            int nextNodeIndex = getWorldNodeIDFromList(node.b + nodeTraversalStack[nodeDepth].nextChildIndex);
+                                nodeTraversalStack[nodeDepth].ancestorInvTransform = nodeTraversalStack[nodeDepth].ancestorInvTransform * getTransform(node[1]);
+                            int nextNodeIndex = getWorldNodeIDFromList(node[2] + nodeTraversalStack[nodeDepth].nextChildIndex);
                             worldTraverseGraphChild(nodeTraversalStack[nodeDepth+1], nodeTraversalStack[nodeDepth], nextNodeIndex, nodeDepth);
                         }
                         else
                             --nodeDepth;
                         continue;
                     }
-                    else if (node.r == WORLD_NODE_TRANSFORMED_NODE_TYPE
+                    else if (node[0] == WORLD_NODE_TRANSFORMED_NODE_TYPE
                         && nodeTraversalStack[nodeDepth].nextChildIndex == 0)
                     {
-                        nodeTraversalStack[nodeDepth].ancestorInvTransform = nodeTraversalStack[nodeDepth].ancestorInvTransform * getTransform(node.g);
-                        worldTraverseGraphChild(nodeTraversalStack[nodeDepth+1], nodeTraversalStack[nodeDepth], node.b, nodeDepth);
+                        nodeTraversalStack[nodeDepth].ancestorInvTransform = nodeTraversalStack[nodeDepth].ancestorInvTransform * getTransform(node[1]);
+                        worldTraverseGraphChild(nodeTraversalStack[nodeDepth+1], nodeTraversalStack[nodeDepth], node[2], nodeDepth);
                         continue;
                     }
-                    else if (node.r == WORLD_NODE_BVH_NODE_TYPE) {   // bvh node
+                    else if (node[0] == WORLD_NODE_BVH_NODE_TYPE) {   // bvh node
                         if (nodeTraversalStack[nodeDepth].nextChildIndex == 0) {
-                            vec4 AABB_center   = texelFetchByIndex(node.a * 2,     uWorldAABBs);
-                            vec4 AABB_halfsize = texelFetchByIndex(node.a * 2 + 1, uWorldAABBs);
+                            vec4 AABB_center   = texelFetchByIndex(node[3] * 2,     uWorldAABBs);
+                            vec4 AABB_halfsize = texelFetchByIndex(node[3] * 2 + 1, uWorldAABBs);
                             vec2 aabb_ts = AABBIntersects(r, AABB_center, AABB_halfsize, minT, maxT);
                             if (!(aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT))) {
                                 --nodeDepth;
                                 continue;
                             }
                         }
-                        if (node.g > 0 && nodeTraversalStack[nodeDepth].nextChildIndex < 1) {
-                            int nextNodeIndex = (nodeTraversalStack[nodeDepth].nextChildIndex == 0) ? node.g : node.b;
+                        if (node[1] < 0 && nodeTraversalStack[nodeDepth].nextChildIndex < node[2]) {                // leaf node
+                            int nextNodeIndex = getWorldNodeIDFromList(-1 - node[1] + nodeTraversalStack[nodeDepth].nextChildIndex);
                             worldTraverseGraphChild(nodeTraversalStack[nodeDepth+1], nodeTraversalStack[nodeDepth], nextNodeIndex, nodeDepth);
                             continue;
                         }
-                        else if (node.g < 0 && nodeTraversalStack[nodeDepth].nextChildIndex < node.b) {
-                            int nextNodeIndex = getWorldNodeIDFromList(-1 - node.g + nodeTraversalStack[nodeDepth].nextChildIndex);
+                        else if (node[1] >= 0 && nodeTraversalStack[nodeDepth].nextChildIndex < 2) {                // node has children
+                            int nextNodeIndex = (nodeTraversalStack[nodeDepth].nextChildIndex == 0) ? node[1] : node[2];
                             worldTraverseGraphChild(nodeTraversalStack[nodeDepth+1], nodeTraversalStack[nodeDepth], nextNodeIndex, nodeDepth);
                             continue;
                         }
