@@ -57,6 +57,12 @@ class WebGLWorldAdapter {
         
         return index;
     }
+    collapseAncestorInvTransform(ancestors) {
+        let ret = Mat4.identity();
+        for (let a of ancestors)
+            ret = a.object.getInvTransform().times(ret);
+        return ret;
+    }
     visitDescendantObject(obj, webgl_helper, ancestors=[]) {
         if (obj instanceof Primitive)
             this.visitPrimitive(obj, webgl_helper, ancestors);
@@ -64,8 +70,8 @@ class WebGLWorldAdapter {
             const agg = {
                 index: this.aggregates.length,
                 object: obj,
-                typeCode: WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE,
-                transformID: this.registerTransform(obj.getInvTransform(), obj),
+                type_code: WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE,
+                transformID: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
             };
             this.aggregates.push(agg);
             
@@ -80,7 +86,7 @@ class WebGLWorldAdapter {
                     raw_node:    node,
                     parent_node: parent_node,
                     aabb:        node.aabb,
-                    isGreater:   isGreater
+                    isGreater:   isGreater,
                 };
                 bvh_nodes.push(node_data);
                 
@@ -91,10 +97,10 @@ class WebGLWorldAdapter {
                 }
                 else {
                     node_data.hitIndex = -1 - bvh_object_list.length;
-                    bvh_object_list.push(...node.objects.map(o => me.visitPrimitive(o, webgl_helper)), -1);
+                    bvh_object_list.push(...node.objects.map(o => me.visitPrimitive(o, webgl_helper)));
                 }
             };
-            BVHVisitorFn(root_node);
+            BVHVisitorFn(obj.kdtree);
             
             for (let node_data of bvh_nodes) {
                 let next_node = node_data;
@@ -112,7 +118,7 @@ class WebGLWorldAdapter {
                 object: obj,
                 type_code: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
                 ancestors: ancestors,
-                transformID: this.registerTransform(obj.getInvTransform(), obj),
+                transformID: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
                 indices: []
             };
             this.aggregates.push(agg);
@@ -241,12 +247,14 @@ class WebGLWorldAdapter {
                 aggregate_list.push(a.type_code, a.transformID, indices_list.length, a.indices.length);
                 indices_list.push(...a.indices);
             }
-            if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
+            else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformID, accelerators_list.length, indices_list.length);
-                accelerators_list.push(...a.bvh_nodes.map((n, i) => [aabb_data.length + 2 * i, n.hitIndex, n.missIndex, n.indices ? n.indices.length : 0]).flat());
+                accelerators_list.push(...a.bvh_nodes.map((n, i) => [aabb_data.length + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
                 indices_list.push(...a.indices);
                 aabb_data.push(...a.bvh_nodes.map(n => [n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
             }
+            else
+                throw "Unsupported aggregate type detected";
         }
         
         // Write world node data
@@ -341,10 +349,10 @@ class WebGLWorldAdapter {
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
-                int node_index = root_index;
-                while (node_index > 0) {
+                int node_index = 0;
+                while (node_index >= 0) {
                     // aabb_index, hitIndex (>0 for children, <0 for leaf indices list start), missIndex, indices_length
-                    ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + node_index + root_index, uWorldData);
+                    ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + root_index + node_index, uWorldData);
                     
                     vec2 aabb_ts = AABBIntersects(r,
                         texelFetchByIndex(node.r,     uWorldAABBs),
@@ -355,7 +363,7 @@ class WebGLWorldAdapter {
                         // check if this is a leaf node, check all objects in this node
                         if (node.g < 0) {
                             if (worldRayCastList(-1 - node.g + indices_offset, node.a, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                                found_min = true;
+                               found_min = true;
                         }
                         
                         // if this node has children, visit this node's left child next

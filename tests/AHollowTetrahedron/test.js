@@ -24,17 +24,17 @@ export function configureTest(callback) {
 
         function(triangles) {
             callback({
-                renderer: new SimpleRenderer(new World(objects.concat(triangles
+                renderer: new SimpleRenderer(new World(objects.concat(
                         // new Aggregate(triangles,
                             // Mat4.translation([0.5,-1.5,-5])
                                 // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
                                 // .times(Mat4.scale(0.3))),
+                        BVHAggregate.build(triangles,
+                            Mat4.translation([0.5,-1.5,-5])
+                                .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
+                                .times(Mat4.scale(0.3)), 0),
                         // BVHAggregate.build(triangles,
-                            // Mat4.translation([0.5,-1.5,-5])
-                                // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
-                                // .times(Mat4.scale(0.3)), 0),
-                        // BVHAggregate.build(triangles,
-                            // Mat4.translation([0.5,-1.5,-5])
+                            // Mat4.translation([0.5,-0.5,-3])
                                 // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
                                 // .times(Mat4.scale(0.15)))
                     ), lights), camera, 4),
