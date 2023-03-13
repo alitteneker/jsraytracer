@@ -23,29 +23,21 @@ class Aggregate extends WorldObject {
 
 
 class BVHAggregate extends Aggregate {
-    constructor(finite_objects, infinite_objects, kdtree, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
-        super(finite_objects.concat(infinite_objects), transform, inv_transform);
-        this.finite_objects = finite_objects;
-        this.infinite_objects = infinite_objects;
+    constructor(objects, kdtree, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
+        super(objects, transform, inv_transform);
         this.kdtree = kdtree;
     }
     static build(objects, transform=Mat4.identity(), maxDepth=Infinity, minNodeSize=1, inv_transform=Mat4.inverse(transform)) {
         objects = Array.from(objects);
         
-        const infinite_objects = [];
-        for (let i = 0; i < objects.length; ++i) {
-            const bb = objects[i].getBoundingBox();
-            if (!bb.isFinite()) {
-                this.infinite_objects.push(objects[i]);
-                objects.splice(i, 1);
-                --i;
-            }
-        }
+        for (let i = 0; i < objects.length; ++i)
+            if (!objects[i].getBoundingBox().isFinite())
+                throw "Infinite objects not allowed in";
         
-        return new BVHAggregate(objects, infinite_objects, BVHAggregateNode.build(objects, 0, maxDepth, minNodeSize), transform, inv_transform);
+        return new BVHAggregate(objects, BVHAggregateNode.build(objects, 0, maxDepth, minNodeSize), transform, inv_transform);
     }
     intersect(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
-        const ret = World.getMinimumIntersection(this.infinite_objects, ray.getTransformed(this.getInvTransform()), minDist, maxDist, intersectTransparent);
+        const ret = World.getMinimumIntersection([], ray.getTransformed(this.getInvTransform()), minDist, maxDist, intersectTransparent);
         this.kdtree.intersect(ray, ret, minDist, maxDist, intersectTransparent);
         ret.ancestors.push(this);
         return ret;
