@@ -335,8 +335,8 @@ class WebGLWorldAdapter {
                 inout float min_found_t, inout int min_prim_id)
             {
                 bool found_min = false;
-                for (int i = listStartIndex; i < listLength; ++i) {
-                    int prim_id = getIndexFromList(i);
+                for (int i = 0; i < listLength; ++i) {
+                    int prim_id = getIndexFromList(listStartIndex + i);
                     float t = worldObjectIntersect(prim_id, r, minT, shadowFlag);
                     if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
                         min_found_t = t;

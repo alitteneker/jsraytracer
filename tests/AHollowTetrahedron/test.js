@@ -27,14 +27,15 @@ export function configureTest(callback) {
         Mat4.identity(),
 
         function(triangles) {
+            objects.push(
+                //new Aggregate(triangles, trans1),
+                //new Aggregate(triangles, trans2),
+                BVHAggregate.build(triangles, trans1),
+                //BVHAggregate.build(triangles, trans2),
+            );
+            
             callback({
-                renderer: new SimpleRenderer(new World(objects.concat(
-                        //new Aggregate(triangles, trans1),
-                        //new Aggregate(triangles, trans2),
-                        new Aggregate([new Primitive(new Sphere(), new PhongMaterial(Vec.of(1,1,1), 1), Mat4.translation([10, 2, 10]))]),
-                        // BVHAggregate.build(triangles, trans1, 0),
-                        // BVHAggregate.build(triangles, trans2, 0),
-                    ), lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objects, lights), camera, 4),
                 width: 600,
                 height: 600
             });
