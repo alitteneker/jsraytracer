@@ -251,7 +251,7 @@ class WebGLWorldAdapter {
                 aggregate_list.push(a.type_code, a.transformID, accelerators_list.length, indices_list.length);
                 accelerators_list.push(...a.bvh_nodes.map((n, i) => [aabb_data.length + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
                 indices_list.push(...a.indices);
-                aabb_data.push(...a.bvh_nodes.map(n => [n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
+                aabb_data.push(...a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
             }
             else
                 throw "Unsupported aggregate type detected";
@@ -349,12 +349,8 @@ class WebGLWorldAdapter {
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
-                int count = 0;
-                
                 int node_index = 0;
                 while (node_index >= 0) {
-                    if (count++ > 0)
-                        break;
                     
                     // aabb_index, hitIndex (>0 for children, <0 for leaf indices list start), missIndex, indices_length
                     ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + root_index + node_index, uWorldData);
@@ -363,9 +359,10 @@ class WebGLWorldAdapter {
                         texelFetchByIndex(node.r,     uWorldAABBs),
                         texelFetchByIndex(node.r + 1, uWorldAABBs), minT, maxT);
                     
-                    bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
+                    bool hit_node = true;//aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
                     if (hit_node) {
-                        // check if this is a leaf node, check all objects in this node
+                        
+                        // if this is a leaf node, check all objects in this node
                         if (node.g < 0) {
                             if (worldRayCastList(indices_offset - node.g - 1, node.a, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                found_min = true;
@@ -392,15 +389,13 @@ class WebGLWorldAdapter {
                     mat4 root_invTransform = getTransform(nodeData.g);
                     Ray local_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
                     
-                    switch (nodeData.r) {
-                    case WORLD_NODE_AGGREGATE_TYPE:
+                    if (nodeData.r == WORLD_NODE_AGGREGATE_TYPE) {
                         if (worldRayCastList(nodeData.b, nodeData.a, local_r, minT, maxT, shadowFlag, min_found_t, primID))
                             ancestorInvTransform = root_invTransform;
-                        break;
-                    case WORLD_NODE_BVH_TYPE:
+                    }
+                    else if (nodeData.r == WORLD_NODE_BVH_TYPE) {
                         if (worldRayCastBVH(nodeData.b, nodeData.a, local_r, minT, maxT, shadowFlag, min_found_t, primID))
                             ancestorInvTransform = root_invTransform;
-                        break;
                     }
                 }
 
