@@ -37,8 +37,9 @@ class BVHAggregate extends Aggregate {
         return new BVHAggregate(objects, BVHAggregateNode.build(objects, 0, maxDepth, minNodeSize), transform, inv_transform);
     }
     intersect(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
-        const ret = World.getMinimumIntersection([], ray.getTransformed(this.getInvTransform()), minDist, maxDist, intersectTransparent);
-        this.kdtree.intersect(ray, ret, minDist, maxDist, intersectTransparent);
+        const local_r = ray.getTransformed(this.getInvTransform());
+        const ret = World.getMinimumIntersection([], local_r, minDist, maxDist, intersectTransparent);
+        this.kdtree.intersect(local_r, ret, minDist, maxDist, intersectTransparent);
         ret.ancestors.push(this);
         return ret;
     }
@@ -208,8 +209,9 @@ class BSPAggregate extends Aggregate {
         return new BSPAggregate(objects, BSPAggregateNode.build(Array.from(objects)), transform, inv_transform);
     }
     intersect(ray, minDist = 0, maxDist = Infinity, intersectTransparent=true) {
-        const ret = World.getMinimumIntersection([], ray.getTransformed(this.getInvTransform()), minDist, maxDist, intersectTransparent);
-        this.kdtree.intersect(ray.getTransformed(this.getInvTransform()), ret, minDist, maxDist, intersectTransparent);
+        const local_r = ray.getTransformed(this.getInvTransform());
+        const ret = World.getMinimumIntersection([], local_r, minDist, maxDist, intersectTransparent);
+        this.kdtree.intersect(local_r, ret, minDist, maxDist, intersectTransparent);
         ret.ancestors.push(this);
         return ret;
     }

@@ -17,22 +17,22 @@ export function configureTest(callback) {
         "../assets/hollow_tetrahedron.obj",
         new PhongMaterial(Vec.of(1,0.7,0.7), 0.1, 0.4, 0.6, 100, 0.4),
 
-        // Mat4.identity(),
-        Mat4.translation([0.5,-1.5,-5])
-            .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
-            .times(Mat4.scale(0.3)),
+        Mat4.identity(),
+        // Mat4.translation([0.5,-1.5,-5])
+            // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
+            // .times(Mat4.scale(0.3)),
 
         function(triangles) {
             callback({
                 renderer: new SimpleRenderer(new World(objects.concat(
-                        // new Aggregate(triangles,
-                            // Mat4.translation([0.5,-1.5,-5])
-                                // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
-                                // .times(Mat4.scale(0.3))),
-                        BVHAggregate.build(triangles,
+                        new Aggregate(triangles,
                             Mat4.translation([0.5,-1.5,-5])
                                 .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
-                                .times(Mat4.scale(0.3)), 0),
+                                .times(Mat4.scale(0.3))),
+                        // BVHAggregate.build(triangles,
+                            // Mat4.translation([0.5,-1.5,-5])
+                                // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
+                                // .times(Mat4.scale(0.3)), 0),
                         // BVHAggregate.build(triangles,
                             // Mat4.translation([0.5,-0.5,-3])
                                 // .times(Mat4.rotation(0.3, Vec.of(0,1,0)))

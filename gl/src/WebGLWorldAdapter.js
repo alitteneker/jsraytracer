@@ -106,7 +106,7 @@ class WebGLWorldAdapter {
                 let next_node = node_data;
                 while (next_node && !next_node.isGreater)
                     next_node = next_node.parent_node;
-                node_data.missIndex = next_node ? bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : 0;
+                node_data.missIndex = next_node ? bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
             }
             
             agg.bvh_nodes = bvh_nodes;
@@ -325,7 +325,7 @@ class WebGLWorldAdapter {
             
             
             // ---- Generic Intersection with entire world ----
-            #define WORLD_NODE_AGGREGATE_TYPE         ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
+            #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
             #define WORLD_NODE_BVH_TYPE          ${WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE}
             
             int getIndexFromList(in int index) {
@@ -349,8 +349,13 @@ class WebGLWorldAdapter {
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
+                int count = 0;
+                
                 int node_index = 0;
                 while (node_index >= 0) {
+                    if (count++ > 0)
+                        break;
+                    
                     // aabb_index, hitIndex (>0 for children, <0 for leaf indices list start), missIndex, indices_length
                     ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + root_index + node_index, uWorldData);
                     
@@ -362,7 +367,7 @@ class WebGLWorldAdapter {
                     if (hit_node) {
                         // check if this is a leaf node, check all objects in this node
                         if (node.g < 0) {
-                            if (worldRayCastList(-1 - node.g + indices_offset, node.a, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                            if (worldRayCastList(indices_offset - node.g - 1, node.a, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                found_min = true;
                         }
                         
@@ -372,7 +377,7 @@ class WebGLWorldAdapter {
                     }
                     
                     // if we missed this node or this node has NO children, find the closest ancestor that is a left child, and visit its right sibling next
-                    if (!hit_node || node.b < 0)
+                    if (!hit_node || node.g < 0)
                         node_index = node.b;
                 }
                 
