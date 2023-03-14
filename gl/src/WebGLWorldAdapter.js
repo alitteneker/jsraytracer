@@ -359,7 +359,7 @@ class WebGLWorldAdapter {
                         texelFetchByIndex(node.r,     uWorldAABBs),
                         texelFetchByIndex(node.r + 1, uWorldAABBs), minT, maxT);
                     
-                    bool hit_node = true;//aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
+                    bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
                     if (hit_node) {
                         
                         // if this is a leaf node, check all objects in this node
