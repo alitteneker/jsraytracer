@@ -390,7 +390,7 @@ class WebGLWorldAdapter {
                     ivec4 nodeData = itexelFetchByIndex(root_index, uWorldData);
                     
                     mat4 root_invTransform = getTransform(nodeData.g);
-                    Ray local_r = Ray(ancestorInvTransform * r.o, ancestorInvTransform * r.d);
+                    Ray local_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
                     
                     switch (nodeData.r) {
                     case WORLD_NODE_AGGREGATE_TYPE:
