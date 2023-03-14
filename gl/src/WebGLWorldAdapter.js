@@ -248,8 +248,8 @@ class WebGLWorldAdapter {
                 indices_list.push(...a.indices);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformID, accelerators_list.length, indices_list.length);
-                accelerators_list.push(...a.bvh_nodes.map((n, i) => [aabb_data.length + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
+                aggregate_list.push(a.type_code, a.transformID, accelerators_list.length / 4, indices_list.length);
+                accelerators_list.push(...a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
                 indices_list.push(...a.indices);
                 aabb_data.push(...a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
             }

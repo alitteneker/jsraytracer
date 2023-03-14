@@ -28,10 +28,8 @@ export function configureTest(callback) {
 
         function(triangles) {
             objects.push(
-                //new Aggregate(triangles, trans1),
-                //new Aggregate(triangles, trans2),
                 BVHAggregate.build(triangles, trans1),
-                //BVHAggregate.build(triangles, trans2),
+                BVHAggregate.build(triangles, trans2),
             );
             
             callback({
