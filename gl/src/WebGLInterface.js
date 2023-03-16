@@ -233,9 +233,9 @@ class WebGLInterface {
         const focus_distance = renderer_adapter.getCameraFocusDistance();
         if (renderer_adapter.getCameraFocusDistance() != 1.0)
             $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
-        // else
-            // $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
-                // renderer_adapter.adapters.world.world.kdtree.aabb.center).norm()); // TODO
+        else
+            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
+                renderer_adapter.adapters.world.world.getFiniteBoundingBox().center).norm());
         
         $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
         $('#fov-range').val(-renderer_adapter.getCameraFOV());
@@ -313,7 +313,11 @@ class WebGLInterface {
     selectObject(selectedObject) {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.getBoundingBox();
-            $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.index).setActive();
+            
+            const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.index);
+            if (treenode)
+                treenode.setActive();
+            
             $('#object-control-bar').controlgroup("enable");
             
             this.buildSelectedObjectControls();
@@ -323,7 +327,6 @@ class WebGLInterface {
             if (activeNode)
                 activeNode.setActive(false);
             $('#object-control-bar').controlgroup("disable");
-            
             $("#selected-object-controls").empty();
         }
     }

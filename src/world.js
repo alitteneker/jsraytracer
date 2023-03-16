@@ -13,6 +13,19 @@ class World {
         }
         return closestIntersection;
     }
+    getBoundingBox() {
+        return this.objects.length ? AABB.hull(this.objects.map(o => o.getBoundingBox())) : AABB.empty();
+    }
+    getFiniteBoundingBox() {
+        const aabbs = [];
+        for (let o of this.objects) {
+            const aabb = o.getBoundingBox();
+            if (aabb.isFinite())
+                aabbs.push(aabb);
+        }
+        return aabbs.length ? AABB.hull(aabbs) : AABB.empty();
+        
+    }
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
         return World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);
     }

@@ -241,17 +241,17 @@ class WebGLWorldAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
                 
         const primitive_list = this.primitives.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat();
-        const aggregate_list = [], accelerators_list = [], indices_list = [], aabb_data = [];
+        let aggregate_list = [], accelerators_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformID, indices_list.length, a.indices.length);
-                indices_list.push(...a.indices);
+                indices_list = indices_list.concat(a.indices);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformID, accelerators_list.length / 4, indices_list.length);
-                accelerators_list.push(...a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
-                indices_list.push(...a.indices);
-                aabb_data.push(...a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
+                indices_list = indices_list.concat(a.indices);
+                accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
+                aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
             }
             else
                 throw "Unsupported aggregate type detected";
