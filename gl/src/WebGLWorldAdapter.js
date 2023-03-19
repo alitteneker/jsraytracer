@@ -2,7 +2,6 @@ class WebGLWorldAdapter {
     static WORLD_NODE_AGGREGATE_TYPE = 3;
     static WORLD_NODE_BVH_NODE_TYPE  = 4;
     
-    
     constructor(world, webgl_helper) {
         [this.world_node_texture_unit, this.world_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.world_aabb_texture_unit, this.world_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
@@ -29,33 +28,37 @@ class WebGLWorldAdapter {
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
     }
-    visitPrimitive(prim, webgl_helper, ancestors) {
+    destroy(gl) {
+        this.world_node_texture.destroy();
+        this.world_aabb_texture.destroy();
+        
+        this.adapters.lights.destroy(gl);
+        this.adapters.geometries.destroy(gl);
+        this.adapters.materials.destroy(gl);
+    }
+    visitPrimitive(prim, webgl_helper) {
         if (!(prim instanceof Primitive))
             throw "Cannot call visitPrimitive on non-Primitive";
         
-        if (prim.OBJECT_UID in this.primitive_id_index_map) {
-            const index = this.primitive_id_index_map[prim.OBJECT_UID];
-            if (ancestors && ancestors.length)
-                ancestors[ancestors.length-1].indices.push(index);
-            return index;
-        }
+        if (prim.OBJECT_UID in this.primitive_id_index_map)
+            return this.primitives[this.primitive_id_index_map[prim.OBJECT_UID]];
         
         const index = this.primitives.length;
         this.primitive_id_index_map[prim.OBJECT_UID] = index;
         
-        this.primitives.push({
+        const wrapped = new WrappedObject({
+            ID: index,
+            type: "primitive",
             index: index,
             object: prim,
             
-            transformID: this.registerTransform(prim.getInvTransform(), prim),
-            geometryID:  this.adapters.geometries.visit(prim.geometry, webgl_helper),
-            materialID:  this.adapters.materials.visit( prim.material, webgl_helper),
-            does_cast_shadow:  prim.does_cast_shadow
-        });
-        if (ancestors && ancestors.length)
-            ancestors[ancestors.length-1].indices.push(index);
+            transformIndex: this.registerTransform(prim.getInvTransform(), prim),
+            geometryIndex:  this.adapters.geometries.visit(prim.geometry, webgl_helper),
+            materialIndex:  this.adapters.materials.visit( prim.material, webgl_helper)
+        }, this);
+        this.primitives.push(wrapped);
         
-        return index;
+        return wrapped;
     }
     collapseAncestorInvTransform(ancestors) {
         let ret = Mat4.identity();
@@ -64,15 +67,23 @@ class WebGLWorldAdapter {
         return ret;
     }
     visitDescendantObject(obj, webgl_helper, ancestors=[]) {
-        if (obj instanceof Primitive)
-            this.visitPrimitive(obj, webgl_helper, ancestors);
+        if (obj instanceof Primitive) {
+            const prim = this.visitPrimitive(obj, webgl_helper, ancestors);
+            if (ancestors && ancestors.length)
+                ancestors[ancestors.length-1].primIndices.push(prim.index);
+            return prim;
+        }
         else if (obj instanceof BVHAggregate) {
-            const agg = {
+            const agg = new WrappedObject({
                 index: this.aggregates.length,
+                ID: ancestors.map(a => a.index).join("-") + ":" + this.aggregates.length,
                 object: obj,
+                type: "BVH ",
+                ancestors: ancestors,
                 type_code: WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE,
-                transformID: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
-            };
+                transformIndex: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
+                children: []
+            }, this);
             this.aggregates.push(agg);
             
             const bvh_nodes = [];
@@ -97,7 +108,11 @@ class WebGLWorldAdapter {
                 }
                 else {
                     node_data.hitIndex = -1 - bvh_object_list.length;
-                    bvh_object_list.push(...node.objects.map(o => me.visitPrimitive(o, webgl_helper)));
+                    for (let o of node.objects) {
+                        const p = me.visitPrimitive(o, webgl_helper);
+                        agg.children.push(p);
+                        bvh_object_list.push(p.index);
+                    }
                 }
             };
             BVHVisitorFn(obj.kdtree);
@@ -110,76 +125,39 @@ class WebGLWorldAdapter {
             }
             
             agg.bvh_nodes = bvh_nodes;
-            agg.indices = bvh_object_list;
+            agg.primIndices = bvh_object_list;
+            
+            return agg;
         }
         else if (obj instanceof Aggregate) {
-            const agg = {
+            const agg = new WrappedObject({
                 index: this.aggregates.length,
+                ID: ancestors.map(a => a.index).join("-") + ":" + this.aggregates.length,
                 object: obj,
+                type: "aggregate",
                 type_code: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
                 ancestors: ancestors,
-                transformID: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
-                indices: []
-            };
+                transformIndex: this.registerTransform(this.collapseAncestorInvTransform(ancestors).times(obj.getInvTransform()), obj),
+                primIndices: [],
+                children: []
+            }, this);
             this.aggregates.push(agg);
             for (let o of obj.objects)
-                this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg));
+                agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
+            
+            return agg;
         }
         else
             throw "Unsupported object type";
     }
     registerTransform(transform, object) {
-        const transformID = this.transform_store.store(transform);
-        if (!(transformID in this.transform_object_map))
-            this.transform_object_map[transformID] = [];
-        this.transform_object_map[transformID].push(object);
-        return transformID;
-    }
-    destroy(gl) {
-        this.world_node_texture.destroy();
-        this.world_aabb_texture.destroy();
-        
-        this.adapters.lights.destroy(gl);
-        this.adapters.geometries.destroy(gl);
-        this.adapters.materials.destroy(gl);
+        const transformIndex = this.transform_store.store(transform);
+        if (!(transformIndex in this.transform_object_map))
+            this.transform_object_map[transformIndex] = [];
+        this.transform_object_map[transformIndex].push(object);
+        return transformIndex;
     }
     
-    wrapObject(object, renderer_adapter, gl, program) {
-        if (!object)
-            return null;
-        
-        const me = this;
-        const index = this.primitive_id_index_map[object.OBJECT_UID];
-        if (!index)
-            return null;
-        const webgl_ids = this.primitives[index];
-        
-        return {
-            worldtype: "object",
-            index: index,
-            
-            transform: { index: webgl_ids.transformID, value: this.transform_store.get(webgl_ids.transformID) },
-            geometry:  { index: webgl_ids.geometryID,  value: this.adapters.geometries.getGeometry(webgl_ids.geometryID) },
-            material:  { index: webgl_ids.materialID,  value: this.adapters.materials.getMaterial(webgl_ids.materialID) },
-            does_cast_shadow: webgl_ids.does_cast_shadow,
-            
-            getBoundingBox: function() {
-                return object.getBoundingBox();
-            },
-            getTransform: function() {
-                return object.transform;
-            },
-            getInvTransform: function() {
-                return object.inv_transform;
-            },
-            intersect(ray) {
-                return object.intersect(ray)
-            },
-            setTransform(new_transform, new_inv_transform) {
-                me.setTransform(webgl_ids.transformID, new_transform, new_inv_transform, renderer_adapter, gl, program);
-            }
-        };
-    }
     wrapLight(light, renderer_adapter, gl, program) {
         const me = this;
         return Object.assign({
@@ -211,11 +189,8 @@ class WebGLWorldAdapter {
     getLight(index, renderer_adapter,  gl, program) {
         return this.wrapLight(this.adapters.lights.getLight(index), renderer_adapter,  gl, program);
     }
-    getObjects(renderer_adapter, gl, program) {
-        return this.world.objects.map(o => this.wrapObject(o, renderer_adapter, gl, program));
-    }
-    getObject(index, renderer_adapter, gl, program) {
-        return this.wrapObject(this.world.objects[index], renderer_adapter, gl, program);
+    getSceneTree(renderer_adapter, gl, program) {
+        return this.aggregates[0];
     }
     
     setTransform(transform_index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
@@ -240,16 +215,16 @@ class WebGLWorldAdapter {
         // write transforms
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
                 
-        const primitive_list = this.primitives.map(o => [o.geometryID, o.materialID, o.transformID, Number(o.does_cast_shadow)]).flat();
+        const primitive_list = this.primitives.map(o => [o.geometryIndex, o.materialIndex, o.transformIndex, Number(o.object.does_cast_shadow)]).flat();
         let aggregate_list = [], accelerators_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformID, indices_list.length, a.indices.length);
-                indices_list = indices_list.concat(a.indices);
+                aggregate_list.push(a.type_code, a.transformIndex, indices_list.length, a.primIndices.length);
+                indices_list = indices_list.concat(a.primIndices);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformID, accelerators_list.length / 4, indices_list.length);
-                indices_list = indices_list.concat(a.indices);
+                aggregate_list.push(a.type_code, a.transformIndex, accelerators_list.length / 4, indices_list.length);
+                indices_list = indices_list.concat(a.primIndices);
                 accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
                 aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
             }
@@ -274,9 +249,9 @@ class WebGLWorldAdapter {
         return `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
-            + this.adapters.lights.getShaderSourceDeclarations() + "\n"
+            + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
-            + this.adapters.materials.getShaderSourceDeclarations() + "\n";
+            + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
     getShaderSource() {
         return `
@@ -419,8 +394,37 @@ class WebGLWorldAdapter {
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
                 return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
             }`
-            + this.adapters.lights.getShaderSource()
-            + this.adapters.materials.getShaderSource()
-            + this.adapters.geometries.getShaderSource();
+            + this.adapters.lights.getShaderSource()     + "\n"
+            + this.adapters.materials.getShaderSource()  + "\n"
+            + this.adapters.geometries.getShaderSource() + "\n";
+    }
+}
+
+class WrappedObject {
+    constructor(base_data, worldadapter) {
+        Object.assign(this, base_data);
+        
+        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
+        if (this.type == "primitive") {
+            this.geometry =  { index: this.geometryIndex,   value: worldadapter.adapters.geometries.getGeometry(this.geometryIndex) };
+            this.material =  { index: this.materialIndex,   value: worldadapter.adapters.materials.getMaterial(this.materialIndex) };
+            this.does_cast_shadow = this.object.does_cast_shadow;
+        }
+    }
+    getBoundingBox() {
+        return this.object.getBoundingBox();
+    }
+    getTransform() {
+        return this.object.getTransform();
+    }
+    getInvTransform() {
+        return this.object.getInvTransform();
+    }
+    intersect(ray) {
+        return this.object.intersect(ray)
+    }
+    setTransform(new_transform, new_inv_transform) {
+        // TODO
+        //me.setTransform(webgl_ids.transformIndex, new_transform, new_inv_transform, renderer_adapter, gl, program);
     }
 }

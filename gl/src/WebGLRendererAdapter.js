@@ -205,7 +205,7 @@ class WebGLRendererAdapter {
             ret += `
                 uniform int uMaxBounceDepth;` + "\n";
         return ret
-            + this.adapters.world.getShaderSourceDeclarations() + "\n"
+            + this.adapters.world.getShaderSourceDeclarations()  + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
     }
     getShaderSource() {
@@ -431,11 +431,11 @@ class WebGLRendererAdapter {
     getLight(index) {
         return this.adapters.world.getLight(index, this, this.gl, this.tracerShaderProgram);
     }
-    getObjects() {
-        return this.adapters.world.getObjects(this.gl, this, this.tracerShaderProgram);
-    }
     getObject(index) {
         return this.adapters.world.getObject(index, this, this.gl, this.tracerShaderProgram);
+    }
+    getSceneTree() {
+        return this.adapters.world.getSceneTree(this.gl, this, this.tracerShaderProgram);
     }
 
     drawWorld(timestamp) {

@@ -78,7 +78,7 @@ class WebGLInterface {
                 if (d.node.data._worldtype == "light")
                     this.selectObject(this.renderer_adapter.getLight(d.node.data._worldindex));
                 else
-                    this.selectObject(this.renderer_adapter.getObject(d.node.data._worldindex));
+                    this.selectObject(d.node.data._worldobj);
             }.bind(this) });
         
         // Setup the UI to pretty things up...
@@ -358,31 +358,34 @@ class WebGLInterface {
                     </td></tr>
                </table></div></div>`;
         
-        const material = o.material.value;
-        oc += `<div class="object-material-controls"><table>`;
-        for (let mk of Object.keys(material)) {
-            const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
-            if (material[mk].type == "scalar") {
-                oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td>
-                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+        
+        const material = o.material && o.material.value;
+        if (material) {
+            oc += `<div class="object-material-controls"><table>`;
+            for (let mk of Object.keys(material)) {
+                const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
+                if (material[mk].type == "scalar") {
+                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td>
+                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+                }
+                if (material[mk].type == "solid") {
+                    oc += `<tr><td>
+                                   <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
+                                   <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">
+                               </td>
+                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+                }
+                if (material[mk].type == "checkerboard") {
+                    oc += `<tr><td>
+                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color1._id}-intensity" data-mc-id="${material[mk].color1._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color1.color)}">
+                               <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
+                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color2._id}-intensity" data-mc-id="${material[mk].color2._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color2.color)}">
+                               <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
+                           </td><td><span>${label}</span></td></tr>`;
+                }
             }
-            if (material[mk].type == "solid") {
-                oc += `<tr><td>
-                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
-                               <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">
-                           </td>
-                           <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
-            }
-            if (material[mk].type == "checkerboard") {
-                oc += `<tr><td>
-                           <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color1._id}-intensity" data-mc-id="${material[mk].color1._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color1.color)}">
-                           <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
-                           <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color2._id}-intensity" data-mc-id="${material[mk].color2._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color2.color)}">
-                           <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
-                       </td><td><span>${label}</span></td></tr>`;
-            }
+            oc += "</table></div>";
         }
-        oc += "</table></div>";
         
         
         $("#selected-object-controls").append(oc);
@@ -401,24 +404,29 @@ class WebGLInterface {
         
         const objects_root = fancytree.getNodeByKey("_objects");
         objects_root.removeChildren();
-        objects_root.addChildren(adapter.getObjects().filter(o => o).map(o => {
+        objects_root.addChildren(adapter.getSceneTree().children.map(o => object_transformer(o)));
+        
+        function object_transformer(o) {
             return {
-                key: "o" + o.index, 
-                _worldindex: o.index,
+                key: "o" + o.ID,
+                _worldobj: o,
                 _worldtype: "object",
-                title: WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index)
+                children: [...(o.children || []).map(c => object_transformer(c))],
+                title: `${o.geometry ? WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) : "Aggregate"} : ${o.index}`
             };
-        }));
+        }
         objects_root.setExpanded(true);
         
         const lights_root = fancytree.getNodeByKey("_lights");
         lights_root.removeChildren();
-        lights_root.addChildren(adapter.getLights().map(l => { return {
-            key: "l" + l.index,
-            _worldindex: l.index,
-            _worldtype: "light",
-            title: WebGLGeometriesAdapter.TypeStringLabel(l.geometry)
-        }}));
+        lights_root.addChildren(adapter.getLights().map(l => {
+            return {
+                key: "l" + l.index,
+                _worldindex: l.index,
+                _worldtype: "light",
+                title: `${WebGLGeometriesAdapter.TypeStringLabel(l.geometry)} : ${l.index}`
+            };
+        }));
         lights_root.setExpanded(true);
     }
     
