@@ -314,7 +314,7 @@ class WebGLInterface {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.getBoundingBox();
             
-            const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.index);
+            const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
             if (treenode)
                 treenode.setActive();
             
@@ -404,14 +404,15 @@ class WebGLInterface {
         
         const objects_root = fancytree.getNodeByKey("_objects");
         objects_root.removeChildren();
-        objects_root.addChildren(adapter.getSceneTree().children.map(o => object_transformer(o)));
+        objects_root.addChildren(adapter.getSceneTree().children.map(o => object_transformer(o, [])));
         
-        function object_transformer(o) {
+        function object_transformer(o, ancestors) {
             return {
-                key: "o" + o.ID,
+                key: "o" + (o instanceof WrappedPrimitive && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + o.ID,
                 _worldobj: o,
                 _worldtype: "object",
-                children: [...(o.children || []).map(c => object_transformer(c))],
+                _worldancestors: (o instanceof WrappedPrimitive) ? ancestors : o.ancestors,
+                children: [...(o.children || []).map(c => object_transformer(c, ancestors.concat(o)))],
                 title: `${o.geometry ? WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) : "Aggregate"} : ${o.index}`
             };
         }

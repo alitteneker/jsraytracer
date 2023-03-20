@@ -46,8 +46,8 @@ class WebGLWorldAdapter {
         const index = this.primitives.length;
         this.primitive_id_index_map[prim.OBJECT_UID] = index;
         
-        const wrapped = new WrappedObject({
-            ID: index,
+        const wrapped = new WrappedPrimitive({
+            ID: prim.OBJECT_UID,
             type: "primitive",
             index: index,
             object: prim,
@@ -74,9 +74,9 @@ class WebGLWorldAdapter {
             return prim;
         }
         else if (obj instanceof BVHAggregate) {
-            const agg = new WrappedObject({
+            const agg = new WrappedAggregate({
                 index: this.aggregates.length,
-                ID: ancestors.map(a => a.index).join("-") + ":" + this.aggregates.length,
+                ID: (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + obj.OBJECT_UID,
                 object: obj,
                 type: "BVH ",
                 ancestors: ancestors,
@@ -130,9 +130,9 @@ class WebGLWorldAdapter {
             return agg;
         }
         else if (obj instanceof Aggregate) {
-            const agg = new WrappedObject({
+            const agg = new WrappedAggregate({
                 index: this.aggregates.length,
-                ID: ancestors.map(a => a.index).join("-") + ":" + this.aggregates.length,
+                ID: (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + obj.OBJECT_UID,
                 object: obj,
                 type: "aggregate",
                 type_code: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
@@ -400,7 +400,36 @@ class WebGLWorldAdapter {
     }
 }
 
-class WrappedObject {
+class WrappedAggregate {
+    constructor(base_data, worldadapter) {
+        Object.assign(this, base_data);
+        
+        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
+        if (this.type == "primitive") {
+            this.geometry =  { index: this.geometryIndex,   value: worldadapter.adapters.geometries.getGeometry(this.geometryIndex) };
+            this.material =  { index: this.materialIndex,   value: worldadapter.adapters.materials.getMaterial(this.materialIndex) };
+            this.does_cast_shadow = this.object.does_cast_shadow;
+        }
+    }
+    getBoundingBox() {
+        return this.object.getBoundingBox();
+    }
+    getTransform() {
+        return this.object.getTransform();
+    }
+    getInvTransform() {
+        return this.object.getInvTransform();
+    }
+    intersect(ray) {
+        return this.object.intersect(ray)
+    }
+    setTransform(new_transform, new_inv_transform) {
+        // TODO
+        //me.setTransform(webgl_ids.transformIndex, new_transform, new_inv_transform, renderer_adapter, gl, program);
+    }
+}
+
+class WrappedPrimitive {
     constructor(base_data, worldadapter) {
         Object.assign(this, base_data);
         
