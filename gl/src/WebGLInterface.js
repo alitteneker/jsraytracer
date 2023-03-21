@@ -317,12 +317,8 @@ class WebGLInterface {
             const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
             if (treenode)
                 treenode.setActive(true, {noEvents: true});
-            else {
-                const activeNode = $.ui.fancytree.getTree("#world-objects").getActiveNode();
-                if (activeNode)
-                    activeNode.setActive(false, {noEvents: true});
-            }
-                
+            else
+                throw "Unable to find selected object in scene tree";
             
             $('#object-control-bar').controlgroup("enable");
             
@@ -376,7 +372,7 @@ class WebGLInterface {
                </table></div></div>`;
         
         
-        const material = o.material && o.material.value;
+        const material = o.getMaterialValues();
         if (material) {
             oc += `<div class="object-material-controls"><table>`;
             for (let mk of Object.keys(material)) {
@@ -411,11 +407,17 @@ class WebGLInterface {
         
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
         $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
-        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]').on('spin spinstop', this.modifyMaterialScalar.bind(this));
-        $("#selected-object-controls input[data-transform-type]").on('spinstop', this.modifySelectedObjectTransformValues.bind(this));
+        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        if (o.notTransformable) {
+            $("#selected-object-controls input[data-transform-type]").spinner("disable");
+            $("#transform-mode").selectmenu("disable");
+        }
+        else {
+            $("#selected-object-controls input[data-transform-type]").on('spinstop', this.modifySelectedObjectTransformValues.bind(this));
+            $("#transform-mode").selectmenu("enable");
+        }
     }
     
-    objects = [];
     initializeWorldControls(adapter) {
         const fancytree = $.ui.fancytree.getTree("#world-objects");
         
@@ -424,13 +426,20 @@ class WebGLInterface {
         objects_root.addChildren(adapter.getSceneTree().children.map(o => object_transformer(o, [])));
         
         function object_transformer(o, ancestors) {
+            let title = "";
+            if      (o.type == "primitive") title = WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex);
+            else{
+                if (o.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)  title = "BVH Aggregate";
+                else                                                            title = "Aggregate";
+                 title += " (" + o.children.length + ")";
+            }
             return {
                 key: "o" + (o.type == "primitive" && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + o.ID,
                 _worldobj: o,
                 _worldtype: "object",
                 _worldancestors: (o.type == "primitive") ? ancestors : o.ancestors,
                 children: [...(o.children || []).map(c => object_transformer(c, ancestors.concat(o)))],
-                title: `${o.type == "primitive" ? WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex) : "Aggregate"} : ${o.ID}`
+                title: `${title} : ${o.object.OBJECT_UID}`
             };
         }
         objects_root.setExpanded(true);
@@ -636,7 +645,7 @@ class WebGLInterface {
                 const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]).getTransformed(this.selectedObject.getAncestorInvTransform());
                 this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
                     ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.intersect(ray).distance;
-                this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;
+                this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0 && !this.selectedObject.notTransformable;
             }
             this.nextMousePos = this.lastMousePos = mousePos;
         }

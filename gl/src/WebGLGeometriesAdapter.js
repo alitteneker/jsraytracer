@@ -29,7 +29,7 @@ class WebGLGeometriesAdapter {
             return "OriginPoint";
         if (type == WebGLGeometriesAdapter.UNITLINE_ID)
             return "UnitLine";
-        if (type > WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+        if (type >= WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
             return "Triangle";
         return "Unknown";
     }

@@ -125,6 +125,7 @@ class WebGLWorldAdapter {
                     node_data.hitIndex = -1 - bvh_object_list.length;
                     for (let o of node.objects) {
                         const p = me.visitPrimitive(o, webgl_helper);
+                        p.notTransformable = true;
                         agg.children.push(p);
                         bvh_object_list.push(p.index);
                     }
@@ -224,6 +225,7 @@ class WebGLWorldAdapter {
         if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
             this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
             wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object);
+            this.world_node_texture.modifyDataPixel(wrapped_obj.index, wrapped_obj.getDataVector());
         }
         else
             this.transform_store.set(wrapped_obj.transformIndex, set_transform);
@@ -239,6 +241,7 @@ class WebGLWorldAdapter {
             if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
                 this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
                 wrapped_obj.transformIndex = this.registerTransform(wrapped_obj.getInvTransform(), wrapped_obj.object);
+                this.world_node_texture.modifyDataPixel(this.aggregates.length + wrapped_obj.index, wrapped_obj.getDataVector());
             }
             else
                 this.transform_store.set(wrapped_obj.transformIndex, wrapped_obj.getInvTransform());
@@ -274,11 +277,11 @@ class WebGLWorldAdapter {
         let aggregate_list = [], accelerators_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformIndex, indices_list.length, a.primIndices.length);
+                aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex = indices_list.length, a.primIndices.length);
                 indices_list = indices_list.concat(a.primIndices);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformIndex, accelerators_list.length / 4, indices_list.length);
+                aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = accelerators_list.length / 4, a.indicesStartIndex = indices_list.length);
                 indices_list = indices_list.concat(a.primIndices);
                 accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.objects.length]).flat());
                 aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
@@ -492,6 +495,12 @@ class WrappedAggregate extends AbstractWrappedObject {
         this.worldadapter = worldadapter;
         this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
     }
+    getDataVector() {
+        if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
+            return [this.type_code, this.transformIndex, this.acceleratorsStartIndex, this.indicesStartIndex];
+        else
+            return [this.type_code, this.transformIndex, this.indicesStartIndex, this.primIndices.length];
+    }
     getMaterialValues() {
         return {};
     }
@@ -505,6 +514,9 @@ class WrappedPrimitive extends AbstractWrappedObject {
         this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + base_data.ID;
         this.worldadapter = worldadapter;
         this.ancestors = ancestors;
+    }
+    getDataVector() {
+        return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
     }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
