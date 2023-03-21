@@ -368,6 +368,13 @@ class WebGLRendererAdapter {
     resetDrawCount() {
         this.drawCount = 0;
     }
+    
+    useTracerProgram() {
+        this.gl.useProgram(this.tracerShaderProgram);
+    }
+    getUniformLocation(name) {
+        return this.gl.getUniformLocation(this.tracerShaderProgram, name)
+    }
 
     moveCamera(rotateDelta, translateDelta) {
         this.gl.useProgram(this.tracerShaderProgram);

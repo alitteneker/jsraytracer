@@ -163,13 +163,6 @@ class WebGLWorldAdapter {
         else
             throw "Unsupported object type";
     }
-    registerTransform(transform, object) {
-        const transformIndex = this.transform_store.store(transform);
-        if (!(transformIndex in this.transform_object_map))
-            this.transform_object_map[transformIndex] = [];
-        this.transform_object_map[transformIndex].push(object);
-        return transformIndex;
-    }
     
     wrapLight(light, renderer_adapter, gl, program) {
         const me = this;
@@ -209,13 +202,29 @@ class WebGLWorldAdapter {
         return this.aggregates[0];
     }
     
-    setTransform(transform_index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
-        gl.useProgram(program);
-        for (let object of this.transform_object_map[transform_index])
-            object.setTransform(new_transform, new_inv_transform);
-        this.transform_store.set(transform_index, new_inv_transform);
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
-        renderer_adapter.resetDrawCount();
+    registerTransform(transform, object) {
+        const transformIndex = this.transform_store.store(transform);
+        if (!(transformIndex in this.transform_object_map))
+            this.transform_object_map[transformIndex] = [];
+        this.transform_object_map[transformIndex].push(object);
+        return transformIndex;
+    }
+    setObjectTransform(wrapped_obj, new_transform, new_inv_transform) {
+        this.renderer_adapter.useTracerProgram();
+        
+        const local_inv_transform = new_inv_transform.times(wrapped_obj.getAncestorTransform());
+        const set_transform = wrapped_obj.type == "primitive" ? local_inv_transform : new_inv_transform;
+        wrapped_obj.object.setTransform(wrapped_obj.getAncestorInvTransform().times(new_transform), local_inv_transform);
+        
+        if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
+            this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
+            wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object);
+        }
+        else
+            this.transform_store.set(wrapped_obj.transformIndex, set_transform);
+        
+        this.renderer_adapter.gl.uniformMatrix4fv(this.renderer_adapter.getUniformLocation("uTransforms"), true, this.transform_store.flat());
+        this.renderer_adapter.resetDrawCount();
     }
     modifyMaterialSolidColor(material_color_index, new_color) {
         this.adapters.materials.modifySolidColor(material_color_index, new_color);
@@ -416,12 +425,7 @@ class WebGLWorldAdapter {
     }
 }
 
-class WrappedAggregate {
-    constructor(base_data, worldadapter) {
-        Object.assign(this, base_data);
-        this.worldadapter = worldadapter;
-        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
-    }
+class AbstractWrappedObject {
     getBoundingBox() {
         return this.object.getBoundingBox();
     }
@@ -437,48 +441,42 @@ class WrappedAggregate {
     getInvTransform() {
         return this.object.getInvTransform();
     }
+    getWorldTransform() {
+        return this.getAncestorTransform().times(this.object.getTransform());
+    }
+    getWorldInvTransform() {
+        return this.object.getInvTransform().times(this.getAncestorInvTransform());
+    }
     intersect(ray) {
         return this.object.intersect(ray)
     }
-    setTransform(new_transform, new_inv_transform) {
-        // TODO
-        //me.setTransform(webgl_ids.transformIndex, new_transform, new_inv_transform, renderer_adapter, gl, program);
+    setWorldTransform(new_transform, new_inv_transform) {
+        this.worldadapter.setObjectTransform(this, new_transform, new_inv_transform);
     }
 }
 
-class WrappedPrimitive {
+class WrappedAggregate extends AbstractWrappedObject {
+    constructor(base_data, worldadapter) {
+        super();
+        Object.assign(this, base_data);
+        this.worldadapter = worldadapter;
+        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
+    }
+    getMaterialValues() {
+        return {};
+    }
+}
+
+class WrappedPrimitive extends AbstractWrappedObject {
     constructor(base_data, ancestors, worldadapter) {
+        super();
         Object.assign(this, base_data);
         
         this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + base_data.ID;
         this.worldadapter = worldadapter;
         this.ancestors = ancestors;
-        
-        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
-        this.geometry =  { index: this.geometryIndex,  value: worldadapter.adapters.geometries.getGeometry(this.geometryIndex) };
-        this.material =  { index: this.materialIndex,  value: worldadapter.adapters.materials.getMaterial(this.materialIndex) };
-        this.does_cast_shadow = this.object.does_cast_shadow;
     }
-    getAncestorTransform() {
-        return WebGLWorldAdapter.collapseAncestorTransform(this.ancestors);
-    }
-    getAncestorInvTransform() {
-        return WebGLWorldAdapter.collapseAncestorInvTransform(this.ancestors);
-    }
-    getBoundingBox() {
-        return this.object.getBoundingBox();
-    }
-    getTransform() {
-        return this.object.getTransform();
-    }
-    getInvTransform() {
-        return this.object.getInvTransform();
-    }
-    intersect(ray) {
-        return this.object.intersect(ray)
-    }
-    setTransform(new_transform, new_inv_transform) {
-        // TODO
-        //me.setTransform(webgl_ids.transformIndex, new_transform, new_inv_transform, renderer_adapter, gl, program);
+    getMaterialValues() {
+        return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
     }
 }

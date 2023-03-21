@@ -356,7 +356,7 @@ class WebGLInterface {
         
         // TODO: select geometry type?
         
-        const [pos, rot, scale] = Mat4.breakdownTransform(o.getTransform());
+        const [pos, rot, scale] = Mat4.breakdownTransform(o.getWorldTransform());
         oc += `<div class="object-geometry-controls"><div><table>
                     <tr><td>Position</td><td>
                         <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
@@ -486,24 +486,26 @@ class WebGLInterface {
                 deltaTransform    = Mat4.translation(nextPos3D.minus(lastPos3D));
                 deltaInvTransform = Mat4.translation(lastPos3D.minus(nextPos3D));
             }
-            if (this.transformMode == "rotate") {
+            else if (this.transformMode == "rotate") {
                 const rotateDelta = [0,1].map(i => (this.nextMousePos[i] - this.lastMousePos[i]) * this.transformRotateRate);
                 const rotation = Mat4.rotation(rotateDelta[0], beforeCameraTransform.times(Vec.of(0,1,0,0)))
                           .times(Mat4.rotation(rotateDelta[1], beforeCameraTransform.times(Vec.of(1,0,0,0))));
+                const center = this.selectedObject.getAncestorTransform().times(this.selectedObject.aabb.center);
                 
-                deltaTransform    = Mat4.translation(this.selectedObject.aabb.center).times(rotation             ).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
-                deltaInvTransform = Mat4.translation(this.selectedObject.aabb.center).times(rotation.transposed()).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+                deltaTransform    = Mat4.translation(center).times(rotation             ).times(Mat4.translation(center.times(-1)));
+                deltaInvTransform = Mat4.translation(center).times(rotation.transposed()).times(Mat4.translation(center.times(-1)));
             }
-            if (this.transformMode == "scale") {
+            else if (this.transformMode == "scale") {
                 const scale = 1 + (this.nextMousePos[1] - this.lastMousePos[1]) * this.transformScaleRate;
+                const center = this.selectedObject.getAncestorTransform().times(this.selectedObject.aabb.center);
                 
-                deltaTransform    = Mat4.translation(this.selectedObject.aabb.center).times(Mat4.scale(scale)      ).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
-                deltaInvTransform = Mat4.translation(this.selectedObject.aabb.center).times(Mat4.scale(1 / scale)).times(Mat4.translation(this.selectedObject.aabb.center.times(-1)));
+                deltaTransform    = Mat4.translation(center).times(Mat4.scale(scale)    ).times(Mat4.translation(center.times(-1)));
+                deltaInvTransform = Mat4.translation(center).times(Mat4.scale(1 / scale)).times(Mat4.translation(center.times(-1)));
             }
         }
         
-        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.getTransform()),
-              new_inv_transform = this.selectedObject.getInvTransform().times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
+        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.getWorldTransform()),
+              new_inv_transform = this.selectedObject.getWorldInvTransform().times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
 
         this.setSelectedObjectTransform(new_transform, new_inv_transform);
         this.updateSelectedObjectTransformValues();
@@ -522,7 +524,7 @@ class WebGLInterface {
     updateSelectedObjectTransformValues() {
         if (!this.selectedObject)
             return;
-        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.getTransform());
+        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.getWorldTransform());
         for (let i of [0,1,2]) {
             $(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="pos${i}"]`  ).val(pos[i].toFixed(2));
             $(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="scale${i}"]`).val(scale[i].toFixed(2));
@@ -531,7 +533,9 @@ class WebGLInterface {
     }
     
     setSelectedObjectTransform(transform, inv_transform) {
-        this.selectedObject.setTransform(transform, inv_transform);
+        if (!this.selectedObject)
+            return;
+        this.selectedObject.setWorldTransform(transform, inv_transform);
         this.selectedObject.aabb = this.selectedObject.getBoundingBox();
     }
     
