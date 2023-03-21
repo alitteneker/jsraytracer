@@ -70,16 +70,13 @@ class WebGLInterface {
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         
-        $("#world-objects").fancytree({ source: [
+        $("#world-objects").fancytree({
+            source: [
                 { title: "Objects", key: "_objects", folder: true, clickFolderMode: 2 },
-                { title: "Lights",  key: "_lights",  folder: true, clickFolderMode: 2 }],
-            activate: function(e, d) {
-                let selectedObject = null;
-                if (d.node.data._worldtype == "light")
-                    this.selectObject(this.renderer_adapter.getLight(d.node.data._worldindex));
-                else
-                    this.selectObject(d.node.data._worldobj);
-            }.bind(this) });
+                { title: "Lights",  key: "_lights",  folder: true, clickFolderMode: 2 }
+            ],
+            activate: this.selectObjectTree.bind(this)
+        });
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
@@ -97,12 +94,13 @@ class WebGLInterface {
             
             uniform vec3 uCubeMin;
             uniform vec3 uCubeMax;
-            uniform mat4 uModelviewProjection;
+            uniform mat4 uModelMatrix;
+            uniform mat4 uViewProjectionMatrix;
             
             out vec3 vertexPosition;
             void main() {
-                vertexPosition = mix(uCubeMin, uCubeMax, cubeCorner);
-                gl_Position = uModelviewProjection * vec4(vertexPosition, 1.0);
+                vertexPosition = (uModelMatrix * vec4(mix(uCubeMin, uCubeMax, cubeCorner), 1)).xyz;
+                gl_Position = uViewProjectionMatrix * vec4(vertexPosition, 1.0);
             }`,
             
             `#version 300 es
@@ -122,12 +120,13 @@ class WebGLInterface {
                 this.lineShader = {};
                 this.lineShader.program = shaderProgram;
                 this.lineShader.uniforms = {
-                    lineColor:           gl.getUniformLocation(shaderProgram, "uLineColor"),
-                    cubeMin:             gl.getUniformLocation(shaderProgram, "uCubeMin"),
-                    cubeMax:             gl.getUniformLocation(shaderProgram, "uCubeMax"),
-                    maxDepth:            gl.getUniformLocation(shaderProgram, "uMaxDepth"),
-                    cameraPosition:      gl.getUniformLocation(shaderProgram, "uCameraPosition"),
-                    modelviewProjection: gl.getUniformLocation(shaderProgram, "uModelviewProjection")
+                    lineColor:            gl.getUniformLocation(shaderProgram, "uLineColor"),
+                    cubeMin:              gl.getUniformLocation(shaderProgram, "uCubeMin"),
+                    cubeMax:              gl.getUniformLocation(shaderProgram, "uCubeMax"),
+                    maxDepth:             gl.getUniformLocation(shaderProgram, "uMaxDepth"),
+                    cameraPosition:       gl.getUniformLocation(shaderProgram, "uCameraPosition"),
+                    modelMatrix:          gl.getUniformLocation(shaderProgram, "uModelMatrix"),
+                    viewProjectionMatrix: gl.getUniformLocation(shaderProgram, "uViewProjectionMatrix"),
                 };
 
                 this.lineShader.vertexBuffer = gl.createBuffer();
@@ -271,7 +270,7 @@ class WebGLInterface {
             
             // If any object is selected, draw it's wireframe.
             if (this.selectedObject)
-                this.drawWireframe(this.selectedObject.aabb)
+                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb)
             
             // Request another frame of animation.
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
@@ -280,7 +279,7 @@ class WebGLInterface {
         // reset all intermediary input/timing variables
         this.lastDrawTimestamp = currentTimestamp;
     }
-    drawWireframe(aabb) {
+    drawWireframe(ancestorTransform, aabb) {
         if (this.lineShader) {
             const gl = this.gl;
             if (aabb.isFinite()) {
@@ -292,7 +291,8 @@ class WebGLInterface {
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
-                gl.uniformMatrix4fv(this.lineShader.uniforms.modelviewProjection, true, this.renderer_adapter.getCameraViewMatrix().flat());
+                gl.uniformMatrix4fv(this.lineShader.uniforms.modelMatrix,          true, ancestorTransform.flat());
+                gl.uniformMatrix4fv(this.lineShader.uniforms.viewProjectionMatrix, true, this.renderer_adapter.getCameraViewMatrix().flat());
                 
                 gl.bindBuffer(gl.ARRAY_BUFFER, this.lineShader.vertexBuffer);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineShader.indexBuffer);
@@ -316,7 +316,13 @@ class WebGLInterface {
             
             const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
             if (treenode)
-                treenode.setActive();
+                treenode.setActive(true, {noEvents: true});
+            else {
+                const activeNode = $.ui.fancytree.getTree("#world-objects").getActiveNode();
+                if (activeNode)
+                    activeNode.setActive(false, {noEvents: true});
+            }
+                
             
             $('#object-control-bar').controlgroup("enable");
             
@@ -329,6 +335,17 @@ class WebGLInterface {
             $('#object-control-bar').controlgroup("disable");
             $("#selected-object-controls").empty();
         }
+    }
+    selectObjectTree(e, d) {
+        let selectedObject = null;
+        if (d.node.data._worldobj.type == "primitive") {
+            const parentobj = d.node.parent.data._worldobj;
+            this.selectObject(new WrappedPrimitive(d.node.data._worldobj, parentobj ? parentobj.ancestors.concat(parentobj) : [], this.renderer_adapter.adapters.world));
+        }
+        else if (d.node.data._worldtype == "light")
+            this.selectObject(this.renderer_adapter.getLight(d.node.data._worldindex));
+        else
+            this.selectObject(d.node.data._worldobj);
     }
     
     buildSelectedObjectControls() {
@@ -408,12 +425,12 @@ class WebGLInterface {
         
         function object_transformer(o, ancestors) {
             return {
-                key: "o" + (o instanceof WrappedPrimitive && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + o.ID,
+                key: "o" + (o.type == "primitive" && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + o.ID,
                 _worldobj: o,
                 _worldtype: "object",
-                _worldancestors: (o instanceof WrappedPrimitive) ? ancestors : o.ancestors,
+                _worldancestors: (o.type == "primitive") ? ancestors : o.ancestors,
                 children: [...(o.children || []).map(c => object_transformer(c, ancestors.concat(o)))],
-                title: `${o.geometry ? WebGLGeometriesAdapter.TypeStringLabel(o.geometry.index) : "Aggregate"} : ${o.index}`
+                title: `${o.type == "primitive" ? WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex) : "Aggregate"} : ${o.ID}`
             };
         }
         objects_root.setExpanded(true);
@@ -612,7 +629,7 @@ class WebGLInterface {
             const rect = e.target.getBoundingClientRect();
             const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
             if (this.selectedObject) {
-                const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]);
+                const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]).getTransformed(this.selectedObject.getAncestorInvTransform());
                 this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
                     ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.intersect(ray).distance;
                 this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0;

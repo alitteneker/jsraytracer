@@ -12,37 +12,27 @@ export function configureTest(callback) {
         5000
     )];
 
-    loadObjFile(
-        "../assets/cube.obj",
-        new PhongPathTracingMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100),
+    const objects = [];
+    objects.push(new Primitive(
+        new Plane(),
+        new PhongPathTracingMaterial(
+            new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
+                0.1, 0.4, 0.6, 10),
+        Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
+    objects.push(new Primitive(
+        new UnitBox(),
+        new PhongPathTracingMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 10000),
+        Mat4.translation([1.2, 0.2, -7, 1]).times(Mat4.scale(2))));
+    objects.push(new Primitive(
+        new Sphere(),
+        new PhongPathTracingMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100),
+        Mat4.translation([-2, 0.3, -9])));
 
-        Mat4.translation([0.6,0,-8])
-            .times(Mat4.rotation(Math.PI/9, Vec.of(1,0,0)))
-            .times(Mat4.rotation(Math.PI/3, Vec.of(0,1,0))),
-
-        function(objects) {
-            objects = [];
-            objects.push(new Primitive(
-                new Plane(),
-                new PhongPathTracingMaterial(
-                    new CheckerboardMaterialColor(Vec.of(1,1,1), Vec.of(0,0,0)),
-                        0.1, 0.4, 0.6, 10),
-                Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
-            objects.push(new Primitive(
-                new UnitBox(),
-                new PhongPathTracingMaterial(Vec.of(1,0,0), 0.2, 0.4, 0.6, 10000),
-                Mat4.translation([1.2, 0.2, -7, 1]).times(Mat4.scale(2))));
-            objects.push(new Primitive(
-                new Sphere(),
-                new PhongPathTracingMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100),
-                Mat4.translation([-2, 0.3, -9])));
-
-                
-            callback({
-                renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
-                    new World(objects, lights), camera, 128, 4),
-                width: 600,
-                height: 600
-            });
-        });
+        
+    callback({
+        renderer: new /*RandomMultisamplingRenderer*/IncrementalMultisamplingRenderer(
+            new World(objects, lights), camera, 128, 4),
+        width: 600,
+        height: 600
+    });
 }

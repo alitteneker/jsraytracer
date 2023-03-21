@@ -1,5 +1,6 @@
 [
     "ASimpleScene",
+    "Aggregates",
     "AHollowTetrahedron",
     "refraction_simple",
     "BoxBall",

@@ -31,8 +31,8 @@ class WebGLRendererAdapter {
         
         // Create the adapters for the world, which will also validate the data for the world
         this.adapters = {
-            camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper, gl),
-            world:  new WebGLWorldAdapter( renderer.world,  this.webgl_helper, gl)
+            camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper, this),
+            world:  new WebGLWorldAdapter( renderer.world,  this.webgl_helper, this)
         };
     }
     

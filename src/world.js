@@ -37,7 +37,7 @@ class World {
             return this.bg_color;
         let ancestorInvTransform = Mat4.identity();
         for (let i = 0; i < intersection.ancestors.length; ++i)
-            ancestorInvTransform = ancestorInvTransform.times(intersection.ancestors[i].getInvTransform());
+            ancestorInvTransform = intersection.ancestors[i].getInvTransform().times(ancestorInvTransform);
         return intersection.object.color(ray, intersection.distance, ancestorInvTransform, this, recursionDepth - 1);
     }
 }

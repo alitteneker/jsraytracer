@@ -12,7 +12,7 @@ class Aggregate extends WorldObject {
     }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         const ret = World.getMinimumIntersection(this.objects, ray.getTransformed(this.getInvTransform()), minDistance, maxDistance, shadowCast);
-        ret.ancestors.push(this);
+        ret.ancestors.unshift(this);
         return ret;
     }
 }
@@ -40,7 +40,7 @@ class BVHAggregate extends Aggregate {
         const local_r = ray.getTransformed(this.getInvTransform());
         const ret = World.getMinimumIntersection([], local_r, minDist, maxDist, intersectTransparent);
         this.kdtree.intersect(local_r, ret, minDist, maxDist, intersectTransparent);
-        ret.ancestors.push(this);
+        ret.ancestors.unshift(this);
         return ret;
     }
     maxDepth() {
@@ -212,7 +212,7 @@ class BSPAggregate extends Aggregate {
         const local_r = ray.getTransformed(this.getInvTransform());
         const ret = World.getMinimumIntersection([], local_r, minDist, maxDist, intersectTransparent);
         this.kdtree.intersect(local_r, ret, minDist, maxDist, intersectTransparent);
-        ret.ancestors.push(this);
+        ret.ancestors.unshift(this);
         return ret;
     }
 }
