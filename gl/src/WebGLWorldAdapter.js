@@ -22,6 +22,7 @@ class WebGLWorldAdapter {
         this.transform_object_map = {};
         this.primitive_id_index_map = {};
         this.aggregate_id_index_map = {};
+        this.aggregate_instance_map = {};
         
         
         // deal with lights
@@ -95,6 +96,9 @@ class WebGLWorldAdapter {
                 children: []
             }, this);
             this.aggregate_id_index_map[ID] = this.aggregates.length;
+            if (!(obj.OBJECT_UID in this.aggregate_instance_map))
+                this.aggregate_instance_map[obj.OBJECT_UID] = [];
+            this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
             this.aggregates.push(agg);
             
             const bvh_nodes = [];
@@ -154,6 +158,9 @@ class WebGLWorldAdapter {
                 children: []
             }, this);
             this.aggregate_id_index_map[ID] = this.aggregates.length;
+            if (!(obj.OBJECT_UID in this.aggregate_instance_map))
+                this.aggregate_instance_map[obj.OBJECT_UID] = [];
+            this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
             this.aggregates.push(agg);
             for (let o of obj.objects)
                 agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
@@ -209,13 +216,11 @@ class WebGLWorldAdapter {
         this.transform_object_map[transformIndex].push(object);
         return transformIndex;
     }
-    setObjectTransform(wrapped_obj, new_transform, new_inv_transform) {
-        this.renderer_adapter.useTracerProgram();
+    updateTransformsRecursive(wrapped_obj) {
+        if (wrapped_obj.type == "primitive")
+            return;
         
-        const local_inv_transform = new_inv_transform.times(wrapped_obj.getAncestorTransform());
-        const set_transform = wrapped_obj.type == "primitive" ? local_inv_transform : new_inv_transform;
-        wrapped_obj.object.setTransform(wrapped_obj.getAncestorInvTransform().times(new_transform), local_inv_transform);
-        
+        const set_transform = wrapped_obj.getWorldInvTransform();
         if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
             this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
             wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object);
@@ -223,11 +228,31 @@ class WebGLWorldAdapter {
         else
             this.transform_store.set(wrapped_obj.transformIndex, set_transform);
         
-        if (wrapped_obj.type != "primitive") {
-            // TODO: we also need to update the transforms of all descendant non-primitives in the WebGL tree, as well as any other instances of this same aggregate
+        for (let child of wrapped_obj.children)
+            if (child.type != "primitive")
+                this.updateTransformsRecursive(child);
+    }
+    setObjectTransform(wrapped_obj, new_transform, new_inv_transform) {
+        wrapped_obj.object.setTransform(wrapped_obj.getAncestorInvTransform().times(new_transform), new_inv_transform.times(wrapped_obj.getAncestorTransform()));
+        
+        if (wrapped_obj.type == "primitive") {
+            if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
+                this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
+                wrapped_obj.transformIndex = this.registerTransform(wrapped_obj.getInvTransform(), wrapped_obj.object);
+            }
+            else
+                this.transform_store.set(wrapped_obj.transformIndex, wrapped_obj.getInvTransform());
+        }
+        else {
+            for (let agg of this.aggregate_instance_map[wrapped_obj.object.OBJECT_UID])
+                this.updateTransformsRecursive(agg);
+            for (let child of wrapped_obj.children)
+                if (child.type != "primitive")
+                    this.updateTransformsRecursive(child);
         }
         
         // TODO: do we need to check whether transforms have expanded beyond the bounds of available memory?
+        this.renderer_adapter.useTracerProgram();
         this.renderer_adapter.gl.uniformMatrix4fv(this.renderer_adapter.getUniformLocation("uTransforms"), true, this.transform_store.flat());
         this.renderer_adapter.resetDrawCount();
     }
