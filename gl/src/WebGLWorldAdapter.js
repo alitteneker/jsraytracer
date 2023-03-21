@@ -223,6 +223,11 @@ class WebGLWorldAdapter {
         else
             this.transform_store.set(wrapped_obj.transformIndex, set_transform);
         
+        if (wrapped_obj.type != "primitive") {
+            // TODO: we also need to update the transforms of all descendant non-primitives in the WebGL tree, as well as any other instances of this same aggregate
+        }
+        
+        // TODO: do we need to check whether transforms have expanded beyond the bounds of available memory?
         this.renderer_adapter.gl.uniformMatrix4fv(this.renderer_adapter.getUniformLocation("uTransforms"), true, this.transform_store.flat());
         this.renderer_adapter.resetDrawCount();
     }
