@@ -270,7 +270,9 @@ class WebGLInterface {
             
             // If any object is selected, draw it's wireframe.
             if (this.selectedObject)
-                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb)
+                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb, Vec.of(1,0,0,1));
+            if (this.transformObject && this.transformObject !== this.selectedObject)
+                this.drawWireframe(this.transformObject.getAncestorTransform(), this.transformObject.aabb, this.transformObject.isBeingTransformed ? Vec.of(0,0,1,1) : Vec.of(1,1,1,1));
             
             // Request another frame of animation.
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
@@ -279,7 +281,7 @@ class WebGLInterface {
         // reset all intermediary input/timing variables
         this.lastDrawTimestamp = currentTimestamp;
     }
-    drawWireframe(ancestorTransform, aabb) {
+    drawWireframe(ancestorTransform, aabb, color) {
         if (this.lineShader) {
             const gl = this.gl;
             if (aabb.isFinite()) {
@@ -287,7 +289,7 @@ class WebGLInterface {
                 gl.bindTexture(gl.TEXTURE_2D, null);
                 
                 gl.uniform1f(       this.lineShader.uniforms.maxDepth,       this.renderer_adapter.maxDepth);
-                gl.uniform4fv(      this.lineShader.uniforms.lineColor,      this.selectedObject.isBeingTransformed ? Vec.of(1,0,0,1) : Vec.of(1,1,1,1));
+                gl.uniform4fv(      this.lineShader.uniforms.lineColor,      color);
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMin,        aabb.min.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cubeMax,        aabb.max.slice(0,3));
                 gl.uniform3fv(      this.lineShader.uniforms.cameraPosition, this.renderer_adapter.getCameraPosition().slice(0,3));
@@ -305,6 +307,7 @@ class WebGLInterface {
     
     
     selectedObject = null;
+    transformObject = null;
     selectObjectAt(x, y) {
         if (!this.renderer_adapter)
             return;
@@ -321,6 +324,12 @@ class WebGLInterface {
                 throw "Unable to find selected object in scene tree";
             
             $('#object-control-bar').controlgroup("enable");
+            
+            this.transformObject = selectedObject;
+            while (this.transformObject && this.transformObject.notTransformable)
+                this.transformObject = this.transformObject.ancestors.length ? this.transformObject.ancestors[this.transformObject.ancestors.length-1] : null;
+            if (this.transformObject && this.transformObject !== this.selectedObject)
+                this.transformObject.aabb = this.transformObject.getBoundingBox();
             
             this.buildSelectedObjectControls();
         }
@@ -408,14 +417,13 @@ class WebGLInterface {
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
         $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
         $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
-        if (o.notTransformable) {
+        
+        if (o.notTransformable)
             $("#selected-object-controls input[data-transform-type]").spinner("disable");
-            $("#transform-mode").selectmenu("disable");
-        }
-        else {
+        else
             $("#selected-object-controls input[data-transform-type]").on('spinstop', this.modifySelectedObjectTransformValues.bind(this));
-            $("#transform-mode").selectmenu("enable");
-        }
+        
+        $("#transform-mode").selectmenu(this.transformObject ? "enable" : "disable");
     }
     
     initializeWorldControls(adapter) {
@@ -489,8 +497,8 @@ class WebGLInterface {
         let deltaTransform = Mat4.identity(), deltaInvTransform = Mat4.identity();
         if (this.lastMousePos[0] != this.nextMousePos[0] || this.lastMousePos[1] != this.nextMousePos[1]) {
             if (this.transformMode == "translate") {
-                const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.selectedObject.selectDepth);
-                const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.selectedObject.selectDepth);
+                const lastPos3D = this.renderer_adapter.getRayForPixel(this.lastMousePos[0], this.lastMousePos[1]).getPoint(this.transformObject.selectDepth);
+                const nextPos3D = this.renderer_adapter.getRayForPixel(this.nextMousePos[0], this.nextMousePos[1]).getPoint(this.transformObject.selectDepth);
                 
                 deltaTransform    = Mat4.translation(nextPos3D.minus(lastPos3D));
                 deltaInvTransform = Mat4.translation(lastPos3D.minus(nextPos3D));
@@ -499,22 +507,22 @@ class WebGLInterface {
                 const rotateDelta = [0,1].map(i => (this.nextMousePos[i] - this.lastMousePos[i]) * this.transformRotateRate);
                 const rotation = Mat4.rotation(rotateDelta[0], beforeCameraTransform.times(Vec.of(0,1,0,0)))
                           .times(Mat4.rotation(rotateDelta[1], beforeCameraTransform.times(Vec.of(1,0,0,0))));
-                const center = this.selectedObject.getAncestorTransform().times(this.selectedObject.aabb.center);
+                const center = this.transformObject.getAncestorTransform().times(this.transformObject.aabb.center);
                 
                 deltaTransform    = Mat4.translation(center).times(rotation             ).times(Mat4.translation(center.times(-1)));
                 deltaInvTransform = Mat4.translation(center).times(rotation.transposed()).times(Mat4.translation(center.times(-1)));
             }
             else if (this.transformMode == "scale") {
                 const scale = 1 + (this.nextMousePos[1] - this.lastMousePos[1]) * this.transformScaleRate;
-                const center = this.selectedObject.getAncestorTransform().times(this.selectedObject.aabb.center);
+                const center = this.transformObject.getAncestorTransform().times(this.transformObject.aabb.center);
                 
                 deltaTransform    = Mat4.translation(center).times(Mat4.scale(scale)    ).times(Mat4.translation(center.times(-1)));
                 deltaInvTransform = Mat4.translation(center).times(Mat4.scale(1 / scale)).times(Mat4.translation(center.times(-1)));
             }
         }
         
-        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.selectedObject.getWorldTransform()),
-              new_inv_transform = this.selectedObject.getWorldInvTransform().times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
+        const new_transform     = deltaTransform.times(this.renderer_adapter.getCameraTransform().times(beforeCameraInvTransform)).times(this.transformObject.getWorldTransform()),
+              new_inv_transform = this.transformObject.getWorldInvTransform().times(beforeCameraTransform.times(this.renderer_adapter.getCameraInverseTransform())).times(deltaInvTransform);
 
         this.setSelectedObjectTransform(new_transform, new_inv_transform);
         this.updateSelectedObjectTransformValues();
@@ -542,9 +550,11 @@ class WebGLInterface {
     }
     
     setSelectedObjectTransform(transform, inv_transform) {
-        if (!this.selectedObject)
+        if (!this.selectedObject || !this.transformObject)
             return;
-        this.selectedObject.setWorldTransform(transform, inv_transform);
+        this.transformObject.setWorldTransform(transform, inv_transform);
+        if (this.transformObject !== this.selectedObject)
+            this.transformObject.aabb = this.transformObject.getBoundingBox();
         this.selectedObject.aabb = this.selectedObject.getBoundingBox();
     }
     
@@ -558,7 +568,7 @@ class WebGLInterface {
         const beforeCameraTransform    = this.renderer_adapter.getCameraTransform(),
               beforeCameraInvTransform = this.renderer_adapter.getCameraInverseTransform();
         
-        const mouseMoveDelta = (this.selectedObject && this.selectedObject.isBeingTransformed) ? [0,0] : [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
+        const mouseMoveDelta = (this.transformObject && this.transformObject.isBeingTransformed) ? [0,0] : [0,1].map(i => this.nextMousePos[i] - this.lastMousePos[i]);
         if (timeDelta > 0 && (mouseMoveDelta.some(x => (x != 0)) || this.keyMoveDelta.some(x => (x != 0)))) {
             const normalizedMouseDelta = Vec.from(mouseMoveDelta.map(     v => this.mouseSpeed * v));
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
@@ -566,7 +576,7 @@ class WebGLInterface {
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
         }
         
-        if ((this.selectedObject && this.selectedObject.isBeingTransformed))
+        if ((this.transformObject && this.transformObject.isBeingTransformed))
             this.transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform);
         
         this.lastMousePos = this.nextMousePos;
@@ -585,6 +595,9 @@ class WebGLInterface {
         "d": [ 1, 0, 0],
         " ": [ 0, 1, 0],
         "c": [ 0,-1, 0]
+    };
+    keyTransformModeMap = {
+        "e": 
     };
     registerKeyEvents() {
         const canvas_widget = $("div.canvas-widget");
@@ -641,11 +654,11 @@ class WebGLInterface {
         if (this.renderer_adapter) {
             const rect = e.target.getBoundingClientRect();
             const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
-            if (this.selectedObject) {
-                const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]).getTransformed(this.selectedObject.getAncestorInvTransform());
-                this.selectedObject.selectDepth = this.selectedObject.aabb.isFinite()
-                    ? this.selectedObject.aabb.intersect(ray) : this.selectedObject.intersect(ray).distance;
-                this.selectedObject.isBeingTransformed = this.selectedObject.selectDepth > 0 && !this.selectedObject.notTransformable;
+            if (this.transformObject) {
+                const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]).getTransformed(this.transformObject.getAncestorInvTransform());
+                this.transformObject.selectDepth = this.transformObject.aabb.isFinite()
+                    ? this.transformObject.aabb.intersect(ray) : this.transformObject.intersect(ray).distance;
+                this.transformObject.isBeingTransformed = this.transformObject.selectDepth > 0 && !this.transformObject.notTransformable;
             }
             this.nextMousePos = this.lastMousePos = mousePos;
         }
@@ -659,10 +672,10 @@ class WebGLInterface {
         this.pointerLeave(e);
     }
     pointerLeave(e) {
-        if (this.selectedObject) {
-            if (this.selectedObject.isBeingTransformed)
+        if (this.transformObject) {
+            if (this.transformObject.isBeingTransformed)
                 this.lastMousePos = this.nextMousePos;
-            this.selectedObject.isBeingTransformed = false;
+            this.transformObject.isBeingTransformed = false;
         }
         this.isMouseDown = false;
         this.canvas.get(0).releasePointerCapture(e.pointerId);
