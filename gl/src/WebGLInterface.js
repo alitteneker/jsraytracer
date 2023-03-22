@@ -597,7 +597,9 @@ class WebGLInterface {
         "c": [ 0,-1, 0]
     };
     keyTransformModeMap = {
-        "e": 
+        "e": "scale",
+        "r": "rotate",
+        "t": "translate"
     };
     registerKeyEvents() {
         const canvas_widget = $("div.canvas-widget");
@@ -613,7 +615,12 @@ class WebGLInterface {
                     this.keyMoveDelta[i] += this.keyDirMap[key][i];
     }
     keyDown(e) {
-        if (e.key in this.keyDirMap) {
+        if (e.key in this.keyTransformModeMap) {
+            $('#transform-mode').val(this.keyTransformModeMap[e.key]);
+            $('#transform-mode').selectmenu("refresh");
+            this.transformModeChange();
+        }
+        else if (e.key in this.keyDirMap) {
             e.stopPropagation();
             e.preventDefault();
             this.keysDown[e.key] = true;
