@@ -319,10 +319,16 @@ class WebGLHelper {
 
         if (parallel_compile_ext) {
             function checkCompletion() {
-                if (gl.getProgramParameter(shaderProgram, parallel_compile_ext.COMPLETION_STATUS_KHR))
-                    checkToUseProgram();
-                else
-                    requestAnimationFrame(checkCompletion);
+                try {
+                    if (gl.getProgramParameter(shaderProgram, parallel_compile_ext.COMPLETION_STATUS_KHR))
+                        checkToUseProgram();
+                    else
+                        requestAnimationFrame(checkCompletion);
+                }
+                catch(e) {
+                    myconsole.error(e);
+                    $(".loading").css('visibility', 'hidden');
+                }
             }
             requestAnimationFrame(checkCompletion);
         }

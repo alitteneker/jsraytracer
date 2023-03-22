@@ -46,7 +46,7 @@
             <select id="test-select">
                 <option value="">--Select--</option>
             </select>
-            <img id="loading-img" src="../assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
+            <img id="loading-img" class="loading" src="../assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
             <button id="help-button">Help</button>
         </div>
         
@@ -56,6 +56,7 @@
         </div>
         <div class="canvas-widget">
             <canvas id="glcanvas" tabindex="0"></canvas>
+            <div id="loading-overlay" class="loading" style="visibility:hidden">Loading...</div>
         </div>
         <div><div class="control-group" id="object-control-bar">
             <button id="deselect-object-button">Deselect</button>

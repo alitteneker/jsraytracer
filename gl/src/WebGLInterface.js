@@ -193,11 +193,11 @@ class WebGLInterface {
                 myconsole.log("Starting draw world loop...");
                 this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
 
-                $("#loading-img").css('visibility', 'hidden');
+                $(".loading").css('visibility', 'hidden');
             }.bind(this));
         } catch(error) {
             myconsole.error(error);
-            $("#loading-img").css('visibility', 'hidden');
+            $(".loading").css('visibility', 'hidden');
         }
     }
     stopDrawLoop() {

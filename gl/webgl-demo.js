@@ -58,18 +58,24 @@ $(document).ready(function() {
     });
     
     function loadTest(test) {
-        $("#loading-img").css('visibility', 'visible');
+        $(".loading").css('visibility', 'visible');
         
         myconsole.log("Loading " + test + "...");
-        import("../tests/" + test + "/test.js").then(function(module) {
-            module.configureTest(function(test) {
-                i.changeTest(test);
+        try {
+            import("../tests/" + test + "/test.js").then(function(module) {
+                module.configureTest(function(test) {
+                    i.changeTest(test);
+                });
+                document.title = defaultTitle + ": " + test;
+            }, function(e) {
+                myconsole.error(e);
+                $(".loading").css('visibility', 'hidden');
             });
-            document.title = defaultTitle + ": " + test;
-        }, function(e) {
+        }
+        catch(e) {
             myconsole.error(e);
-            $("#loading-img").css('visibility', 'hidden');
-        });
+            $(".loading").css('visibility', 'hidden');
+        }
     }
 });
 
