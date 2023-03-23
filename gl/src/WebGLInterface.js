@@ -269,10 +269,10 @@ class WebGLInterface {
                 this.renderer_adapter.drawWorld(currentTimestamp);
             
             // If any object is selected, draw it's wireframe.
-            if (this.selectedObject)
-                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb, Vec.of(1,0,0,1));
-            if (this.transformObject && this.transformObject !== this.selectedObject)
+            if (this.transformObject)
                 this.drawWireframe(this.transformObject.getAncestorTransform(), this.transformObject.aabb, this.transformObject.isBeingTransformed ? Vec.of(0,0,1,1) : Vec.of(1,1,1,1));
+            if (this.selectedObject && this.transformObject !== this.selectedObject)
+                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb, Vec.of(1,0,0,1));
             
             // Request another frame of animation.
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
