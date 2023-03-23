@@ -62,7 +62,7 @@ $(document).ready(function() {
         
         myconsole.log("Loading " + test + "...");
         try {
-            import("../tests/" + test + "/test.js").then(function(module) {
+            import("../tests/" + test + "/test.mjs").then(function(module) {
                 module.configureTest(function(test) {
                     i.changeTest(test);
                 });

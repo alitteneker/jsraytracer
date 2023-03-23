@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
 
             const worker = workers[i] = new Worker('src/worker.js');
 
-            worker.postMessage(["../" + testpath + "/test.js", i, workerCount]);
+            worker.postMessage(["../" + testpath + "/test.mjs", i, workerCount]);
 
             worker.onmessage = (function(e) {
                 if (e.data[0] === "finished") {
