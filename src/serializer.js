@@ -26,7 +26,7 @@ class Serializer {
         
         // This object might have specified a serialize function.
         if (typeof obj.serialize == "function")
-            obj.serialize(ref, this);
+            ref._val = obj.serialize(ref, this);
         
         // If this is an array, we can make a small performance savings with map over object enumeration.
         else if (obj instanceof Array)
@@ -47,10 +47,13 @@ class Serializer {
     }
     
     
-    static deserializeJSON(json_data) {
-        const deserialized_refs = {};
+    static deserializeJSON(json_txt) {
+        return Serializer.deserializeData(JSON.parse(json_txt));
+    }
+    static deserializeData(json_data) {
+        const deserialized_refs = {}, type_cache = {};
         for (let r of json_data.reforder)
-            deserialized_refs[r] = Serializer.deserializeRef(json_data.refs[r], deserialized_refs);
+            deserialized_refs[r] = Serializer.deserializeRef(json_data.refs[r], deserialized_refs, type_cache);
         
         if (json_data.data === null || json_data.data === undefined || typeof json_data.data != "object")
             return json_data.data;
@@ -59,7 +62,7 @@ class Serializer {
         
         throw "Something has gone wrong with deserialization";
     }
-    static deserializeRef(json_obj, deserialized_refs) {
+    static deserializeRef(json_obj, deserialized_refs, type_cache) {
         if (json_obj === null || json_obj === undefined || typeof json_obj != "object")
             return json_obj;
         
@@ -69,21 +72,32 @@ class Serializer {
             return deserialized_refs[json_obj._ref];
         }
         
-        if (json_obj._type == "Array")
-            return json_obj._val.map(v => Serializer.deserializeRef(v, deserialized_refs));
+        if (!("_type" in json_obj))
+            return json_obj;
         
-        if (json_obj._type == "Object") {
-            const ret = {};
+        
+        let derefed = null;
+        if (json_obj._val instanceof Array)
+            derefed = json_obj._val.map(v => Serializer.deserializeRef(v, deserialized_refs, type_cache));
+        else {
+            const derefed = {};
             for (let [k,v] of Object.entries(json_obj._val))
-                ret[k] = Serializer.deserializeRef(v, deserialized_refs);
-            return ret;
+            derefed[k] = Serializer.deserializeRef(v, deserialized_refs, type_cache);
         }
         
-        if (!(json_obj._type in window))
-            throw "Unknown type " + json_obj._type;
-        const type = window[json_obj._type];
-        if ("deserialize" in type)
-            return type.deserialize(json_obj, deserialized_refs);
+        if (json_obj._type == "Object" || json_obj._type == "Array")
+            return derefed;
+        
+        if (!(json_obj._type in type_cache)) {
+            type_cache[json_obj._type] = eval(json_obj._type);
+            if (!type_cache[json_obj._type])
+                throw "Unknown type " + json_obj._type;
+        }
+        
+        if ("deserialize" in type_cache[json_obj._type])
+            return type_cache[json_obj._type].deserialize(derefed);
+        
+        // TODO: is it worthwhile to add some simple blessing?
         
         throw "Unable to deserialize ref of type " + json_obj._type;
     }

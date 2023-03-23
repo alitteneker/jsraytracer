@@ -113,6 +113,12 @@ function median(arr) {
 
 // Much of this file was adapted from code written by Garett Ridge for tiny-graphics.js
 class Vec extends Float32Array {
+    serialize() {
+        return Array.from(this);
+    }
+    static deserialize(data) {
+        return Vec.from(data);
+    }
     copy() {
         return Vec.from(this)
     }
@@ -251,13 +257,19 @@ class Mat extends Array {
         super(0);
         this.push(...args)
     }
+    serialize() {
+        return Array.from(this);
+    }
+    static deserialize(data) {
+        return Mat.from_rows(...data);
+    }
     static from_rows(...args) {
-        return new Mat(args.map(a => a.copy()))
+        return new Mat(...args.map(a => Array.from(a)))
     }
     static from_cols(...args) {
         const ret = new Mat();
         for (let i = 0; i < args[0].length; ++i)
-            ret.push(Array(args.length).fill(0));
+            ret.push(new Array(args.length).fill(0));
         for (let i = 0; i < args.length; ++i)
             for (let j = 0; j < args[0].length; ++j)
                 ret[j][i] = args[i][j];
