@@ -24,7 +24,6 @@ class World {
                 aabbs.push(aabb);
         }
         return aabbs.length ? AABB.hull(aabbs) : AABB.empty();
-        
     }
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
         return World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);

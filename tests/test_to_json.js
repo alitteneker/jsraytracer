@@ -16,6 +16,7 @@ const requirements = [
 for (let r of requirements)
     new vm.Script(fs.readFileSync(`../src/${r}`).toString(), { filename: r }).runInThisContext();
 
+
 const test_loc = process.argv.slice(2)[0];
 console.log("Loading " + test_loc + "...");
 
