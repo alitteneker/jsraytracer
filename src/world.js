@@ -48,8 +48,6 @@ class WorldObject {
         
         this.transform = transform;
         this.inv_transform = inv_transform;
-        
-        this.parents = [];
     }
     getBoundingBox() {
         if (!this.aabb)
@@ -69,8 +67,6 @@ class WorldObject {
     }
     contentsChanged() {
         this.aabb = null;
-        for (let p of this.parents)
-            p.contentsChanged();
     }
     buildBoundingBox() {
         throw "WorldObject subclass does not implement getBoundingBox";
@@ -88,7 +84,6 @@ class TransformedWorldObject extends WorldObject {
         super(transform, inv_transform);
         
         this.object = object;
-        object.parents.push(this);
     }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         return {

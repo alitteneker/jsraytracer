@@ -2,8 +2,6 @@ class Aggregate extends WorldObject {
     constructor(objects=[], transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
         super(transform, inv_transform);
         this.objects = objects;
-        for (let o of objects)
-            o.parents.push(this);
     }
     buildBoundingBox() {
         return this.objects.length

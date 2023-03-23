@@ -245,10 +245,15 @@ class WebGLWorldAdapter {
             }
             else
                 this.transform_store.set(wrapped_obj.transformIndex, wrapped_obj.getInvTransform());
+            for (let a of wrapped_obj.ancestors)
+                a.object.contentsChanged();
         }
         else {
-            for (let agg of this.aggregate_instance_map[wrapped_obj.object.OBJECT_UID])
+            for (let agg of this.aggregate_instance_map[wrapped_obj.object.OBJECT_UID]) {
                 this.updateTransformsRecursive(agg);
+                for (let a of wrapped_obj.ancestors)
+                    a.object.contentsChanged();
+            }
             for (let child of wrapped_obj.children)
                 if (child.type != "primitive")
                     this.updateTransformsRecursive(child);

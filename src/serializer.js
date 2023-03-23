@@ -72,7 +72,7 @@ class Serializer {
             return deserialized_refs[json_obj._ref];
         }
         
-        if (!("_type" in json_obj))
+        if (!("_type" in json_obj) || !("_val" in json_obj))
             return json_obj;
         
         
@@ -80,7 +80,7 @@ class Serializer {
         if (json_obj._val instanceof Array)
             derefed = json_obj._val.map(v => Serializer.deserializeRef(v, deserialized_refs, type_cache));
         else {
-            const derefed = {};
+            derefed = {};
             for (let [k,v] of Object.entries(json_obj._val))
             derefed[k] = Serializer.deserializeRef(v, deserialized_refs, type_cache);
         }
@@ -97,8 +97,8 @@ class Serializer {
         if ("deserialize" in type_cache[json_obj._type])
             return type_cache[json_obj._type].deserialize(derefed);
         
-        // TODO: is it worthwhile to add some simple blessing?
-        
-        throw "Unable to deserialize ref of type " + json_obj._type;
+        const ret = Object.create(type_cache[json_obj._type].prototype);
+        Object.assign(ret, derefed);
+        return ret;
     }
 }
