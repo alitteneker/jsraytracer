@@ -29,6 +29,9 @@ class SolidMaterialColor extends MaterialColor {
         super();
         this._color = color;
     }
+    static deserialize(data) {
+        return new SolidMaterialColor(data._color);
+    }
     color(data) {
         return this._color;
     }
@@ -41,6 +44,9 @@ class ScaledMaterialColor extends MaterialColor {
         super();
         this._mc = MaterialColor.coerce(mc);
         this._scale = scale;
+    }
+    static deserialize(data) {
+        return new ScaledMaterialColor(data._mc, data._scale);
     }
     color(data) {
         return this._mc.color(data).times(this._scale);
@@ -59,6 +65,9 @@ class CheckerboardMaterialColor extends MaterialColor {
         this.color1 = MaterialColor.coerce(color1);
         this.color2 = MaterialColor.coerce(color2);
     }
+    static deserialize(data) {
+        return new CheckerboardMaterialColor(data.color1, data.color2);
+    }
     color(data) {
         return (Math.fmod(Math.floor(data.UV[0]) + Math.floor(data.UV[1]), 2) % 2 < 1)
             ? this.color1.color(data) : this.color2.color(data);
@@ -74,6 +83,9 @@ class TextureMaterialColor extends MaterialColor {
         this.mode = mode;
         this.clampU = clampU;
         this.clampV = clampV;
+    }
+    static deserialize(data) {
+        return new TextureMaterialColor(data.imgdata, data.mode, data.clampU, data.clampV);
     }
     static fromBitmap(bitmap) {
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
@@ -134,6 +146,9 @@ class SolidColorMaterial extends Material {
         super();
         this._color = MaterialColor.coerce(color);
     }
+    static deserialize(data) {
+        return new SolidColorMaterial(data._color);
+    }
     color(data, world, recursionDepth) {
         return this._color.color(data);
     }
@@ -146,6 +161,9 @@ class TransparentMaterial extends Material {
         super();
         this._color = MaterialColor.coerce(color);
         this._opacity = opacity;
+    }
+    static deserialize(data) {
+        return new TransparentMaterial(data._color, data._opacity);
     }
     color(data, world, recursionDepth) {
         return this._color.color(data).times(this._opacity).plus(
@@ -162,6 +180,9 @@ class PositionalUVMaterial extends Material {
         this.origin = origin;
         this.u_axis = u_axis;
         this.v_axis = v_axis;
+    }
+    static deserialize(data) {
+        return new TransparentMaterial(data.baseMaterial, data.origin, data.u_axis, data.v_axis);
     }
     color(data, world, recursionDepth) {
         const delta = this.origin.minus(data.position);
@@ -180,6 +201,9 @@ class PhongMaterial extends Material {
         this.reflectivity   = MaterialColor.coerce(Vec.of(1,1,1), reflectivity);
         this.transmissivity = MaterialColor.coerce(Vec.of(1,1,1), transmissivity);
         this.smoothness     = smoothness;
+    }
+    static deserialize(data) {
+        return new PhongMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.reflectivity, data.transmissivity);
     }
 
     getBaseFactors(data) {
@@ -269,6 +293,9 @@ class FresnelPhongMaterial extends PhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=1, reflectivity=1, transmissivity=1) {
         super(baseColor, ambient, diffusivity, specularity, smoothness, reflectivity, transmissivity);
         this.refractiveIndexRatio = refractiveIndexRatio;
+    }
+    static deserialize(data) {
+        return new FresnelPhongMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.refractiveIndexRatio, data.reflectivity, data.transmissivity);
     }
     getBaseFactors(data) {
         super.getBaseFactors(data);
@@ -361,6 +388,9 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity, mirrorProbability=0) {
         super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio, Vec.of(1,1,1), Vec.of(1,1,1));
         this.mirrorProbability = mirrorProbability;
+    }
+    static deserialize(data) {
+        return new FresnelPhongMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.refractiveIndexRatio, data.mirrorProbability);
     }
     
     scatter(R, N, data) {

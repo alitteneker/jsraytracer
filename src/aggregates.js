@@ -3,6 +3,9 @@ class Aggregate extends WorldObject {
         super(transform, inv_transform);
         this.objects = objects;
     }
+    static deserialize(data) {
+        return new Aggregate(data.objects, data.transform, data.inv_transform);
+    }
     buildBoundingBox() {
         return this.objects.length
             ? AABB.hull(this.objects.map(o => o.getBoundingBox().getBoundingBox(this.getTransform(), this.getInvTransform())))
@@ -24,6 +27,9 @@ class BVHAggregate extends Aggregate {
     constructor(objects, kdtree, transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
         super(objects, transform, inv_transform);
         this.kdtree = kdtree;
+    }
+    static deserialize(data) {
+        return new BVHAggregate(data.objects, data.kdtree, data.transform, data.inv_transform);
     }
     static build(objects, transform=Mat4.identity(), maxDepth=Infinity, minNodeSize=1, inv_transform=Mat4.inverse(transform)) {
         objects = Array.from(objects);
@@ -155,6 +161,9 @@ class BVHAggregateNode {
         if (!this.aabb)
             throw("Empty aabb for BVH node");
     }
+    static deserialize(data) {
+        return new BVHAggregateNode(data.depth, data.isLeaf, data.objects, data.aabb, data.lesser_node, data.greater_node);
+    }
     
     intersect(ray, ret, minDist, maxDist, intersectTransparent=true) {
         const aabb_ts = this.aabb.get_intersects(ray, minDist, maxDist);
@@ -202,6 +211,9 @@ class BSPAggregate extends Aggregate {
     constructor(objects, kdtree, transform, inv_transform) {
         super(objects, transform, inv_transform);
         this.kdtree = kdtree;
+    }
+    static deserialize(data) {
+        return new BSPAggregate(data.objects, data.kdtree, data.transform, data.inv_transform);
     }
     static build(objects=[], transform=Mat4.identity(), inv_transform=Mat4.inverse(transform)) {
         return new BSPAggregate(objects, BSPAggregateNode.build(Array.from(objects)), transform, inv_transform);
@@ -282,6 +294,9 @@ class BSPAggregateNode {
         
         this.lesser_node  = lesser_node;
         this.greater_node = greater_node;
+    }
+    static deserialize(data) {
+        return new BSPAggregateNode(data.depth, data.spanning_objs, data.sep_axis, data.sep_value, data.lesser_node, data.greater_node);
     }
     
     intersect(ray, ret, minDist, maxDist, intersectTransparent=true, minBound=minDist, maxBound=maxDist) {

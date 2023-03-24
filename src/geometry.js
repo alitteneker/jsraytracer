@@ -28,6 +28,9 @@ class OriginPoint extends Geometry {
     constructor() {
         super();
     }
+    static deserialize(data) {
+        return new OriginPoint();
+    }
     getBoundingBox(transform, inv_transform) {
         return new AABB(transform.times(Vec.of(0,0,0,1), Vec.of(AABB_SIZE, AABB_SIZE, AABB_SIZE)));
     }
@@ -46,6 +49,9 @@ class OriginPoint extends Geometry {
 class UnitLine extends Geometry {
     constructor() {
         super();
+    }
+    static deserialize(data) {
+        return new UnitLine();
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints([-0.5, 0.5].map(x => transform.times(Vec.of(0, x, 0, 1))));
@@ -69,6 +75,9 @@ class AABB extends Geometry {
         this.half_size = half_size;
         this.min = min;
         this.max = max;
+    }
+    static deserialize(data) {
+        return new AABB(data.center, data.half_size, data.min, data.max);
     }
     static empty() {
         return new AABB(Vec.of(0,0,0,1), Vec.of(0,0,0,0), Vec.of( Infinity,  Infinity,  Infinity, 1), Vec.of(-Infinity, -Infinity, -Infinity, 1));
@@ -210,12 +219,17 @@ class UnitBox extends AABB {
     constructor() {
         super(Vec.of(0, 0, 0, 1), Vec.of(0.5, 0.5, 0.5, 0));
     }
+    static deserialize(data) {
+        return new UnitBox();
+    }
 }
 
 class SimplePlane extends Geometry {
     constructor(mdata) {
         super();
-        this.base_material_data = mdata || {};
+    }
+    static deserialize(data) {
+        return new SimplePlane();
     }
     intersect(ray) {
         return (ray.direction[2] != 0) ? -ray.origin[2] / ray.direction[2] : -Infinity;
@@ -229,8 +243,11 @@ class SimplePlane extends Geometry {
 }
 
 class Plane extends SimplePlane {
-    constructor(mdata) {
-        super(mdata);
+    constructor() {
+        super();
+    }
+    static deserialize(data) {
+        return new Plane();
     }
     getBoundingBox(transform, inv_transform) {
         const normal = inv_transform.transposed().times(Vec.of(0, 0, 1, 0)).normalized();
@@ -249,8 +266,11 @@ class Plane extends SimplePlane {
 }
 
 class Square extends SimplePlane {
-    constructor(mdata) {
-        super(mdata);
+    constructor() {
+        super();
+    }
+    static deserialize(data) {
+        return new Square();
     }
     intersect(ray) {
         const t = super.intersect(ray);
@@ -269,8 +289,11 @@ class Square extends SimplePlane {
 }
 
 class Circle extends SimplePlane {
-    constructor(mdata) {
-        super(mdata);
+    constructor() {
+        super();
+    }
+    static deserialize(data) {
+        return new Circle();
     }
     intersect(ray) {
         const t = super.intersect(ray);
@@ -298,7 +321,10 @@ class Circle extends SimplePlane {
 
 class Triangle extends Geometry {
     constructor(ps, psdata={}) {
-        super()
+        super();
+        
+        this.ps = ps;
+        this.psdata = psdata;
         
         this.v0 = ps[1].minus(ps[0]).to3();
         this.v1 = ps[2].minus(ps[0]).to3();
@@ -308,13 +334,14 @@ class Triangle extends Geometry {
         this.area = heron.norm() / 2.0;
         this.normal = heron.normalized().to4(0);
         this.delta = this.normal.dot(ps[0]);
-        this.ps = ps;
-        this.psdata = psdata;
         
         this.d00 = this.v0.squarednorm();
         this.d11 = this.v1.squarednorm();
         this.d01 = this.v0.dot(this.v1);
         this.denom = this.d00 * this.d11 - this.d01 * this.d01;
+    }
+    static deserialize(data) {
+        return new Triangle(data.ps, data.psdata);
     }
     getTransformed(t, inv_t=Mat4.inverse(t), inv_t_transpose=inv_t_transpose) {
         const data = {};
@@ -371,6 +398,9 @@ class Sphere extends Geometry {
     constructor() {
         super();
     }
+    static deserialize(data) {
+        return new Sphere();
+    }
     getBoundingBox(transform, inv_transform) {
         const c = transform.column(3);
         let h = Vec.of(0,0,0,0);
@@ -407,6 +437,9 @@ class Sphere extends Geometry {
 class Cylinder extends Geometry {
     constructor() {
         super();
+    }
+    static deserialize(data) {
+        return new Cylinder();
     }
     getBoundingBox(transform, inv_transform) {
         const axis = transform.times(Vec.axis(2,4));

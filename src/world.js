@@ -85,6 +85,9 @@ class TransformedWorldObject extends WorldObject {
         
         this.object = object;
     }
+    static deserialize(data) {
+        return new TransformedWorldObject(data.object, data.transform, data.inv_transform);
+    }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         return {
             distance: this.object.intersect(ray.getTransformed(this.getInvTransform()), minDistance, maxDistance, shadowCast),
@@ -106,6 +109,9 @@ class Primitive extends WorldObject {
         this.material = material;
         
         this.does_cast_shadow = does_cast_shadow;
+    }
+    static deserialize(data) {
+        return new Primitive(data.geometry, data.material, data.transform, data.inv_transform, data.does_cast_shadow);
     }
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
         if (!this.does_cast_shadow && !shadowCast)
