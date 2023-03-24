@@ -1,5 +1,7 @@
-const fs = require("fs");
+global["fs"] = require("fs");
+global["fspromise"] = require("fs/promises");
 const vm = require("vm");
+
 
 const requirements = [
     'math.js',
@@ -13,8 +15,10 @@ const requirements = [
     'objloader.js',
     'aggregates.js',
     'serializer.js'];
-for (let r of requirements)
-    new vm.Script(fs.readFileSync(`../src/${r}`).toString(), { filename: r }).runInThisContext();
+for (let r of requirements) {
+    const filename = `../src/${r}`;
+    new vm.Script(fs.readFileSync(filename).toString(), { filename: filename }).runInThisContext();
+}
 
 
 const test_loc = process.argv.slice(2)[0];

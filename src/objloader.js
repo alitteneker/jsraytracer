@@ -19,6 +19,17 @@ function makeMaterial(data, isPath) {
     return new PhongMaterial(Vec.of(1,1,1), ambient, diffuse, specular, smoothness);
 }
 
+function textFetch(filename) {
+    if (new Function("try { return this!==window } catch(e) { return true }")()) {
+        return fspromise.readFile(filename, { encoding: 'utf8' });
+    }
+    return fetch(filename).then(function(response) {
+        if (!response.ok)
+            throw "Attempt to fetch " + filename + " was not successful.";
+        return response.text();
+    });
+}
+
 function loadTexture(filename, callback) {
     fetch(filename, { mode: 'cors' })
         .then(response => response.blob())
@@ -105,11 +116,7 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
 }
 
 function loadMtlFile(filename, callback, prefix, isPath) {
-    fetch(filename).then(function(response) {
-        if (!response.ok)
-            throw "Attempt to fetch " + filename + " was not successful.";
-        return response.text();
-    }).then(function(text) {
+    textFetch(filename).then(function(text) {
         parseMtlFile(text, callback, prefix, isPath);
     });
 }
@@ -231,11 +238,7 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
 }
 
 function loadObjFile(filename, defaultMaterial, transform, callback) {
-    fetch(filename).then(function(response) {
-        if (!response.ok)
-            throw "Attempt to fetch " + filename + " was not successful.";
-        return response.text();
-    }).then(function(text) {
+    textFetch(filename).then(function(text) {
         let prefix = "";
         if (filename.lastIndexOf("/") > 0)
             prefix = filename.substring(0, filename.lastIndexOf("/") + 1);
