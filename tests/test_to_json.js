@@ -1,7 +1,8 @@
 global["fs"] = require("fs");
 global["fspromise"] = require("fs/promises");
-const vm = require("vm");
 
+const vm = require("vm");
+const msgpack = require("@msgpack/msgpack");
 
 const requirements = [
     'math.js',
@@ -28,8 +29,15 @@ import("./" + test_loc + "/test.mjs").then(function(module) {
     module.configureTest(function(test) {
         console.log("Loaded! Serializing...");
         
-        fs.writeFileSync(test_loc + "/test.json", new Serializer(test).toJSON());
+        const plain = new Serializer(test).plain();
         
+        console.log("Writing to disk...");
+        
+        fs.writeFileSync(test_loc + "/test.json", JSON.stringify(plain), 'utf8');
+
+        const encoded = msgpack.encode(plain);
+        fs.writeFileSync(test_loc + "/test.json_msg", Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength), 'binary');
+
         console.log("Finished!");
     });
 });

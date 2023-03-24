@@ -5,6 +5,7 @@ class Serializer {
         this.SER_ID = "_SID" + Serializer.SER_UID_GEN++;
         
         this.refs = {};
+        this.ref_counts = {};
         this.data = this.serializeStep(data);
     }
     serializeStep(obj) {
@@ -16,33 +17,45 @@ class Serializer {
             return obj;
         
         // This must be an object. First check whether it has already been serialized, and if so return the reference.
-        if (obj[this.SER_ID])
-            return { _ref: obj[this.SER_ID] };
+        if (obj[this.SER_ID]) {
+            if (1 === this.ref_counts[obj[this.SER_ID]]++)
+                this.refs[obj[this.SER_ID]]._r = obj[this.SER_ID];
+            return { _r: obj[this.SER_ID] };
+        }
         
         // Register this object as a reference
-        obj[this.SER_ID] = ++this.REF_UID_GEN;
-        const ref = this.refs[obj[this.SER_ID]] = { _type: obj.constructor.name };
+        Object.defineProperty(obj, this.SER_ID, {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: ++this.REF_UID_GEN
+        });
+        this.ref_counts[obj[this.SER_ID]] = 1;
+        const ref = this.refs[obj[this.SER_ID]] = { _t: obj.constructor.name };
         
         // This object might have specified a serialize function.
         if (typeof obj.serialize == "function")
-            ref._val = obj.serialize(ref, this);
+            ref._v = obj.serialize(this);
         
         // If this is an array, we can make a small performance savings with map over object enumeration.
         else if (obj instanceof Array)
-            ref._val = obj.map(v => this.serializeStep(v));
+            ref._v = obj.map(v => this.serializeStep(v));
         
-        // This is a plain, vanilla object. Do each key val separately.
+        // This is a plain, vanilla object, serialize each key/val separately.
         else {
-            ref._val = {};
+            ref._v = {};
             for (let [k,v] of Object.entries(obj))
                 if (obj.hasOwnProperty(k) && k !== this.SER_ID)
-                    ref._val[k] = this.serializeStep(v);
+                    ref._v[k] = this.serializeStep(v);
         }
         
-        return { _ref: obj[this.SER_ID] };
+        return ref;
+    }
+    plain() {
+        return this.data;
     }
     toJSON() {
-        return JSON.stringify({ refs: this.refs, data: this.data });
+        return JSON.stringify(this.plain());
     }
     
     
@@ -50,54 +63,59 @@ class Serializer {
         return Serializer.deserializeData(JSON.parse(json_txt));
     }
     static deserializeData(json_data) {
-        const deserialized_refs = {}, type_cache = {}, ref_count = Object.keys(json_data.refs).length;
-        for (let i = Object.keys(json_data.refs).length; i > 0; --i)
-            deserialized_refs[i] = Serializer.deserializeRef(json_data.refs[i], deserialized_refs, type_cache);
-        
-        if (json_data.data === null || json_data.data === undefined || typeof json_data.data != "object")
-            return json_data.data;
-        if ("_ref" in json_data.data)
-            return deserialized_refs[json_data.data._ref];
-        
-        throw "Something has gone wrong with deserialization";
+        const deserialized_rs = {}, type_cache = {};
+        return Serializer.deserializeStep(json_data, deserialized_rs, type_cache);
     }
-    static deserializeRef(json_obj, deserialized_refs, type_cache) {
-        if (json_obj === null || json_obj === undefined || typeof json_obj != "object")
+    static deserializeStep(json_obj, deserialized_rs, type_cache) {
+        // If this is a primitive type, no work to do, just return it.
+        if (json_obj === null || json_obj === undefined || typeof json_obj != "object" || (!("_r" in json_obj) && !("_t" in json_obj)))
             return json_obj;
         
-        if ("_ref" in json_obj) {
-            if (!(json_obj._ref in deserialized_refs))
-                throw "Reference is out of order";
-            return deserialized_refs[json_obj._ref];
+        // If this is a reference that should have already appeared in the deserialization, fetch it. If not, something has gone wrong.
+        if ("_r" in json_obj && !("_t" in json_obj)) {
+            if (!(json_obj._r in deserialized_rs))
+                throw "Attempt to deserialize references out of order";
+            return deserialized_rs[json_obj._r];
         }
         
-        if (!("_type" in json_obj) || !("_val" in json_obj))
-            return json_obj;
-        
-        
-        let derefed = null;
-        if (json_obj._val instanceof Array)
-            derefed = json_obj._val.map(v => Serializer.deserializeRef(v, deserialized_refs, type_cache));
+        // First, we have to dereference any descendant properties contained in this object.
+        let derefed = null, ret = null;
+        if (json_obj._v instanceof Array)
+            derefed = json_obj._v.map(v => Serializer.deserializeStep(v, deserialized_rs, type_cache));
         else {
             derefed = {};
-            for (let [k,v] of Object.entries(json_obj._val))
-            derefed[k] = Serializer.deserializeRef(v, deserialized_refs, type_cache);
+            for (let [k,v] of Object.entries(json_obj._v))
+            derefed[k] = Serializer.deserializeStep(v, deserialized_rs, type_cache);
         }
         
-        if (json_obj._type == "Object" || json_obj._type == "Array")
-            return derefed;
+        // If this object is a plain object or array, we can then just use the derefed object.
+        if (json_obj._t == "Object" || json_obj._t == "Array")
+            ret = derefed;
         
-        if (!(json_obj._type in type_cache)) {
-            type_cache[json_obj._type] = eval(json_obj._type);
-            if (!type_cache[json_obj._type])
-                throw "Unknown type " + json_obj._type;
+        else {
+            // Otherwise, we need to lookup the type with the given name, and figure out how it wants to deserialize objects.
+            if (!(json_obj._t in type_cache)) {
+                type_cache[json_obj._t] = eval(json_obj._t);
+                if (!type_cache[json_obj._t])
+                    throw "Unknown type " + json_obj._t;
+            }
+            
+            // If this type defines an explicit deserialization function, use that.
+            if ("deserialize" in type_cache[json_obj._t])
+                ret = type_cache[json_obj._t].deserialize(derefed);
+            
+            // Otherwise, manually create an object of the given type, with the specified properties.
+            // Note that this will bypass any side effects caused by invoking the constructor.
+            else {
+                ret = Object.create(type_cache[json_obj._t].prototype);
+                Object.assign(ret, derefed);
+            }
         }
         
-        if ("deserialize" in type_cache[json_obj._type])
-            return type_cache[json_obj._type].deserialize(derefed);
+        // Finally, if this object is a reference that is used again, declare it within the deserialization table, and continue;
+        if ("_r" in json_obj)
+            deserialized_rs[json_obj._r] = ret;
         
-        const ret = Object.create(type_cache[json_obj._type].prototype);
-        Object.assign(ret, derefed);
         return ret;
     }
 }

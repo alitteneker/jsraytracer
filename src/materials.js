@@ -15,7 +15,7 @@ class MaterialColor {
         throw "Type provided that cannot be coerced to MaterialColor";
     }
     constructor() {
-        this.MATERIALCOLOR_UID = MaterialColor._MATERIALCOLOR_UID_GEN++;
+        Object.defineProperty(this, "MATERIALCOLOR_UID", { value: MaterialColor._MATERIALCOLOR_UID_GEN++, enumerable: false, configurable: false, writable: false });
     }
     color(data) {
         throw 'MaterialColor subclass has not implemented color';
@@ -25,6 +25,7 @@ class MaterialColor {
     }
 }
 class SolidMaterialColor extends MaterialColor {
+    static White = new SolidMaterialColor(Vec.of(1,1,1));
     constructor(color) {
         super();
         this._color = color;
@@ -133,7 +134,7 @@ class TextureMaterialColor extends MaterialColor {
 class Material {
     static MATERIAL_UID_GEN = 0;
     constructor() {
-        this.MATERIAL_UID = Material.MATERIAL_UID_GEN++;
+        Object.defineProperty(this, "MATERIAL_UID", { value: Material.MATERIAL_UID_GEN++, enumerable: false, configurable: false, writable: false });
     }
     color(data, world, recursionDepth) {
         throw "Material subclass has not implemented color";
@@ -197,9 +198,9 @@ class PhongMaterial extends Material {
         this.baseColor      = MaterialColor.coerce(baseColor);
         this.ambient        = MaterialColor.coerce(this.baseColor, ambient);
         this.diffusivity    = MaterialColor.coerce(this.baseColor, diffusivity);
-        this.specularity    = MaterialColor.coerce(Vec.of(1,1,1), specularity);
-        this.reflectivity   = MaterialColor.coerce(Vec.of(1,1,1), reflectivity);
-        this.transmissivity = MaterialColor.coerce(Vec.of(1,1,1), transmissivity);
+        this.specularity    = MaterialColor.coerce(SolidMaterialColor.White, specularity);
+        this.reflectivity   = MaterialColor.coerce(SolidMaterialColor.White, reflectivity);
+        this.transmissivity = MaterialColor.coerce(SolidMaterialColor.White, transmissivity);
         this.smoothness     = smoothness;
     }
     static deserialize(data) {

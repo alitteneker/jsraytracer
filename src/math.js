@@ -171,10 +171,10 @@ class Vec extends Float32Array {
         return Vec.from(this.map(x => 1 / x));
     }
     static min(a,b) {
-        return a.map((x, i) => Math.min(x, b[i]));
+        return a.map((x, i) => Math.min(x, (b && b.length) ? b[i] : b));
     }
     static max(a,b) {
-        return a.map((x, i) => Math.max(x, b[i]));
+        return a.map((x, i) => Math.max(x, (b && b.length) ? b[i] : b));
     }
     randomized(s) {
         return this.map(x => x + s * (Math.random() - .5))

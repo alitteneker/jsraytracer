@@ -1,7 +1,7 @@
 class Geometry {
     static GEOMETRY_UID_GEN = 0;
     constructor() {
-        this.GEOMETRY_UID = Geometry.GEOMETRY_UID_GEN++;
+        Object.defineProperty(this, "GEOMETRY_UID", { value: Geometry.GEOMETRY_UID_GEN++, enumerable: false, configurable: false, writable: false });
     }
     intersect(ray, minDistance, maxDistance) {
         throw "Geometry subclass nas implemented intersect";
@@ -75,6 +75,9 @@ class AABB extends Geometry {
         this.half_size = half_size;
         this.min = min;
         this.max = max;
+    }
+    serialize(serializer) {
+        return { center: serializer.serializeStep(this.center), half_size: serializer.serializeStep(this.half_size) };
     }
     static deserialize(data) {
         return new AABB(data.center, data.half_size, data.min, data.max);
@@ -339,6 +342,9 @@ class Triangle extends Geometry {
         this.d11 = this.v1.squarednorm();
         this.d01 = this.v0.dot(this.v1);
         this.denom = this.d00 * this.d11 - this.d01 * this.d01;
+    }
+    serialize(serializer) {
+        return { ps: serializer.serializeStep(this.ps), psdata: serializer.serializeStep(this.ps) };
     }
     static deserialize(data) {
         return new Triangle(data.ps, data.psdata);

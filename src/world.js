@@ -44,7 +44,7 @@ class World {
 class WorldObject {
     static _OBJECT_UID_GEN = 0;
     constructor(transform, inv_transform) {
-        this.OBJECT_UID = WorldObject._OBJECT_UID_GEN++;
+        Object.defineProperty(this, "OBJECT_UID", { value: WorldObject._OBJECT_UID_GEN++, enumerable: false, configurable: false, writable: false });
         
         this.transform = transform;
         this.inv_transform = inv_transform;

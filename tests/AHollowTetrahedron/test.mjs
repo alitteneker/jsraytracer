@@ -16,7 +16,7 @@ export function configureTest(callback) {
     const trans1 = Mat4.translation([0.5,-1.5,-5])
             .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
             .times(Mat4.scale(0.3));
-    const trans2 = Mat4.translation([0.5,-1.5,-4])
+    const trans2 = Mat4.translation([0.5,-1.5,-8])
             .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
             .times(Mat4.scale(0.3));
 
@@ -27,10 +27,10 @@ export function configureTest(callback) {
         Mat4.identity(),
 
         function(triangles) {
-            objects.push(
-                BVHAggregate.build(triangles, trans1),
-                BVHAggregate.build(triangles, trans2),
-            );
+            const bvh1 = BVHAggregate.build(triangles, trans1);
+            const bvh2 = new BVHAggregate(triangles, bvh1.kdtree, trans2);
+            
+            objects.push(bvh1, bvh2);
             
             callback({
                 renderer: new SimpleRenderer(new World(objects, lights), camera, 4),

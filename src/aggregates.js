@@ -147,12 +147,13 @@ class BVHAggregateNode {
     }
     
     constructor(depth, isLeaf, objects, aabb, lesser_node, greater_node) {
-        this.NODE_UID = BVHAggregateNode._NODE_UID_GEN++;
+        Object.defineProperty(this, "NODE_UID", { value: BVHAggregateNode._NODE_UID_GEN++, enumerable: false, configurable: false, writable: false });
         
         this.depth = depth;
         this.isLeaf = isLeaf;
         
-        this.objects = objects;
+        if (isLeaf)
+            this.objects = objects;
         this.aabb = aabb;
         
         this.lesser_node  = lesser_node;
