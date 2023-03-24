@@ -40,6 +40,20 @@ class WebGLWorldAdapter {
         this.adapters.geometries.destroy(gl);
         this.adapters.materials.destroy(gl);
     }
+
+    static collapseAncestorTransform(ancestors) {
+        let ret = Mat4.identity();
+        for (let a of ancestors)
+            ret = ret.times(a.object.getTransform());
+        return ret;
+    }
+    static collapseAncestorInvTransform(ancestors) {
+        let ret = Mat4.identity();
+        for (let a of ancestors)
+            ret = a.object.getInvTransform().times(ret);
+        return ret;
+    }
+    
     visitPrimitive(prim, webgl_helper) {
         if (!(prim instanceof Primitive))
             throw "Cannot call visitPrimitive on non-Primitive";
@@ -55,6 +69,7 @@ class WebGLWorldAdapter {
             type: "primitive",
             index: index,
             object: prim,
+            parents: [],
             
             transformIndex: this.registerTransform(prim.getInvTransform(), prim),
             geometryIndex:  this.adapters.geometries.visit(prim.geometry, webgl_helper),
@@ -64,23 +79,13 @@ class WebGLWorldAdapter {
         
         return wrapped;
     }
-    static collapseAncestorTransform(ancestors) {
-        let ret = Mat4.identity();
-        for (let a of ancestors)
-            ret = ret.times(a.object.getTransform());
-        return ret;
-    }
-    static collapseAncestorInvTransform(ancestors) {
-        let ret = Mat4.identity();
-        for (let a of ancestors)
-            ret = a.object.getInvTransform().times(ret);
-        return ret;
-    }
     visitDescendantObject(obj, webgl_helper, ancestors=[]) {
         if (obj instanceof Primitive) {
             const prim = this.visitPrimitive(obj, webgl_helper, ancestors);
-            if (ancestors && ancestors.length)
+            if (ancestors && ancestors.length) {
                 ancestors[ancestors.length-1].primIndices.push(prim.index);
+                prim.parents.push(ancestors[ancestors.length-1]);
+            }
             return prim;
         }
         else if (obj instanceof BVHAggregate) {
@@ -127,6 +132,7 @@ class WebGLWorldAdapter {
                         const p = me.visitPrimitive(o, webgl_helper);
                         p.notTransformable = true;
                         agg.children.push(p);
+                        p.parents.push(agg);
                         bvh_object_list.push(p.index);
                     }
                 }
@@ -245,8 +251,11 @@ class WebGLWorldAdapter {
             }
             else
                 this.transform_store.set(wrapped_obj.transformIndex, wrapped_obj.getInvTransform());
-            for (let a of wrapped_obj.ancestors)
-                a.object.contentsChanged();
+            for (let p of wrapped_obj.parents) {
+                p.object.contentsChanged();
+                for (let a of p.ancestors)
+                    a.object.contentsChanged();
+            }
         }
         else {
             for (let agg of this.aggregate_instance_map[wrapped_obj.object.OBJECT_UID]) {
