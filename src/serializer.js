@@ -4,7 +4,6 @@ class Serializer {
     constructor(data) {
         this.SER_ID = "_SID" + Serializer.SER_UID_GEN++;
         
-        this.reforder = [];
         this.refs = {};
         this.data = this.serializeStep(data);
     }
@@ -21,7 +20,7 @@ class Serializer {
             return { _ref: obj[this.SER_ID] };
         
         // Register this object as a reference
-        this.reforder.unshift(obj[this.SER_ID] = ++this.REF_UID_GEN);
+        obj[this.SER_ID] = ++this.REF_UID_GEN;
         const ref = this.refs[obj[this.SER_ID]] = { _type: obj.constructor.name };
         
         // This object might have specified a serialize function.
@@ -43,7 +42,7 @@ class Serializer {
         return { _ref: obj[this.SER_ID] };
     }
     toJSON() {
-        return JSON.stringify({ refs: this.refs, reforder: this.reforder, data: this.data });
+        return JSON.stringify({ refs: this.refs, data: this.data });
     }
     
     
@@ -51,9 +50,9 @@ class Serializer {
         return Serializer.deserializeData(JSON.parse(json_txt));
     }
     static deserializeData(json_data) {
-        const deserialized_refs = {}, type_cache = {};
-        for (let r of json_data.reforder)
-            deserialized_refs[r] = Serializer.deserializeRef(json_data.refs[r], deserialized_refs, type_cache);
+        const deserialized_refs = {}, type_cache = {}, ref_count = Object.keys(json_data.refs).length;
+        for (let i = Object.keys(json_data.refs).length; i > 0; --i)
+            deserialized_refs[i] = Serializer.deserializeRef(json_data.refs[i], deserialized_refs, type_cache);
         
         if (json_data.data === null || json_data.data === undefined || typeof json_data.data != "object")
             return json_data.data;
