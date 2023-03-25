@@ -6,6 +6,7 @@ class Serializer {
         
         this.refs = {};
         this.ref_counts = {};
+        this.type_map = {};
         this.data = this.serializeStep(data);
     }
     serializeStep(obj) {
@@ -31,7 +32,13 @@ class Serializer {
             value: ++this.REF_UID_GEN
         });
         this.ref_counts[obj[this.SER_ID]] = 1;
-        const ref = this.refs[obj[this.SER_ID]] = { _t: obj.constructor.name };
+        const ref = this.refs[obj[this.SER_ID]] = {};
+        
+        // Process the type name.
+        if (obj.constructor.name in this.type_map)
+            ref._t = this.type_map[obj.constructor.name];
+        else
+            ref._t = [obj.constructor.name, this.type_map[obj.constructor.name] = Object.keys(this.type_map).length];
         
         // This object might have specified a serialize function.
         if (typeof obj.serialize == "function")
@@ -63,10 +70,10 @@ class Serializer {
         return Serializer.deserializeData(JSON.parse(json_txt));
     }
     static deserializeData(json_data) {
-        const deserialized_rs = {}, type_cache = {};
-        return Serializer.deserializeStep(json_data, deserialized_rs, type_cache);
+        const deserialized_rs = {}, typenames = [], type_cache = {};
+        return Serializer.deserializeStep(json_data, deserialized_rs, typenames, type_cache);
     }
-    static deserializeStep(json_obj, deserialized_rs, type_cache) {
+    static deserializeStep(json_obj, deserialized_rs, typenames, type_cache) {
         // If this is a primitive type, no work to do, just return it.
         if (json_obj === null || json_obj === undefined || typeof json_obj != "object" || (!("_r" in json_obj) && !("_t" in json_obj)))
             return json_obj;
@@ -78,36 +85,39 @@ class Serializer {
             return deserialized_rs[json_obj._r];
         }
         
+        // Fetch the typename for this object, and add to the cache.
+        const typename = (typeof json_obj._t == "number") ? typenames[json_obj._t] : (typenames[json_obj._t[1]] = json_obj._t[0]);
+        
         // First, we have to dereference any descendant properties contained in this object.
         let derefed = null, ret = null;
         if (json_obj._v instanceof Array)
-            derefed = json_obj._v.map(v => Serializer.deserializeStep(v, deserialized_rs, type_cache));
+            derefed = json_obj._v.map(v => Serializer.deserializeStep(v, deserialized_rs, typenames, type_cache));
         else {
             derefed = {};
             for (let [k,v] of Object.entries(json_obj._v))
-            derefed[k] = Serializer.deserializeStep(v, deserialized_rs, type_cache);
+            derefed[k] = Serializer.deserializeStep(v, deserialized_rs, typenames, type_cache);
         }
         
         // If this object is a plain object or array, we can then just use the derefed object.
-        if (json_obj._t == "Object" || json_obj._t == "Array")
+        if (typename == "Object" || typename == "Array")
             ret = derefed;
         
         else {
             // Otherwise, we need to lookup the type with the given name, and figure out how it wants to deserialize objects.
-            if (!(json_obj._t in type_cache)) {
-                type_cache[json_obj._t] = eval(json_obj._t);
-                if (!type_cache[json_obj._t])
-                    throw "Unknown type " + json_obj._t;
+            if (!(typename in type_cache)) {
+                type_cache[typename] = eval(typename);
+                if (!type_cache[typename])
+                    throw "Unknown type " + typename;
             }
             
             // If this type defines an explicit deserialization function, use that.
-            if ("deserialize" in type_cache[json_obj._t])
-                ret = type_cache[json_obj._t].deserialize(derefed);
+            if ("deserialize" in type_cache[typename])
+                ret = type_cache[typename].deserialize(derefed);
             
             // Otherwise, manually create an object of the given type, with the specified properties.
             // Note that this will bypass any side effects caused by invoking the constructor.
             else {
-                ret = Object.create(type_cache[json_obj._t].prototype);
+                ret = Object.create(type_cache[typename].prototype);
                 Object.assign(ret, derefed);
             }
         }
