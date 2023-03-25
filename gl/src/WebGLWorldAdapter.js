@@ -178,27 +178,6 @@ class WebGLWorldAdapter {
             throw "Unsupported object type";
     }
     
-    wrapLight(light, renderer_adapter, gl, program) {
-        const me = this;
-        return Object.assign({
-            material: { value: { color: light.color_mc } },
-            getBoundingBox: function() {
-                return light.light.getBoundingBox();
-            },
-            getTransform: function() {
-                return light.transform;
-            },
-            getInvTransform: function() {
-                return light.inv_transform;
-            },
-            intersect(ray) {
-                return { object: null, distance: -Infinity }
-            },
-            setTransform(new_transform, new_inv_transform) {
-                me.adapters.lights.setTransform(light.index, new_transform, new_inv_transform, renderer_adapter, gl, program);
-            }
-        }, light);
-    }
     intersectRay(ray, renderer_adapter, gl, program) {
         const intersect = this.world.cast(ray);
         if (!intersect.object)
@@ -207,10 +186,7 @@ class WebGLWorldAdapter {
             intersect.ancestors.map((a,i) => this.aggregates[this.aggregate_id_index_map[this.aggregates[0].object.OBJECT_UID + ":" + intersect.ancestors.slice(0, i+1).map(aa => aa.OBJECT_UID).join(":")]]), this);
     }
     getLights(renderer_adapter, gl, program) {
-        return this.adapters.lights.getLights().map(l => this.wrapLight(l, renderer_adapter,  gl, program));
-    }
-    getLight(index, renderer_adapter,  gl, program) {
-        return this.wrapLight(this.adapters.lights.getLight(index), renderer_adapter,  gl, program);
+        return this.adapters.lights.getLights().map(l => new WrappedLight(l, this));
     }
     getSceneTree(renderer_adapter, gl, program) {
         return this.aggregates[0];
@@ -499,6 +475,26 @@ class AbstractWrappedObject {
     }
     setWorldTransform(new_transform, new_inv_transform) {
         this.worldadapter.setObjectTransform(this, new_transform, new_inv_transform);
+    }
+}
+
+class WrappedLight extends AbstractWrappedObject {
+    constructor(light, worldadapter) {
+        super();
+        Object.assign(this, light);
+        
+        this.object = light.light;
+        this.ancestors = [];
+        this.worldadapter = worldadapter;
+    }
+    intersect(ray) {
+        return { object: null, ancestors: [], distance: -Infinity };
+    }
+    setWorldTransform(new_transform, new_inv_transform) {
+        this.worldadapter.adapters.lights.setTransform(this.index, new_transform, new_inv_transform, this.worldadapter.renderer_adapter);
+    }
+    getMaterialValues() {
+        return { color: this.color_mc };
     }
 }
 

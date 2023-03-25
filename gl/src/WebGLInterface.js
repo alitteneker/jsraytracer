@@ -334,6 +334,7 @@ class WebGLInterface {
             this.buildSelectedObjectControls();
         }
         else {
+            this.transformObject = null;
             const activeNode = $.ui.fancytree.getTree("#world-objects").getActiveNode();
             if (activeNode)
                 activeNode.setActive(false);
@@ -342,14 +343,12 @@ class WebGLInterface {
         }
     }
     selectObjectTree(e, d) {
-        if (!("_worldobj" in d.node.data))
+        if (!("_worldtype" in d.node.data))
             return;
-        if (d.node.data._worldobj.type == "primitive") {
+        if (d.node.data._worldobj && d.node.data._worldobj.type == "primitive") {
             const parentobj = d.node.parent.data._worldobj;
             this.selectObject(new WrappedPrimitive(d.node.data._worldobj, parentobj ? parentobj.ancestors.concat(parentobj) : [], this.renderer_adapter.adapters.world));
         }
-        else if (d.node.data._worldtype == "light")
-            this.selectObject(this.renderer_adapter.getLight(d.node.data._worldindex));
         else
             this.selectObject(d.node.data._worldobj);
     }
@@ -460,6 +459,7 @@ class WebGLInterface {
                 key: "l" + l.index,
                 _worldindex: l.index,
                 _worldtype: "light",
+                _worldobj: l,
                 title: `${WebGLGeometriesAdapter.TypeStringLabel(l.geometry)} : ${l.index}`
             };
         }));

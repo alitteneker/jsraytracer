@@ -33,10 +33,10 @@ import("./" + test_loc + "/test.mjs").then(function(module) {
         
         console.log("Writing to disk...");
         
-        fs.writeFileSync(test_loc + "/test.json", JSON.stringify(plain), 'utf8');
+        //fs.writeFileSync(test_loc + "/test.json", JSON.stringify(plain), 'utf8');
 
         const encoded = msgpack.encode(plain);
-        fs.writeFileSync(test_loc + "/test.json_msg", Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength), 'binary');
+        fs.writeFileSync(test_loc + "/test.json_msp", Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength), 'binary');
 
         console.log("Finished!");
     });

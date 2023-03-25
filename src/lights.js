@@ -9,6 +9,12 @@ class Light {
     getBoundingBox() {
         throw "Light subclass has not implemented getBoundingBox";
     }
+    getTransform() {
+        throw "Light subclass has not implemented getTransform";
+    }
+    getInvTransform() {
+        throw "Light subclass has not implemented getInvTransform";
+    }
     setTransform(new_transform, new_inv_transform) {
         throw "Light subclass has not implemented setTransform";
     }
@@ -26,6 +32,12 @@ class SimplePointLight extends Light {
     }
     getBoundingBox(size=1) {
         return new AABB(this.position, Vec.of(size, size, size));
+    }
+    getTransform() {
+        return Mat4.translation(this.position);
+    }
+    getInvTransform() {
+        return Mat4.translation(this.position.times(-1));
     }
     setTransform(new_transform, new_inv_transform) {
         this.position = new_transform.column(3);
@@ -53,6 +65,12 @@ class RandomSampleAreaLight extends Light {
     }
     getBoundingBox() {
         return this.aabb;
+    }
+    getTransform() {
+        return this.transform;
+    }
+    getInvTransform() {
+        return this.inv_transform;
     }
     setTransform(new_transform, new_inv_transform=Mat4.inverse(new_transform)) {
         this.transform = new_transform;

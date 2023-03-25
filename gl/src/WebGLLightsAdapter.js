@@ -7,7 +7,7 @@ class WebGLLightsAdapter {
     }
     destroy() {}
     visit(light, geometry_adapter, material_adapter, webgl_helper) {
-        const light_data = { index: this.lights_data.length, worldtype: "light", light: light };
+        const light_data = { index: this.lights_data.length, ID: this.lights_data.length, worldtype: "light", light: light };
         
         if (light instanceof SimplePointLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
@@ -35,16 +35,17 @@ class WebGLLightsAdapter {
     getLight(index) {
         return this.lights_data[index];
     }
-    setTransform(index, new_transform, new_inv_transform, renderer_adapter, gl, program) {
-        gl.useProgram(program);
+    setTransform(index, new_transform, new_inv_transform, renderer_adapter) {
         const light = this.lights_data[index];
+        
         
         light.light.setTransform(new_transform, new_inv_transform);
         
         light.transform = new_transform;
         light.inv_transform = new_inv_transform;
         
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
+        renderer_adapter.useTracerProgram();
+        renderer_adapter.gl.uniformMatrix4fv(renderer_adapter.getUniformLocation("uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
         renderer_adapter.resetDrawCount();
     }
     writeShaderData(gl, program) {
