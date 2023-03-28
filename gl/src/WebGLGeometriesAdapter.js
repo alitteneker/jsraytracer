@@ -362,7 +362,7 @@ class WebGLGeometriesAdapter {
                 else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect(    r, minDistance);
                 else if (geometryID == GEOMETRY_SQUARE_TYPE)   return squareIntersect(    r, minDistance);
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect(   r, minDistance);
-                else if (geometryID > GEOMETRY_TRIANGLE_MIN_INDEX)
+                else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 return minDistance - 1.0;
             }
@@ -382,7 +382,7 @@ class WebGLGeometriesAdapter {
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)     unitBoxMaterialData(    position, data);
                 else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) originPointMaterialData(position, direction, data);
                 else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData(   position, direction, data);
-                else if (geometryID > GEOMETRY_TRIANGLE_MIN_INDEX)
+                else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 return data;
             }`;

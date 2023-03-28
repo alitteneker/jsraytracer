@@ -20,7 +20,7 @@ function makeMaterial(data, isPath) {
 }
 
 function textFetch(filename) {
-    if (new Function("try { return this!==window } catch(e) { return true }")()) {
+    if (new Function("try { return !(typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) && this!==window } catch(e) { return true }")()) {
         return fspromise.readFile(filename, { encoding: 'utf8' });
     }
     return fetch(filename).then(function(response) {
