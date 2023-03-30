@@ -42,6 +42,12 @@ class WebGLInterface {
             if (this.renderer_adapter)
                 this.renderer_adapter.colorLogScale = Number.parseFloat(ui.value);
         });
+        $("#renderer-random-sample").on('input', (e) => {
+            if (this.renderer_adapter) {
+                this.renderer_adapter.doRandomSample = e.target.checked;
+                this.renderer_adapter.resetDrawCount();
+            }
+        });
         
         $("#canvas-width").on('spin spinstop', (e, ui) => {
             if (this.renderer_adapter) {
@@ -230,6 +236,7 @@ class WebGLInterface {
     
     getDefaultControlValues(renderer_adapter) {
         $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
+        $("#renderer-random-sample").prop("checked", renderer_adapter.doRandomSample).checkboxradio("refresh");
         
         const focus_distance = renderer_adapter.getCameraFocusDistance();
         if (renderer_adapter.getCameraFocusDistance() != 1.0)
