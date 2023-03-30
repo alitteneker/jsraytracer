@@ -81,6 +81,23 @@
             </div>
             <h3>Camera</h3>
             <div class="control-group">
+                <div><table>
+                    <tr><td>Position</td><td>
+                        <input class="ui-spinner-input camera-transform" data-transform-type="pos0">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="pos1">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="pos2">
+                    </td></tr>
+                    <tr><td>Rotation</td><td>
+                        <input class="ui-spinner-input camera-transform" data-transform-type="rot0">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="rot1">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="rot2">
+                    </td></tr>
+                    <tr><td>Scale</td><td>
+                        <input class="ui-spinner-input camera-transform" data-transform-type="scale0">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="scale1">
+                        <input class="ui-spinner-input camera-transform" data-transform-type="scale2">
+                    </td></tr>
+                </table></div>
                 <div class="control-slider-div"><output id="fov-output">     </output><input type="range" id="fov-range"      min="-3" max="-0.1" step="0.001" value="-1"/><label for="fov-range">    FOV           </label><br></div>
                 <div class="control-slider-div"><output id="focus-output">   </output><input type="range" id="focus-distance" min= "1" max="100"  step="0.01"  value="1"/><label for="focus-distance">Focus Distance</label><br></div>
                 <div class="control-slider-div"><output id="sensor-output"></output><input type="range" id="sensor-size"  min= "0" max="1"    step="0.01"  value="0"/><label for="sensor-size"> Sensor Size   </label>    </div>

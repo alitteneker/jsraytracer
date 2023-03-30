@@ -59,6 +59,8 @@ class WebGLInterface {
         
         // setup standard listeners for changing lens settings
         $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
+        $(".camera-transform").on('spinstop', this.modifyCameraTransformValues.bind(this));
+        $(".camera-transform").spinner({ step: 0.01, numberFormat: "N3" });
         
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
@@ -240,6 +242,7 @@ class WebGLInterface {
         $('#fov-range').val(-renderer_adapter.getCameraFOV());
         
         this.changeLensSettings();
+        this.updateCameraTransformValues();
     }
     
 
@@ -575,12 +578,34 @@ class WebGLInterface {
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
             
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
+            this.updateCameraTransformValues();
         }
         
         if ((this.transformObject && this.transformObject.isBeingTransformed))
             this.transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform);
         
         this.lastMousePos = this.nextMousePos;
+    }
+    updateCameraTransformValues() {
+        if (!this.renderer_adapter)
+            return;
+        const [pos, rot, scale] = Mat4.breakdownTransform(this.renderer_adapter.getCameraTransform());
+        for (let i of [0,1,2]) {
+            $(`input.camera-transform[data-transform-type="pos${i}"]`  ).val(pos[i].toFixed(2));
+            $(`input.camera-transform[data-transform-type="scale${i}"]`).val(scale[i].toFixed(2));
+            $(`input.camera-transform[data-transform-type="rot${i}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
+        }
+    }
+    modifyCameraTransformValues() {
+        if (!this.renderer_adapter)
+            return;
+        const [pos, rot, scale] = [Vec.of(0,0,0), Vec.of(0,0,0), Vec.of(0,0,0)];
+        for (let i of [0,1,2]) {
+            pos[i]   = Number.parseFloat($(`input.camera-transform[data-transform-type="pos${i}"]`  ).val());
+            scale[i] = Number.parseFloat($(`input.camera-transform[data-transform-type="scale${i}"]`).val());
+            rot[i]   = Number.parseFloat($(`input.camera-transform[data-transform-type="rot${i}"]`  ).val()) * Math.PI / 180;
+        }
+        this.renderer_adapter.setCameraTransform(...Mat4.transformAndInverseFromParts(pos, rot, scale));
     }
 
     

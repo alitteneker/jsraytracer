@@ -390,6 +390,11 @@ class WebGLRendererAdapter {
     getCameraInverseTransform() {
         return this.adapters.camera.getInverseTransform();
     }
+    setCameraTransform(transform, inv_transform) {
+        this.gl.useProgram(this.tracerShaderProgram);
+        this.adapters.camera.setTransform(transform, inv_transform, this.gl, this.tracerShaderProgram);
+        this.resetDrawCount();
+    }
     getCameraViewMatrix() {
         return this.adapters.camera.getViewMatrix();
     }

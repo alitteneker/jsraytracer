@@ -43,7 +43,7 @@ class WebGLCameraAdapter {
         this.camera.setTransform(Mat4.translation(this.camera_position).times(rotation),
                                  rotation.transposed().times(Mat4.translation(this.camera_position.times(-1))));
         
-        this.writeCameraTransform(gl, program, this.camera.transform);
+        this.writeCameraTransform(gl, program);
         return true;
     }
     changeLensSettings(focusDistance, sensorSize, FOV, gl, program) {
@@ -55,7 +55,7 @@ class WebGLCameraAdapter {
         return true;
     }
     getPosition() {
-        return this.camera.transform.column(3);
+        return this.camera_position;
     }
     getViewMatrix() {
         return this.camera.getViewMatrix();
@@ -66,6 +66,19 @@ class WebGLCameraAdapter {
     getInverseTransform() {
         return this.camera.inv_transform;
     }
+    setTransform(transform, inv_transform, gl, program) {
+        if (!transform || !inv_transform)
+            return false;
+        
+        this.camera.setTransform(transform, inv_transform);
+        
+        this.camera_position = this.camera.transform.column(3);
+        this.camera_euler_rotation = Vec.from(Mat4.getEulerAngles(this.camera.transform));
+        
+        this.writeCameraTransform(gl, program);
+        
+        return true;
+    }
     getFOV() {
         return this.FOV;
     }
@@ -75,8 +88,8 @@ class WebGLCameraAdapter {
     getSensorSize() {
         return this.sensor_size;
     }
-    writeCameraTransform(gl, program, transform) {
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, transform.flat());
+    writeCameraTransform(gl, program) {
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, this.camera.transform.flat());
     }
     getShaderSourceDeclarations() {
         return `
