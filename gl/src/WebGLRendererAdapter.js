@@ -167,7 +167,7 @@ class WebGLRendererAdapter {
                         this.uniforms = {
                             randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
                             doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
-                            sampleWeight:                      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleWeight"),
+                            sampleCount:                       gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
                             maxBounceDepth:                    gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
                             tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
                             passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture"),
@@ -211,7 +211,7 @@ class WebGLRendererAdapter {
     getShaderSource() {
         let ret = `
             uniform sampler2D uPreviousSamplesTexture;
-            uniform float uSampleWeight;
+            uniform int uSampleCount;
     
             uniform bool uRendererRandomMultisample;
             uniform float uRandomSeed;
@@ -232,11 +232,11 @@ class WebGLRendererAdapter {
                 
                 vec4 sampleColor = rendererRayColor(r, random_seed);
                 
-                if (uSampleWeight == 0.0)
+                if (uSampleCount == 0)
                     outTexelColor = sampleColor;
                 else {
                     vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-                    outTexelColor = mix(sampleColor, previousSampleColor, uSampleWeight);
+                    outTexelColor = previousSampleColor + (sampleColor - previousSampleColor) / float(uSampleCount + 1);
                 }
             }`;
             
@@ -459,7 +459,7 @@ class WebGLRendererAdapter {
         // Write the uniforms that vary between frames
         this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
-        this.gl.uniform1f(this.uniforms.sampleWeight, this.doRandomSample ? (this.drawCount / (this.drawCount + 1.0)) : 0.0);
+        this.gl.uniform1i(this.uniforms.sampleCount, this.doRandomSample ? this.drawCount : 0);
         if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
             this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
         

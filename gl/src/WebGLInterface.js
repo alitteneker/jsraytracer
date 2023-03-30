@@ -320,19 +320,25 @@ class WebGLInterface {
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.getBoundingBox();
             
-            const treenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
-            if (treenode)
-                treenode.setActive(true, {noEvents: true});
-            else
-                throw "Unable to find selected object in scene tree";
-            
-            $('#object-control-bar').controlgroup("enable");
-            
             this.transformObject = selectedObject;
             while (this.transformObject && this.transformObject.notTransformable)
                 this.transformObject = this.transformObject.ancestors.length ? this.transformObject.ancestors[this.transformObject.ancestors.length-1] : null;
             if (this.transformObject && this.transformObject !== this.selectedObject)
                 this.transformObject.aabb = this.transformObject.getBoundingBox();
+            
+            const fancytree = $.ui.fancytree.getTree("#world-objects");
+            const selecttreenode = fancytree.getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
+            if (selecttreenode)
+                selecttreenode.setActive(true, {noEvents: true});
+            else {
+                const transformtreenode = fancytree.getNodeByKey((this.transformObject.worldtype == "light" ? "l" : "o") + this.transformObject.ID);
+                if (transformtreenode)
+                    transformtreenode.setActive(true, {noEvents: true});
+                else
+                    throw "Unable to find selected object representative in scene tree";
+            }
+            
+            $('#object-control-bar').controlgroup("enable");
             
             this.buildSelectedObjectControls();
         }

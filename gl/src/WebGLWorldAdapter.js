@@ -131,7 +131,7 @@ class WebGLWorldAdapter {
                     for (let o of node.objects) {
                         const p = me.visitPrimitive(o, webgl_helper);
                         p.notTransformable = true;
-                        agg.children.push(p);
+                        //agg.children.push(p);
                         p.parents.push(agg);
                         bvh_object_list.push(p.index);
                     }
@@ -217,6 +217,9 @@ class WebGLWorldAdapter {
                 this.updateTransformsRecursive(child);
     }
     setObjectTransform(wrapped_obj, new_transform, new_inv_transform) {
+        if (wrapped_obj.notTransformable)
+            return;
+        
         wrapped_obj.object.setTransform(wrapped_obj.getAncestorInvTransform().times(new_transform), new_inv_transform.times(wrapped_obj.getAncestorTransform()));
         
         if (wrapped_obj.type == "primitive") {
