@@ -47,6 +47,11 @@ class BVHAggregate extends Aggregate {
         ret.ancestors.unshift(this);
         return ret;
     }
+    buildBoundingBox() {
+        return this.objects.length
+            ? this.kdtree.aabb.getBoundingBox(this.getTransform(), this.getInvTransform())
+            : AABB.empty();
+    }
     maxDepth() {
         return this.kdtree.maxDepth();
     }
