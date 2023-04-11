@@ -455,7 +455,7 @@ class WebGLInterface {
             else{
                 if (o.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)  title = "BVH Aggregate";
                 else                                                            title = "Aggregate";
-                 title += " (" + o.children.length + ")";
+                title += " (" + o.primIndices.length + ")";
             }
             return {
                 key: "o" + (o.type == "primitive" && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + o.ID,

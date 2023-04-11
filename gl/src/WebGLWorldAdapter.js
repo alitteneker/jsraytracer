@@ -110,6 +110,8 @@ class WebGLWorldAdapter {
             
             if (obj.kdtree.NODE_UID in this.bvh_first_instances) {
                 agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
+                agg.bvh_nodes = agg.bvh_reuse_from.bvh_nodes;
+                agg.primIndices = agg.bvh_reuse_from.primIndices;
             }
             else {
                 const bvh_nodes = [];
