@@ -23,6 +23,7 @@ class WebGLWorldAdapter {
         this.primitive_id_index_map = {};
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
+        this.bvh_first_instances    = {};
         
         
         // deal with lights
@@ -100,54 +101,62 @@ class WebGLWorldAdapter {
                 transformIndex: this.registerTransform(obj.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), obj),
                 children: []
             }, this);
+            
             this.aggregate_id_index_map[ID] = this.aggregates.length;
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
             this.aggregates.push(agg);
             
-            const bvh_nodes = [];
-            const bvh_node_indices = {};
-            const bvh_object_list = [];
-            
-            const me = this;
-            function BVHVisitorFn(node, parent_node=null, isGreater=false) {
-                const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
-                const node_data = {
-                    raw_node:    node,
-                    parent_node: parent_node,
-                    aabb:        node.aabb,
-                    isGreater:   isGreater,
-                };
-                bvh_nodes.push(node_data);
-                
-                if (!node.isLeaf) {
-                    BVHVisitorFn(node.greater_node, node_data, true);
-                    BVHVisitorFn(node.lesser_node,  node_data, false);
-                    node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
-                }
-                else {
-                    node_data.hitIndex = -1 - bvh_object_list.length;
-                    for (let o of node.objects) {
-                        const p = me.visitPrimitive(o, webgl_helper);
-                        p.notTransformable = true;
-                        //agg.children.push(p);
-                        p.parents.push(agg);
-                        bvh_object_list.push(p.index);
-                    }
-                }
-            };
-            BVHVisitorFn(obj.kdtree);
-            
-            for (let node_data of bvh_nodes) {
-                let next_node = node_data;
-                while (next_node && !next_node.isGreater)
-                    next_node = next_node.parent_node;
-                node_data.missIndex = next_node ? bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
+            if (obj.kdtree.NODE_UID in this.bvh_first_instances) {
+                agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
             }
-            
-            agg.bvh_nodes = bvh_nodes;
-            agg.primIndices = bvh_object_list;
+            else {
+                const bvh_nodes = [];
+                const bvh_node_indices = {};
+                const bvh_object_list = [];
+                
+                const me = this;
+                function BVHVisitorFn(node, parent_node=null, isGreater=false) {
+                    const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
+                    const node_data = {
+                        raw_node:    node,
+                        parent_node: parent_node,
+                        aabb:        node.aabb,
+                        isGreater:   isGreater,
+                    };
+                    bvh_nodes.push(node_data);
+                    
+                    if (!node.isLeaf) {
+                        BVHVisitorFn(node.greater_node, node_data, true);
+                        BVHVisitorFn(node.lesser_node,  node_data, false);
+                        node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
+                    }
+                    else {
+                        node_data.hitIndex = -1 - bvh_object_list.length;
+                        for (let o of node.objects) {
+                            const p = me.visitPrimitive(o, webgl_helper);
+                            p.notTransformable = true;
+                            //agg.children.push(p);
+                            p.parents.push(agg);
+                            bvh_object_list.push(p.index);
+                        }
+                    }
+                };
+                BVHVisitorFn(obj.kdtree);
+                
+                for (let node_data of bvh_nodes) {
+                    let next_node = node_data;
+                    while (next_node && !next_node.isGreater)
+                        next_node = next_node.parent_node;
+                    node_data.missIndex = next_node ? bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
+                }
+                
+                agg.bvh_nodes = bvh_nodes;
+                agg.primIndices = bvh_object_list;
+                
+                this.bvh_first_instances[obj.kdtree.NODE_UID] = agg;
+            }
             
             return agg;
         }
@@ -274,10 +283,14 @@ class WebGLWorldAdapter {
                 indices_list = indices_list.concat(a.primIndices);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = accelerators_list.length / 4, a.indicesStartIndex = indices_list.length);
-                indices_list = indices_list.concat(a.primIndices);
-                accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.isLeaf ? n.raw_node.objects.length : 0]).flat());
-                aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
+                if (a.bvh_reuse_from)
+                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.acceleratorsStartIndex, a.bvh_reuse_from.indicesStartIndex);
+                else {
+                    aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = accelerators_list.length / 4, a.indicesStartIndex = indices_list.length);
+                    indices_list = indices_list.concat(a.primIndices);
+                    accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.isLeaf ? n.raw_node.objects.length : 0]).flat());
+                    aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
+                }
             }
             else
                 throw "Unsupported aggregate type detected";
