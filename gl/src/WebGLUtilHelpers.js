@@ -5,6 +5,10 @@ class WebGLVecStore {
         this.data_map = {};
         this.data = [];
     }
+    clear() {
+        this.data_map = {};
+        this.data = [];
+    }
     size() {
         return this.data.length;
     }
@@ -36,6 +40,10 @@ class WebGLTransformStore {
     constructor(components=4, reuse=true) {
         this.reuse = reuse;
         this.components = components;
+        this.data_map = {};
+        this.data = [];
+    }
+    clear() {
         this.data_map = {};
         this.data = [];
     }

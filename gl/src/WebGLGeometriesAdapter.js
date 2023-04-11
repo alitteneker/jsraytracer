@@ -9,8 +9,7 @@ class WebGLGeometriesAdapter {
     static UNITLINE_ID     = 7;
     static MIN_TRIANGLE_ID = 8;
     
-    static SWITCHABLE_TYPES = [WebGLGeometriesAdapter.PLANE_ID, WebGLGeometriesAdapter.SPHERE_ID, WebGLGeometriesAdapter.UNITBOX_ID, 
-                               WebGLGeometriesAdapter.CIRCLE_ID, WebGLGeometriesAdapter.SQUARE_ID, WebGLGeometriesAdapter.CYLINDER_ID];
+    static SWITCHABLE_TYPES = Math.range(0, 8);
                                
     static TypeStringLabel(type) {
         if (type == WebGLGeometriesAdapter.PLANE_ID)
@@ -35,14 +34,18 @@ class WebGLGeometriesAdapter {
     }
     
     constructor(webgl_helper) {
-        this.id_map = {};
-        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder(), new OriginPoint(), new UnitLine() ];
-        
-        this.triangle_data = new WebGLVecStore();
-        this.triangles = [];
-        
         [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
+        
+        this.triangle_data = new WebGLVecStore();
+        this.reset();
+    }
+    reset() {
+        this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder(), new OriginPoint(), new UnitLine() ];
+        this.id_map = {};
+        
+        this.triangle_data.clear();
+        this.triangles = [];
     }
     destroy(gl) {
         this.triangle_data_texture.destroy();

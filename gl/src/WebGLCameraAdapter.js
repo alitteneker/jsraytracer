@@ -22,6 +22,7 @@ class WebGLCameraAdapter {
         this.camera_euler_rotation = Vec.from(Mat4.getEulerAngles(this.camera.transform));
     }
     destroy() {}
+    reset() {}
     writeShaderData(gl, program) {
         gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov);
         gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);

@@ -14,24 +14,8 @@ class WebGLWorldAdapter {
             materials:  new WebGLMaterialsAdapter(webgl_helper),
             geometries: new WebGLGeometriesAdapter(webgl_helper)
         };
-
-        this.world = world;
         
-        this.primitives = [];
-        this.aggregates = [];
-        this.transform_object_map = {};
-        this.primitive_id_index_map = {};
-        this.aggregate_id_index_map = {};
-        this.aggregate_instance_map = {};
-        this.bvh_first_instances    = {};
-        
-        
-        // deal with lights
-        for (let light of world.lights)
-            this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
-        
-        // deal with world objects
-        this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
+        this.visitWorld(world, webgl_helper);
     }
     destroy(gl) {
         this.world_node_texture.destroy();
@@ -53,6 +37,33 @@ class WebGLWorldAdapter {
         for (let a of ancestors)
             ret = a.object.getInvTransform().times(ret);
         return ret;
+    }
+    
+    reset() {
+        this.transform_store.clear();
+        
+        this.primitives = [];
+        this.aggregates = [];
+        this.transform_object_map = {};
+        this.primitive_id_index_map = {};
+        this.aggregate_id_index_map = {};
+        this.aggregate_instance_map = {};
+        this.bvh_first_instances    = {};
+        
+        this.adapters.lights.reset();
+        this.adapters.geometries.reset();
+        this.adapters.materials.reset();
+    }
+    visitWorld(world, webgl_helper) {
+        this.reset();
+        this.world = world;
+        
+        // deal with lights
+        for (let light of world.lights)
+            this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
+        
+        // deal with world objects
+        this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
     }
     
     visitPrimitive(prim, webgl_helper) {
@@ -269,6 +280,24 @@ class WebGLWorldAdapter {
     modifyMaterialScalar(material_index, new_scalar) {
         this.adapters.materials.modifyScalar(material_index, new_scalar);
     }
+    modifyGeometryType(wrapped_obj, new_type) {
+        if (wrapped_obj.type != "primitive")
+            throw "Cannot change geometry type for non-primitive object";
+        this.primitives[wrapped_obj.index].geometryIndex = wrapped_obj.geometryIndex = new_type;
+        wrapped_obj.object.geometry = this.adapters.geometries.geometries[new_type];
+        wrapped_obj.object.contentsChanged();
+        wrapped_obj.aabb = wrapped_obj.getBoundingBox();
+        
+        for (let p of wrapped_obj.parents) {
+            p.object.contentsChanged();
+            for (let a of p.ancestors)
+                a.object.contentsChanged();
+        }
+        
+        this.world_node_texture.modifyDataPixel(this.aggregates.length + wrapped_obj.index, wrapped_obj.getDataVector());
+        this.renderer_adapter.resetDrawCount();
+    }
+
     
     writeShaderData(gl, program, webgl_helper) {
         // write global world properties
@@ -548,5 +577,8 @@ class WrappedPrimitive extends AbstractWrappedObject {
     }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
+    }
+    changeGeometryType(newType) {
+        return this.worldadapter.modifyGeometryType(this, newType);
     }
 }

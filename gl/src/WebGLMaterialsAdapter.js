@@ -7,7 +7,14 @@ class WebGLMaterialsAdapter {
     constructor(webgl_helper) {
         this.webgl_helper = webgl_helper;
         
+        [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
+        [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
+        
         this.solid_colors = new WebGLVecStore(3, false);
+        this.reset();
+    }
+    reset() {
+        this.solid_colors.clear();
         this.solid_mc_map = {};
         
         this.textures = [];
@@ -16,9 +23,6 @@ class WebGLMaterialsAdapter {
         
         this.materials = [];
         this.material_id_map = {};
-        
-        [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
-        [this.material_indices_texture_unit, this.material_indices_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
     }
     destroy() {
         this.material_colors_texture.destroy();

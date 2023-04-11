@@ -3,9 +3,12 @@ class WebGLLightsAdapter {
     static LIGHT_TYPE_DIRECTIONAL = 2;
     
     constructor(webgl_helper) {
-        this.lights_data = [];
+        this.reset();
     }
     destroy() {}
+    reset() {
+        this.lights_data = [];
+    }
     visit(light, geometry_adapter, material_adapter, webgl_helper) {
         const light_data = { index: this.lights_data.length, ID: this.lights_data.length, worldtype: "light", light: light };
         

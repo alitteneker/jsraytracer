@@ -31,8 +31,11 @@ class OriginPoint extends Geometry {
     static deserialize(data) {
         return new OriginPoint();
     }
+    intersect(ray, minDistance, maxDistance) {
+        return -Infinity;
+    }
     getBoundingBox(transform, inv_transform) {
-        return new AABB(transform.times(Vec.of(0,0,0,1), Vec.of(AABB_SIZE, AABB_SIZE, AABB_SIZE)));
+        return new AABB(transform.times(Vec.of(0,0,0,1)), Vec.of(OriginPoint.AABB_SIZE, OriginPoint.AABB_SIZE, OriginPoint.AABB_SIZE, 0));
     }
     sampleSurface() {
         return Vec.of(0, 0, 0, 1);
@@ -52,6 +55,9 @@ class UnitLine extends Geometry {
     }
     static deserialize(data) {
         return new UnitLine();
+    }
+    intersect(ray, minDistance, maxDistance) {
+        return -Infinity;
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints([-0.5, 0.5].map(x => transform.times(Vec.of(0, x, 0, 1))));

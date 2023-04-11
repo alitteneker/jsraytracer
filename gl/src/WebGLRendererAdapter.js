@@ -355,14 +355,19 @@ class WebGLRendererAdapter {
             + this.adapters.camera.getShaderSource();
     }
     
-    writeShaderData(gl) {
+    writeShaderData() {
         this.gl.useProgram(this.tracerShaderProgram);
         
-        gl.uniform2fv(gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
+        this.gl.uniform2fv(this.gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.from([this.canvas.width, this.canvas.height]));
         
-        this.webgl_helper.writeShaderData(gl, this.tracerShaderProgram);
-        this.adapters.world.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
-        this.adapters.camera.writeShaderData(gl, this.tracerShaderProgram, this.webgl_helper);
+        this.webgl_helper.writeShaderData(this.gl, this.tracerShaderProgram);
+        this.adapters.world.writeShaderData(this.gl, this.tracerShaderProgram, this.webgl_helper);
+        this.adapters.camera.writeShaderData(this.gl, this.tracerShaderProgram, this.webgl_helper);
+    }
+    worldModified() {
+        this.adapters.world.visitWorld(this.renderer.world);
+        this.writeShaderData();
+        this.resetDrawCount();
     }
     
     resetDrawCount() {

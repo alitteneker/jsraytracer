@@ -375,7 +375,12 @@ class WebGLInterface {
         
         $("#selected-object-controls").empty();
         
-        // TODO: select geometry type?
+        if (!o.notTransformable && WebGLGeometriesAdapter.SWITCHABLE_TYPES.indexOf(o.geometryIndex) >= 0) {
+            oc += `<label for="geometry-type-select">Geometry Type:</label><select id="geometry-type-select">`;
+            for (let t of WebGLGeometriesAdapter.SWITCHABLE_TYPES)
+                oc += `<option value="${t}" ${t == o.geometryIndex ? "selected" : ""}>${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`;
+            oc += "</select>";
+        }
         
         const [pos, rot, scale] = Mat4.breakdownTransform(o.getWorldTransform());
         oc += `<div class="object-geometry-controls"><div><table>
@@ -433,6 +438,13 @@ class WebGLInterface {
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
         $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
         $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        
+        $('#geometry-type-select').on('change', (function() {
+            o.changeGeometryType(Number.parseInt($('#geometry-type-select').val()));
+            const selecttreenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey("o" + o.ID);
+            if (selecttreenode)
+                selecttreenode.setTitle(WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex) + " : " + o.object.OBJECT_UID);
+        }).bind(this));
         
         if (o.notTransformable)
             $("#selected-object-controls input[data-transform-type]").spinner("disable");
