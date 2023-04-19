@@ -147,13 +147,13 @@ class Vec extends Float32Array {
             0.5 - Math.asin(n[1]) / Math.PI);
     }
     equals(b) {
-        return this.every((x, i) => x == b[i])
+        return (typeof b == "number") ? this.every((x, i) => x == b) : this.every((x, i) => x == b[i]);
     }
     plus(b) {
-        return this.map((x, i) => x + b[i])
+        return (typeof b == "number") ? this.map((x, i) => x + b) : this.map((x, i) => x + b[i]);
     }
     minus(b) {
-        return this.map((x, i) => x - b[i])
+        return (typeof b == "number") ? this.map((x, i) => x - b) : this.map((x, i) => x - b[i]);
     }
     mult_pairs(b) {
         return this.map((x, i) => x * b[i])
@@ -175,6 +175,9 @@ class Vec extends Float32Array {
     }
     static max(a,b) {
         return a.map((x, i) => Math.max(x, (b && b.length) ? b[i] : b));
+    }
+    abs() {
+        return Vec.from(this.map(x => Math.abs(x)));
     }
     randomized(s) {
         return this.map(x => x + s * (Math.random() - .5))

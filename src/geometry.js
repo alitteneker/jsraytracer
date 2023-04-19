@@ -414,6 +414,9 @@ class Sphere extends Geometry {
         return new Sphere();
     }
     getBoundingBox(transform, inv_transform) {
+        return Sphere.computeBoundingBox(transform, inv_transform);
+    }
+    static computeBoundingBox(transform, inv_transform) {
         const c = transform.column(3);
         let h = Vec.of(0,0,0,0);
         for (let i = 0; i < 3; ++i)
@@ -454,6 +457,9 @@ class Cylinder extends Geometry {
         return new Cylinder();
     }
     getBoundingBox(transform, inv_transform) {
+        return Cylinder.computeBoundingBox(transform, inv_transform);
+    }
+    static computeBoundingBox(transform, inv_transform) { 
         const axis = transform.times(Vec.axis(2,4));
         const circle_points = Circle.getTransformedEdgePoints(transform, inv_transform);
         return AABB.fromPoints(circle_points.map(v => [v.plus(axis), v.minus(axis)]).flat());

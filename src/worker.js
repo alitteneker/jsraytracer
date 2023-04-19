@@ -10,6 +10,7 @@ importScripts(
     'renderers.js',
     'lights.js',
     'objloader.js',
+    'sdf.js',
     'aggregates.js');
 
 
