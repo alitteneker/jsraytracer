@@ -21,9 +21,11 @@ export function configureTest(callback) {
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
         
     objects.push(new Primitive(
-        new SDFGeometry(new UnionSDF(
-            new TransformSDF(new BoxSDF(1),   Mat4.translation([ 1.2, 0.2, -7])),
-            new TransformSDF(new SphereSDF(), Mat4.translation([-2,   0.3, -9])))),
+        new SDFGeometry(
+            // new UnionSDF(
+                // new TransformSDF(new BoxSDF(1),   Mat4.translation([ 1.2, 0.2, -7])),
+                // new TransformSDF(new SphereSDF(), Mat4.translation([-2,   0.3, -9]))),
+            new InfiniteRepetitionSDF(new SphereSDF(), Vec.of(2,2,2))),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.5)));
         
     callback({

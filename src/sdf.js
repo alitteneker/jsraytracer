@@ -1,7 +1,7 @@
 class SDFGeometry extends Geometry {
     static EPSILON = 0.00001;
     static MAX_SAMPLES = 1000;
-    static NORMAL_STEP_SIZE = 0.1;
+    static NORMAL_STEP_SIZE = 0.001;
     constructor(root_sdf) {
         super();
         this.root_sdf = root_sdf;
@@ -11,21 +11,25 @@ class SDFGeometry extends Geometry {
         const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
         if (!intersect_bounds)
             return -Infinity;
-        
+
         minDistance = Math.max(minDistance, intersect_bounds.min);
         maxDistance = Math.min(maxDistance, intersect_bounds.max);
         
         let t = minDistance;
         const rd_norm = ray.direction.norm();
         for (let i = 0; i < SDFGeometry.MAX_SAMPLES; ++i) {
-            if (t < minDistance || t > maxDistance)
+            const p = ray.getPoint(t);
+            const distance = this.root_sdf.distance(p);
+            if (!isFinite(distance)) {
+                if (isNaN(distance) && p.every(c => isFinite(c)))
+                    throw "SDF distance computation has failed";
                 break;
-            const distance = this.root_sdf.distance(ray.getPoint(t));
-            if (!isFinite(distance))
-                throw "SDF distance computation is not finite";
+            }
             if (Math.abs(distance) <= SDFGeometry.EPSILON)
                 return t;
             t += distance / rd_norm;
+            if (t < minDistance || t > maxDistance)
+                break;
         }
         return -Infinity;
     }
@@ -33,9 +37,9 @@ class SDFGeometry extends Geometry {
         const distance = this.root_sdf.distance(base_data.position);
         const N = Vec.of(0,0,0,0);
         for (let i = 0; i < 3; ++i)
-            N[i] = this.root_sdf.distance(base_data.position.plus(Vec.axis(i, 4, SDFGeometry.NORMAL_STEP_SIZE))) - distance;
+            N[i] = (this.root_sdf.distance(base_data.position.plus(Vec.axis(i, 4, SDFGeometry.NORMAL_STEP_SIZE))) - distance) / SDFGeometry.NORMAL_STEP_SIZE;
         return Object.assign(base_data, {
-            normal: N,
+            normal: N.normalized(),
             // TODO: UV?
         });
     }
@@ -94,6 +98,35 @@ class IntersectionSDF extends SDF {
     }
 }
 
+class RoundSDF extends SDF {
+    constructor(child_sdf, rounding) {
+        super();
+        this.child_sdf = child_sdf;
+        this.rounding = rounding
+    }
+    distance(p) {
+        return this.child_sdf.distance(p) - this.rounding;
+    }
+    getBoundingBox(transform, inv_transform) {
+        return this.child_sdf.getBoundingBox(transform, inv_transform);
+    }
+}
+
+class InfiniteRepetitionSDF extends SDF {
+    constructor(child_sdf, sizes = Vec.of(1, 1, 1)) {
+        super();
+        this.child_sdf = child_sdf;
+        this.sizes = sizes;
+    }
+    distance(p) {
+        const q = Vec.from([0,1,2].map(i => (p[i] + this.sizes[i] / 2) % this.sizes[i] - this.sizes[i] / 2));
+        return this.child_sdf.distance(q);
+    }
+    getBoundingBox(transform, inv_transform) {
+        return new AABB(Vec.of(0,0,0,1), Vec.of(Infinity, Infinity, Infinity, 0));
+    }
+}
+
 class SphereSDF extends SDF {
     constructor(radius = 1) {
         super();
@@ -115,6 +148,9 @@ class PlaneSDF extends SDF {
     distance(p) {
         return this.normal.dot(p) + delta;
     }
+    getBoundingBox(transform, inv_transform) {
+        return new AABB(Vec.of(0,0,0,1), Vec.of(Infinity, Infinity, Infinity, 0));
+    }
 }
 
 class BoxSDF extends SDF {
@@ -123,9 +159,10 @@ class BoxSDF extends SDF {
         this.size = size;
     }
     distance(p) {
-        return p.abs().minus(this.size).to4(0).norm();
+        const q = p.abs().minus(this.size);
+        return Vec.max(q, 0).norm() + Math.min(Math.max(q[0], q[1], q[2]), 0);
     }
     getBoundingBox(transform, inv_transform) {
-        return new UnitBox().getBoundingBox(transform.times(Mat4.scale(this.size)), Mat4.scale(1/this.size).times(inv_transform));
+        return new UnitBox().getBoundingBox(transform.times(Mat4.scale(this.size * 2)), Mat4.scale(0.5/this.size).times(inv_transform));
     }
 }

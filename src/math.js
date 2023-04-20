@@ -147,13 +147,13 @@ class Vec extends Float32Array {
             0.5 - Math.asin(n[1]) / Math.PI);
     }
     equals(b) {
-        return (typeof b == "number") ? this.every((x, i) => x == b) : this.every((x, i) => x == b[i]);
+        return (b && b.length) ? this.every((x, i) => x == b[i]) : this.every((x, i) => x == b);
     }
     plus(b) {
-        return (typeof b == "number") ? this.map((x, i) => x + b) : this.map((x, i) => x + b[i]);
+        return (b && b.length) ? this.map((x, i) => x + b[i]) : this.map((x, i) => x + b);
     }
     minus(b) {
-        return (typeof b == "number") ? this.map((x, i) => x - b) : this.map((x, i) => x - b[i]);
+        return (b && b.length) ? this.map((x, i) => x - b[i]) : this.map((x, i) => x - b);
     }
     mult_pairs(b) {
         return this.map((x, i) => x * b[i])
@@ -162,10 +162,10 @@ class Vec extends Float32Array {
         this.forEach((x, i, a) => a[i] *= s)
     }
     times(s) {
-        return (s instanceof Vec) ? this.map((x,i) => x * s[i]) : this.map(x => x * s);
+        return (s && s.length) ? this.map((x,i) => x * s[i]) : this.map(x => x * s);
     }
     divide(s) {
-        return (s instanceof Vec) ? this.map((x,i) => x / s[i]) : this.map(x => x / s);
+        return (s && s.length) ? this.map((x,i) => x / s[i]) : this.map(x => x / s);
     }
     inverse() {
         return Vec.from(this.map(x => 1 / x));
