@@ -25,7 +25,7 @@ export function configureTest(callback) {
             // new UnionSDF(
                 // new TransformSDF(new BoxSDF(1),   Mat4.translation([ 1.2, 0.2, -7])),
                 // new TransformSDF(new SphereSDF(), Mat4.translation([-2,   0.3, -9]))),
-            new InfiniteRepetitionSDF(new SphereSDF(), Vec.of(2,2,2))),
+            new TransformSDF(new InfiniteRepetitionSDF(new SphereSDF(), Vec.of(5,5,5)), Mat4.translation([-2,0.3,-9])), 32, 0.001, 100),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.5)));
         
     callback({

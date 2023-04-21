@@ -1,11 +1,12 @@
 class SDFGeometry extends Geometry {
-    static EPSILON = 0.00001;
-    static MAX_SAMPLES = 1000;
-    static NORMAL_STEP_SIZE = 0.001;
-    constructor(root_sdf) {
+    constructor(root_sdf, max_samples=1000, distance_epsilon=0.0001, max_trace_distance=1000, normal_step_size=0.001) {
         super();
         this.root_sdf = root_sdf;
         this.aabb = this.root_sdf.getBoundingBox(Mat4.identity(), Mat4.identity());
+        this.max_samples = max_samples;
+        this.distance_epsilon = distance_epsilon;
+        this.max_trace_distance = max_trace_distance;
+        this.normal_step_size = normal_step_size;
     }
     intersect(ray, minDistance, maxDistance) {
         const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
@@ -17,7 +18,7 @@ class SDFGeometry extends Geometry {
         
         let t = minDistance;
         const rd_norm = ray.direction.norm();
-        for (let i = 0; i < SDFGeometry.MAX_SAMPLES; ++i) {
+        for (let i = 0; i < this.max_samples; ++i) {
             const p = ray.getPoint(t);
             const distance = this.root_sdf.distance(p);
             if (!isFinite(distance)) {
@@ -25,10 +26,10 @@ class SDFGeometry extends Geometry {
                     throw "SDF distance computation has failed";
                 break;
             }
-            if (Math.abs(distance) <= SDFGeometry.EPSILON)
+            if (Math.abs(distance) <= this.distance_epsilon)
                 return t;
             t += distance / rd_norm;
-            if (t < minDistance || t > maxDistance)
+            if (t < minDistance || t > maxDistance || (t - minDistance) * rd_norm > this.max_trace_distance)
                 break;
         }
         return -Infinity;
@@ -37,7 +38,7 @@ class SDFGeometry extends Geometry {
         const distance = this.root_sdf.distance(base_data.position);
         const N = Vec.of(0,0,0,0);
         for (let i = 0; i < 3; ++i)
-            N[i] = (this.root_sdf.distance(base_data.position.plus(Vec.axis(i, 4, SDFGeometry.NORMAL_STEP_SIZE))) - distance) / SDFGeometry.NORMAL_STEP_SIZE;
+            N[i] = (this.root_sdf.distance(base_data.position.plus(Vec.axis(i, 4, this.normal_step_size))) - distance) / this.normal_step_size;
         return Object.assign(base_data, {
             normal: N.normalized(),
             // TODO: UV?
@@ -119,7 +120,7 @@ class InfiniteRepetitionSDF extends SDF {
         this.sizes = sizes;
     }
     distance(p) {
-        const q = Vec.from([0,1,2].map(i => (p[i] + this.sizes[i] / 2) % this.sizes[i] - this.sizes[i] / 2));
+        const q = Vec.from([0,1,2].map(i => Math.fmod((p[i] + this.sizes[i] / 2), this.sizes[i]) - this.sizes[i] / 2)).to4(1);
         return this.child_sdf.distance(q);
     }
     getBoundingBox(transform, inv_transform) {
