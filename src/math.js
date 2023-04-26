@@ -167,8 +167,8 @@ class Vec extends Float32Array {
     divide(s) {
         return (s && s.length) ? this.map((x,i) => x / s[i]) : this.map(x => x / s);
     }
-    inverse() {
-        return Vec.from(this.map(x => 1 / x));
+    inverse(nom = 1) {
+        return Vec.from(this.map(x => nom / x));
     }
     static min(a,b) {
         return a.map((x, i) => Math.min(x, (b && b.length) ? b[i] : b));
