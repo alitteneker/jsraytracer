@@ -153,7 +153,7 @@ class RecursiveTransformUnionSDF extends SDF {
         return bestDist;
     }
     getBoundingBox(transform, inv_transform) {
-        const aabb = this.sdf.getBoundingBox(transform, inv_transform);
+        let aabb = this.sdf.getBoundingBox(transform, inv_transform);
         for (let i = 0; i < this.iterations; ++i)
             aabb = AABB.hull([aabb, this.transformer.transformBoundingBox(aabb)]);
         return aabb;
@@ -271,7 +271,7 @@ class BoxSDF extends SDF {
             this.size = size.to4(0);
     }
     static distanceComp(p, size) {
-        const q = p.abs().minus(size);
+        const q = p.abs().minus(size).to4(0);
         return Vec.max(q, 0).norm() + Math.min(Math.max(q[0], q[1], q[2]), 0);
     }
     distance(p) {

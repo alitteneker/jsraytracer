@@ -21,23 +21,23 @@ export function configureTest(callback) {
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
         
     
-    const scale = 1;
+    const scale = 3;
     objects.push(new Primitive(
         new SDFGeometry(
-            // new DifferenceSDF(
-                // new BoxSDF(5),
-                //new RecursiveTransformUnionSDF(
+            new DifferenceSDF(
+                new BoxSDF(1),
+                new RecursiveTransformUnionSDF(
                     new UnionSDF(
-                        new BoxSDF(Vec.of(100, 1/scale,  1/scale)),
-                        new BoxSDF(Vec.of(1/scale,  100, 1/scale)),
-                        new BoxSDF(Vec.of(1/scale,  1/scale,  100))),
-                    // new SDFTransformerSequence(
-                        // new SDFInfiniteRepetitionTransformer(Vec.of(1,1,1)),
-                        // new SDFMatrixTransformer(Mat4.scale(1/scale))),
-                    // 3)),
-            32, 0.001, 100),
-        new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.5),
-        Mat4.translation([0,2,-6])));
+                        new BoxSDF(Vec.of(Infinity, 1/scale,  1/scale)),
+                        new BoxSDF(Vec.of(1/scale,  Infinity, 1/scale)),
+                        new BoxSDF(Vec.of(1/scale,  1/scale,  Infinity))),
+                    new SDFTransformerSequence(
+                        new SDFMatrixTransformer(Mat4.scale(1/scale)),
+                        new SDFInfiniteRepetitionTransformer(Vec.of(2,2,2))),
+                    3)),
+            128, 0.001, 100),
+        new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.15),
+        Mat4.translation([-3.5,0.5,-3.5]).times(Mat4.rotationY(0.3))));
         
     callback({
         renderer: new IncrementalMultisamplingRenderer(
