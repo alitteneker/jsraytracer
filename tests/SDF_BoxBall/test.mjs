@@ -23,28 +23,28 @@ export function configureTest(callback) {
     objects.push(new Primitive(
         new SDFGeometry(
             // BoxBall test with SDFs
-            // new UnionSDF(
-                // new TransformSDF(new BoxSDF(1),   new SDFMatrixtransformer(Mat4.translation([ 1.2, 0.2, -7]))),
-                // new TransformSDF(new SphereSDF(), new SDFMatrixtransformer(Mat4.translation([-2,   0.3, -9])))),
+            new UnionSDF(
+                new TransformSDF(new BoxSDF(1),   new SDFMatrixTransformer(Mat4.translation([ 1.2, 0.2, -7]))),
+                new TransformSDF(new SphereSDF(), new SDFMatrixTransformer(Mat4.translation([-2,   0.3, -9])))),
             
             // Infinite Spheres
             // new TransformSDF(new SphereSDF(), new SDFInfiniteRepetitionTransformer(Vec.of(5,5,5))),
             
             // Monger sponge fractal
-            new DifferenceSDF(
-                new BoxSDF(5),
-                new RecursiveTransformUnionSDF(
-                    new UnionSDF(
-                        new BoxSDF(Vec.of(Infinity, 1/3, 1/3)),
-                        new BoxSDF(Vec.of(1/3, Infinity, 1/3)),
-                        new BoxSDF(Vec.of(1/3, 1/3, Infinity))),
-                    new SDFTransformerSequence(
-                        new SDFInfiniteRepetitionTransformer(Vec.of(1,1,1)),
-                        new SDFMatrixTransformer(Mat4.scale(1/3))),
-                    3)),
+            // new DifferenceSDF(
+                // new BoxSDF(5),
+                //new RecursiveTransformUnionSDF(
+                    //new UnionSDF(
+                        // new BoxSDF(Vec.of(Infinity, 1/3, 1/3)),
+                        // new BoxSDF(Vec.of(1/3, Infinity, 1/3)),
+                        // new BoxSDF(Vec.of(1/3, 1/3, Infinity)),
+                    // new SDFTransformerSequence(
+                        // new SDFInfiniteRepetitionTransformer(Vec.of(1,1,1)),
+                        // new SDFMatrixTransformer(Mat4.scale(1/3))),
+                    // 3),//),
             32, 0.001, 100),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.5),
-        Mat4.translation([-2,0.3,-9])));
+        /* Mat4.translation([0,0.3,-6]) */));
         
     callback({
         renderer: new IncrementalMultisamplingRenderer(

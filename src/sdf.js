@@ -153,9 +153,9 @@ class RecursiveTransformUnionSDF extends SDF {
         return bestDist;
     }
     getBoundingBox(transform, inv_transform) {
-        let aabb = this.sdf.getBoundingBox(transform, inv_transform);
+        const aabb = this.sdf.getBoundingBox(transform, inv_transform);
         for (let i = 0; i < this.iterations; ++i)
-            aabb = AABB.hull(aabb, this.transformer.transformBoundingBox(aabb));
+            aabb = AABB.hull([aabb, this.transformer.transformBoundingBox(aabb)]);
         return aabb;
     }
 }
@@ -165,9 +165,7 @@ class SDFTransformer {
         throw "SDFTransformer subclass has not implemented transform";
     }
     transformBoundingBox(aabb) {
-        let corners = aabb.getCorners();
-        corners = corners.concat(corners.map(c => this.transform(c)));
-        return AABB.fromPoints(corners);
+        throw "SDFTransformer subclass has not implemented transformBoundingBox";
     }
 }
 
@@ -181,16 +179,24 @@ class SDFTransformerSequence extends SDFTransformer {
             p = t.transform(p);
         return p;
     }
+    transformBoundingBox(aabb) {
+        for (let t of this.transformers)
+            aabb = t.transformBoundingBox(aabb);
+        return aabb;
+    }
 }
 
 class SDFMatrixTransformer extends SDFTransformer {
     constructor(transform, inv_transform=Mat4.inverse(transform)) {
         super();
         this._transform = transform;
-        this._inv_transform = transform;
+        this._inv_transform = inv_transform;
     }
     transform(p) {
         return this._inv_transform.times(p);
+    }
+    transformBoundingBox(aabb) {
+        return aabb.getBoundingBox(this._transform, this._inv_transform);
     }
 }
 
@@ -208,10 +214,11 @@ class SDFReflectionTransformer extends SDFTransformer {
             : p;
     }
     transformBoundingBox(aabb) {
-        // TODO: this is too big. Can be made considerably smaller, probably...
-        let corners = aabb.getCorners();
-        corners = corners.concat(corners.map(c => this.transform(c)));
-        return AABB.fromPoints(corners);
+        // TODO: Both of these are wrong. The first version attempts to use a transform from world-space to model-space to go from model-space to world-space. The second assumes that the recursion will not expand the base bounding box.
+        // let corners = aabb.getCorners();
+        // corners = corners.concat(corners.map(c => this.transform(c)));
+        // return AABB.fromPoints(corners);
+        return aabb;
     }
 }
 
