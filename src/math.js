@@ -297,6 +297,9 @@ class Mat extends Array {
     sub_block(start, end) {
         return Mat.from(this.slice(start[0], end[0]).map(r => r.slice(start[1], end[1])));
     }
+    row(index) {
+        return Vec.from(this[index]);
+    }
     column(index) {
         return Vec.from(this.map((r) => r[index]));
     }
