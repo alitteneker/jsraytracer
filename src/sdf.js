@@ -28,7 +28,7 @@ class SDFGeometry extends Geometry {
                 break;
             }
             
-            if (Math.abs(distance) <= this.distance_epsilon)
+            if (distance <= this.distance_epsilon)
                 return t;
             
             t += distance / rd_norm;
@@ -130,7 +130,8 @@ class TransformSDF extends SDF {
         this.transformer = transformer;
     }
     distance(p) {
-        return this.child_sdf.distance(this.transformer.transform(p));
+        const [pt, s] = this.transformer.transform(p);
+        return this.child_sdf.distance(pt) * s;
     }
     getBoundingBox(transform, inv_transform) {
         return this.transformer.transformBoundingBox(this.child_sdf.getBoundingBox(transform, inv_transform));
@@ -145,10 +146,11 @@ class RecursiveTransformUnionSDF extends SDF {
         this.iterations = iterations;
     }
     distance(p) {
-        let bestDist = this.sdf.distance(p);
+        let bestDist = this.sdf.distance(p), s = 1;
         for (let i = 0; i < this.iterations; ++i) {
-            p = this.transformer.transform(p);
-            bestDist = Math.min(this.sdf.distance(p), bestDist);
+            let [pt, st] = this.transformer.transform(p);
+            [p, s] = [pt, s * st];
+            bestDist = Math.min(this.sdf.distance(p) * s, bestDist);
         }
         return bestDist;
     }
@@ -175,9 +177,12 @@ class SDFTransformerSequence extends SDFTransformer {
         this.transformers = transformers;
     }
     transform(p) {
-        for (let t of this.transformers)
-            p = t.transform(p);
-        return p;
+        let s = 1;
+        for (let t of this.transformers) {
+            let [pt, st] = t.transform(p);
+            [p, s] = [pt, s * st];
+        }
+        return [p, s];
     }
     transformBoundingBox(aabb) {
         for (let t of this.transformers)
@@ -191,9 +196,10 @@ class SDFMatrixTransformer extends SDFTransformer {
         super();
         this._transform = transform;
         this._inv_transform = inv_transform;
+        this._scale = Math.min(this._transform[0][0], this._transform[1][1], this._transform[2][2]);
     }
     transform(p) {
-        return this._inv_transform.times(p);
+        return [this._inv_transform.times(p), this._scale];
     }
     transformBoundingBox(aabb) {
         return aabb.getBoundingBox(this._transform, this._inv_transform);
@@ -210,8 +216,8 @@ class SDFReflectionTransformer extends SDFTransformer {
     transform(p) {
         const dot = this.normal.dot(p);
         return (dot !== this.delta && this.greater === (dot < this.delta))
-            ? p.times(2 * dot).minus(this.normal).to4(1)
-            : p;
+            ? [p.times(2 * dot).minus(this.normal).to4(1), 1]
+            : [p, 1];
     }
     transformBoundingBox(aabb) {
         // TODO: Both of these are wrong. The first version attempts to use a transform from world-space to model-space to go from model-space to world-space. The second assumes that the recursion will not expand the base bounding box.
@@ -228,7 +234,7 @@ class SDFInfiniteRepetitionTransformer extends SDFTransformer {
         this.sizes = sizes;
     }
     transform(p) {
-        return Vec.from([0,1,2].map(i => Math.fmod((p[i] + this.sizes[i] / 2), this.sizes[i]) - this.sizes[i] / 2)).to4(1);
+        return [Vec.from([0,1,2].map(i => Math.fmod((p[i] + this.sizes[i] / 2), this.sizes[i]) - this.sizes[i] / 2)).to4(1), 1];
     }
     transformBoundingBox(aabb) {
         return new AABB(Vec.of(0,0,0,1), Vec.of(Infinity, Infinity, Infinity, 0));

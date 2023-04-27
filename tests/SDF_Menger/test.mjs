@@ -35,9 +35,9 @@ export function configureTest(callback) {
                         new SDFMatrixTransformer(Mat4.scale(1/scale)),
                         new SDFInfiniteRepetitionTransformer(Vec.of(2,2,2))),
                     3)),
-            128, 0.001, 100),
+            300, 0.001, 100),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.15),
-        Mat4.translation([-3.5,0.5,-3.5]).times(Mat4.rotationY(0.3))));
+        Mat4.translation([-3.5,0.5,-3.5]).times(Mat4.rotationY(0.1))));
         
     callback({
         renderer: new IncrementalMultisamplingRenderer(
