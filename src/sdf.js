@@ -9,12 +9,12 @@ class SDFGeometry extends Geometry {
         this.normal_step_size = normal_step_size;
     }
     intersect(ray, minDistance, maxDistance) {
-        const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
-        if (!intersect_bounds)
-            return -Infinity;
+        // const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
+        // if (!intersect_bounds)
+            // return -Infinity;
 
-        minDistance = Math.max(minDistance, intersect_bounds.min);
-        maxDistance = Math.min(maxDistance, intersect_bounds.max);
+        // minDistance = Math.max(minDistance, intersect_bounds.min);
+        // maxDistance = Math.min(maxDistance, intersect_bounds.max);
         
         let t = minDistance;
         const rd_norm = ray.direction.norm();
@@ -191,12 +191,33 @@ class SDFTransformerSequence extends SDFTransformer {
     }
 }
 
+class SDFRecursiveTransformer extends SDFTransformer {
+    constructor(transformer, iterations) {
+        super();
+        this.transformer = transformer;
+        this.iterations = iterations;
+    }
+    transform(p) {
+        let s = 1;
+        for (let i = 0; i < this.iterations; ++i) {
+            let [pt, st] = this.transformer.transform(p);
+            [p, s] = [pt, s * st];
+        }
+        return [p, s];
+    }
+    transformBoundingBox(aabb) {
+        for (let i = 0; i < this.iterations; ++i)
+            aabb = this.transformer.transformBoundingBox(aabb);
+        return aabb;
+    }
+}
+
 class SDFMatrixTransformer extends SDFTransformer {
     constructor(transform, inv_transform=Mat4.inverse(transform)) {
         super();
         this._transform = transform;
         this._inv_transform = inv_transform;
-        this._scale = Math.min(...[0,1,2].map(i => this._transform.row(i).to3().norm()));
+        this._scale = Math.min(...[0,1,2].map(i => this._transform.column(i).to3().norm()));
     }
     transform(p) {
         return [this._inv_transform.times(p), this._scale];
@@ -209,22 +230,28 @@ class SDFMatrixTransformer extends SDFTransformer {
 class SDFReflectionTransformer extends SDFTransformer {
     constructor(normal, delta, greater=true) {
         super();
-        this.normal = normal.to4(0);
-        this.delta = delta;
+        normal = normal.to4(0);
+        this.delta = delta / normal.norm();
+        this.normal = normal.normalized();
         this.greater = greater;
     }
+    static transformComp(p, normal, delta, greater) {
+        const dot = normal.dot(p);
+        if (dot !== delta && greater === (dot < delta)) {
+            const pt = p.minus(normal.times(2 * dot - delta));
+            if (pt.some(c => Math.abs(c) > 1E30))
+                console.log(p, pt);
+            return [pt, 1]
+        }
+        return [p, 1];
+    }
     transform(p) {
-        const dot = this.normal.dot(p);
-        return (dot !== this.delta && this.greater === (dot < this.delta))
-            ? [p.times(2 * dot).minus(this.normal).to4(1), 1]
-            : [p, 1];
+        return SDFReflectionTransformer.transformComp(p, this.normal, this.delta, this.greater);
     }
     transformBoundingBox(aabb) {
-        // TODO: Both of these are wrong. The first version attempts to use a transform from world-space to model-space to go from model-space to world-space. The second assumes that the recursion will not expand the base bounding box.
-        // let corners = aabb.getCorners();
-        // corners = corners.concat(corners.map(c => this.transform(c)));
-        // return AABB.fromPoints(corners);
-        return aabb;
+        let corners = aabb.getCorners();
+        corners = corners.concat(corners.map(c => SDFReflectionTransformer.transformComp(c, this.normal, this.delta, !this.greater)));
+        return AABB.fromPoints(corners);
     }
 }
 
@@ -286,6 +313,24 @@ class BoxSDF extends SDF {
     getBoundingBox(transform, inv_transform) {
         const scale_vec = this.size.length ? this.size : Vec.of(this.size, this.size, this.size);
         return new UnitBox().getBoundingBox(transform.times(Mat4.scale(scale_vec.times(2))), Mat4.scale(scale_vec.inverse(2)).times(inv_transform));
+    }
+}
+
+class TetrahedronSDF extends SDF {
+    static vertices = [
+        Vec.of( 1,  1,  1, 0),
+        Vec.of(-1,  1, -1, 0),
+        Vec.of(-1, -1,  1, 0),
+        Vec.of( 1, -1, -1, 0)];
+    constructor() {
+        super();
+    }
+    distance(p) {
+        return (Math.max(Math.abs(p[0] + p[1]) - p[2],
+                         Math.abs(p[0] - p[1]) + p[2]) - 1) / Math.sqrt(3);
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.fromPoints(TetrahedronSDF.vertices.map(v => transform.times(v)));
     }
 }
 
