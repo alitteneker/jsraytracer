@@ -9,12 +9,12 @@ class SDFGeometry extends Geometry {
         this.normal_step_size = normal_step_size;
     }
     intersect(ray, minDistance, maxDistance) {
-        // const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
-        // if (!intersect_bounds)
-            // return -Infinity;
+        const intersect_bounds = this.aabb.get_intersects(ray, minDistance, maxDistance);
+        if (!intersect_bounds)
+            return -Infinity;
 
-        // minDistance = Math.max(minDistance, intersect_bounds.min);
-        // maxDistance = Math.min(maxDistance, intersect_bounds.max);
+        minDistance = Math.max(minDistance, intersect_bounds.min);
+        maxDistance = Math.min(maxDistance, intersect_bounds.max);
         
         let t = minDistance;
         const rd_norm = ray.direction.norm();
@@ -238,12 +238,8 @@ class SDFReflectionTransformer extends SDFTransformer {
     }
     static transformComp(p, normal, delta) {
         const dot = normal.dot(p) - delta;
-        if (dot < 0) {
-            const pt = p.minus(normal.times(2 * dot));
-            if (pt.some(c => Math.abs(c) > 1E30))
-                console.log(p, pt);
-            return [pt, 1]
-        }
+        if (dot < 0)
+            return [p.minus(normal.times(2 * dot)), 1];
         return [p, 1];
     }
     transform(p) {
@@ -251,7 +247,7 @@ class SDFReflectionTransformer extends SDFTransformer {
     }
     transformBoundingBox(aabb) {
         let corners = aabb.getCorners();
-        corners = corners.concat(corners.map(c => SDFReflectionTransformer.transformComp(c, this.normal.times(-1), -this.delta)));
+        corners = corners.concat(corners.map(c => SDFReflectionTransformer.transformComp(c, this.normal.times(-1), -this.delta)[0]));
         return AABB.fromPoints(corners);
     }
 }
