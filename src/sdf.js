@@ -228,17 +228,18 @@ class SDFMatrixTransformer extends SDFTransformer {
 }
 
 class SDFReflectionTransformer extends SDFTransformer {
-    constructor(normal, delta, greater=true) {
+    constructor(normal, delta) {
         super();
         normal = normal.to4(0);
+        if (delta instanceof Vec)
+            delta = normal.dot(delta);
         this.delta = delta / normal.norm();
         this.normal = normal.normalized();
-        this.greater = greater;
     }
-    static transformComp(p, normal, delta, greater) {
-        const dot = normal.dot(p);
-        if (dot !== delta && greater === (dot < delta)) {
-            const pt = p.minus(normal.times(2 * dot - delta));
+    static transformComp(p, normal, delta) {
+        const dot = normal.dot(p) - delta;
+        if (dot < 0) {
+            const pt = p.minus(normal.times(2 * dot));
             if (pt.some(c => Math.abs(c) > 1E30))
                 console.log(p, pt);
             return [pt, 1]
@@ -250,7 +251,7 @@ class SDFReflectionTransformer extends SDFTransformer {
     }
     transformBoundingBox(aabb) {
         let corners = aabb.getCorners();
-        corners = corners.concat(corners.map(c => SDFReflectionTransformer.transformComp(c, this.normal, this.delta, !this.greater)));
+        corners = corners.concat(corners.map(c => SDFReflectionTransformer.transformComp(c, this.normal.times(-1), -this.delta)));
         return AABB.fromPoints(corners);
     }
 }

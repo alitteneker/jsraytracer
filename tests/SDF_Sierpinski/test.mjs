@@ -29,11 +29,11 @@ export function configureTest(callback) {
                 new SDFRecursiveTransformer(
                     new SDFTransformerSequence(
                         new SDFMatrixTransformer(Mat4.translation(tv).times(Mat4.scale(0.5)).times(Mat4.translation(tv.times(-1)))),
-                        ...[1,2,3].map(i => new SDFReflectionTransformer(tv.minus(TetrahedronSDF.vertices[i]), -4))),
-                    1)),
+                        ...[1,2,3].map(i => new SDFReflectionTransformer(tv.minus(TetrahedronSDF.vertices[i]), TetrahedronSDF.vertices[i]))),
+                    10)),
             300, 0.001, 100),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.15),
-        Mat4.translation([-4,0.5,-3]).times(Mat4.rotationY(3.5))));
+        Mat4.translation([-4.25,0.5,-2.5]).times(Mat4.rotationY(1.0)).times(Mat4.rotationX(-1.5)).times(Mat4.scale(0.75))));
         
     callback({
         renderer: new IncrementalMultisamplingRenderer(
