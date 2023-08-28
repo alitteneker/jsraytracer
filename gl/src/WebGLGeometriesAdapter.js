@@ -1,15 +1,15 @@
 class WebGLGeometriesAdapter {
-    static PLANE_ID        = 0;
-    static SPHERE_ID       = 1;
-    static UNITBOX_ID      = 2;
-    static CIRCLE_ID       = 3;
-    static SQUARE_ID       = 4;
-    static CYLINDER_ID     = 5;
-    static ORIGINPOINT_ID  = 6;
-    static UNITLINE_ID     = 7;
-    static MIN_TRIANGLE_ID = 8;
+    static PLANE_ID        = 1;
+    static SPHERE_ID       = 2;
+    static UNITBOX_ID      = 3;
+    static CIRCLE_ID       = 4;
+    static SQUARE_ID       = 5;
+    static CYLINDER_ID     = 6;
+    static ORIGINPOINT_ID  = 7;
+    static UNITLINE_ID     = 8;
+    static MIN_TRIANGLE_ID = 9;
     
-    static SWITCHABLE_TYPES = Math.range(0, 8);
+    static SWITCHABLE_TYPES = Math.range(1, 9);
                                
     static TypeStringLabel(type) {
         if (type == WebGLGeometriesAdapter.PLANE_ID)
@@ -75,15 +75,18 @@ class WebGLGeometriesAdapter {
         if (geometry instanceof Triangle) {
             // Very small triangles frequently cause precision issues in WebGL, so simply skip them as a band aid
             if (geometry.area < 0.00001)
-                return -1;
+                return 0;
             this.triangles.push({
                 vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.store(p)),
                 normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.store(v)),
                 uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.store(Vec.of(...v, 0)))
             });
-            this.id_map[geometry.GEOMETRY_UID] = this.geometries.length;
+            this.id_map[geometry.GEOMETRY_UID] = this.geometries.length + 1;
             this.geometries.push(geometry);
             return this.id_map[geometry.GEOMETRY_UID];
+        }
+        if (geometry instanceof SDFGeometry) {
+            this.geometries.push();
         }
         throw "Unsupported geometry type";
     }
@@ -360,11 +363,11 @@ class WebGLGeometriesAdapter {
             // ---- Generics ----
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
                      if (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
-                else if (geometryID == GEOMETRY_CYLINDER_TYPE) return cylinderIntersect(  r, minDistance);
-                else if (geometryID == GEOMETRY_PLANE_TYPE)    return planeIntersect(     r, minDistance);
-                else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect(    r, minDistance);
-                else if (geometryID == GEOMETRY_SQUARE_TYPE)   return squareIntersect(    r, minDistance);
-                else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect(   r, minDistance);
+                else if (geometryID == GEOMETRY_CYLINDER_TYPE) return cylinderIntersect  (r, minDistance);
+                else if (geometryID == GEOMETRY_PLANE_TYPE)    return planeIntersect     (r, minDistance);
+                else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect    (r, minDistance);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)   return squareIntersect    (r, minDistance);
+                else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect   (r, minDistance);
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 return minDistance - 1.0;
@@ -377,14 +380,14 @@ class WebGLGeometriesAdapter {
             }
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
                 GeometricMaterialData data;
-                if      (geometryID == GEOMETRY_SPHERE_TYPE)      unitSphereMaterialData( position, data);
-                else if (geometryID == GEOMETRY_CYLINDER_TYPE)    cylinderMaterialData(   position, data);
-                else if (geometryID == GEOMETRY_PLANE_TYPE)       planeMaterialData(      position, data);
-                else if (geometryID == GEOMETRY_CIRCLE_TYPE)      circleMaterialData(     position, data);
-                else if (geometryID == GEOMETRY_SQUARE_TYPE)      squareMaterialData(     position, data);
-                else if (geometryID == GEOMETRY_UNITBOX_TYPE)     unitBoxMaterialData(    position, data);
+                if      (geometryID == GEOMETRY_SPHERE_TYPE)      unitSphereMaterialData (position, data);
+                else if (geometryID == GEOMETRY_CYLINDER_TYPE)    cylinderMaterialData   (position, data);
+                else if (geometryID == GEOMETRY_PLANE_TYPE)       planeMaterialData      (position, data);
+                else if (geometryID == GEOMETRY_CIRCLE_TYPE)      circleMaterialData     (position, data);
+                else if (geometryID == GEOMETRY_SQUARE_TYPE)      squareMaterialData     (position, data);
+                else if (geometryID == GEOMETRY_UNITBOX_TYPE)     unitBoxMaterialData    (position, data);
                 else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) originPointMaterialData(position, direction, data);
-                else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData(   position, direction, data);
+                else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData   (position, direction, data);
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 return data;
