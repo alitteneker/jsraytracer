@@ -10,7 +10,7 @@ class WebGLGeometriesAdapter {
     static MIN_TRIANGLE_ID = 9;
     
     static SWITCHABLE_TYPES = Math.range(1, 9);
-                               
+
     static TypeStringLabel(type) {
         if (type == WebGLGeometriesAdapter.PLANE_ID)
             return "Plane";
@@ -37,12 +37,18 @@ class WebGLGeometriesAdapter {
         [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
         
+        this.sdf_adapter = new WebGLSDFAdapter();
+        
         this.triangle_data = new WebGLVecStore();
         this.reset();
     }
     reset() {
+        this.geometry_usage_map = {};
         this.geometries = [ new Plane(), new Sphere(), new UnitBox(), new Circle(), new Square(), new Cylinder(), new OriginPoint(), new UnitLine() ];
         this.id_map = {};
+        
+        this.sdf_geometries = [];
+        this.sdf_adapter.reset();
         
         this.triangle_data.clear();
         this.triangles = [];
@@ -51,26 +57,33 @@ class WebGLGeometriesAdapter {
         this.triangle_data_texture.destroy();
         this.triangle_indices_texture.destroy();
     }
-    visit(geometry) {
+    register_usage(ID) {
+        if (!(ID in this.geometry_usage_map))
+            this.geometry_usage_map[ID] = 1;
+        else
+            ++this.geometry_usage_map[ID];
+        return ID;
+    }
+    visit(geometry, webgl_helper) {
         if (geometry instanceof Plane)
-            return WebGLGeometriesAdapter.PLANE_ID;
+            return this.register_usage(WebGLGeometriesAdapter.PLANE_ID);
         if (geometry instanceof Sphere)
-            return WebGLGeometriesAdapter.SPHERE_ID;
+            return this.register_usage(WebGLGeometriesAdapter.SPHERE_ID);
         if (geometry instanceof Cylinder)
-            return WebGLGeometriesAdapter.CYLINDER_ID;
+            return this.register_usage(WebGLGeometriesAdapter.CYLINDER_ID);
         if (geometry instanceof UnitBox)
-            return WebGLGeometriesAdapter.UNITBOX_ID;
+            return this.register_usage(WebGLGeometriesAdapter.UNITBOX_ID);
         if (geometry instanceof Circle)
-            return WebGLGeometriesAdapter.CIRCLE_ID;
+            return this.register_usage(WebGLGeometriesAdapter.CIRCLE_ID);
         if (geometry instanceof Square)
-            return WebGLGeometriesAdapter.SQUARE_ID;
+            return this.register_usage(WebGLGeometriesAdapter.SQUARE_ID);
         if (geometry instanceof OriginPoint)
-            return WebGLGeometriesAdapter.ORIGINPOINT_ID;
+            return this.register_usage(WebGLGeometriesAdapter.ORIGINPOINT_ID);
         if (geometry instanceof UnitLine)
-            return WebGLGeometriesAdapter.UNITLINE_ID;
+            return this.register_usage(WebGLGeometriesAdapter.UNITLINE_ID);
         
         if (geometry.GEOMETRY_UID in this.id_map)
-            return this.id_map[geometry.GEOMETRY_UID];
+            return this.register_usage(this.id_map[geometry.GEOMETRY_UID]);
         
         if (geometry instanceof Triangle) {
             // Very small triangles frequently cause precision issues in WebGL, so simply skip them as a band aid
@@ -83,10 +96,13 @@ class WebGLGeometriesAdapter {
             });
             this.id_map[geometry.GEOMETRY_UID] = this.geometries.length + 1;
             this.geometries.push(geometry);
-            return this.id_map[geometry.GEOMETRY_UID];
+            return this.register_usage(this.id_map[geometry.GEOMETRY_UID]);
         }
         if (geometry instanceof SDFGeometry) {
-            this.geometries.push();
+            this.id_map[geometry.GEOMETRY_UID] = -(this.sdf_geometries.length + 1);
+            this.sdf_geometries.push(geometry);
+            this.sdf_adapter.visitSDFGeometry(geometry, webgl_helper, this);
+            return this.register_usage(this.id_map[geometry.GEOMETRY_UID]);
         }
         throw "Unsupported geometry type";
     }
@@ -109,7 +125,8 @@ class WebGLGeometriesAdapter {
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);
-            vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`;
+            vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`
+            + this.sdf_adapter.getShaderSourceDeclarations();
     }
     getShaderSource() {
         return `
@@ -370,10 +387,12 @@ class WebGLGeometriesAdapter {
                 else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect   (r, minDistance);
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                else if (geometryID < 0)
+                    return sdfIntersect(r, minDistance, 1 - geometryID);
                 return minDistance - 1.0;
             }
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
-                     if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
+                if      (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
                 else if (geometryID == GEOMETRY_UNITLINE_TYPE)    return unitLineSurfaceSample(   random_seed);
                 else if (geometryID == GEOMETRY_SQUARE_TYPE)      return squareSurfaceSample(     random_seed);
                 return vec4(0);
@@ -390,8 +409,11 @@ class WebGLGeometriesAdapter {
                 else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData   (position, direction, data);
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
+                else if (geometryID < 0)
+                    sdfMaterialData(position, data, 1 - geometryID);
                 return data;
-            }`;
+            }`
+            + this.sdf_adapter.getShaderSource();
     }
 }
 

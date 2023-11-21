@@ -127,6 +127,9 @@ class WebGLHelper {
             float average(in vec3 v);
             float average(in vec4 v);
             
+            vec3 unitAxis3(in int dim);
+            vec4 unitAxis4(in int dim);
+            
             float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
@@ -146,12 +149,23 @@ class WebGLHelper {
             float normSquared(in vec2 v) { return dot(v, v); }
             float normSquared(in vec3 v) { return dot(v, v); }
             float normSquared(in vec4 v) { return dot(v, v); }
-            float sum(in vec2 v)         { return dot(v, vec2(1)); }
-            float sum(in vec3 v)         { return dot(v, vec3(1)); }
-            float sum(in vec4 v)         { return dot(v, vec4(1)); }
+            float sum(in vec2 v)         { return dot(v, vec2(1.0)); }
+            float sum(in vec3 v)         { return dot(v, vec3(1.0)); }
+            float sum(in vec4 v)         { return dot(v, vec4(1.0)); }
             float average(in vec2 v)     { return sum(v) / 2.0; }
             float average(in vec3 v)     { return sum(v) / 3.0; }
             float average(in vec4 v)     { return sum(v) / 4.0; }
+            
+            vec3 unitAxis3(in int dim) {
+                vec3 ret = vec3(0.0);
+                ret[dim] = 1.0;
+                return ret;
+            }
+            vec4 unitAxis4(in int dim) {
+                vec4 ret = vec4(0.0);
+                ret[dim] = 1.0;
+                return ret;
+            }
         
         
             // Random functions
@@ -234,8 +248,7 @@ class WebGLHelper {
                 vec4  best_axis = vec4(1,0,0,0);
                 float best_score = 1.0-abs(dot(R, best_axis));
                 for (int i = 1; i < 3; ++i) {
-                    vec4 axis = vec4(0.0);
-                    axis[i] = 1.0;
+                    vec4 axis = unitAxis4(i);
                     float score = 1.0-abs(dot(R, axis));
                     if (score > best_score) {
                         best_score = score;

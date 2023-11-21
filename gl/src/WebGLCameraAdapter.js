@@ -98,6 +98,8 @@ class WebGLCameraAdapter {
     }
     getShaderSource() {
         return `
+        
+            // ==================== CAMERA ====================
             uniform mat4 uCameraTransform;
             uniform float uAspect, uTanFOV, uSensorSize, uFocusDistance;
             Ray computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec2 random_seed) {
