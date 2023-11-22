@@ -21,7 +21,7 @@ export function configureTest(callback) {
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
         
     objects.push(new Primitive(
-        new SDFGeometry(new SphereSDF(), 32, 0.001, 100),
+        new SDFGeometry(new SphereSDF(), 100000, 0.0001, 100000),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.5),
         Mat4.translation([-2, 0.3, -9])));
         

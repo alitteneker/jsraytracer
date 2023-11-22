@@ -232,7 +232,7 @@ class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
         gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.raw.UID}`), this.raw.radius);
     }
     getDistanceShaderSource(position_src) {
-        return `(length(${position_src}) - sdf_radius_${this.raw.UID})`;
+        return `(length(${position_src}.xyz) - sdf_radius_${this.raw.UID})`;
     }
 }
 
