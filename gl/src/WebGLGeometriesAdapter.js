@@ -115,6 +115,7 @@ class WebGLGeometriesAdapter {
         this.triangle_indices_texture.setDataPixelsUnit(
             this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat(),
             this.triangle_indices_texture_unit, "tTriangleIndices", program);
+        this.sdf_adapter.writeShaderData(gl, program, webgl_helper);
     }
     getShaderSourceDeclarations() {
         return `
@@ -388,7 +389,7 @@ class WebGLGeometriesAdapter {
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 else if (geometryID < 0)
-                    return sdfIntersect(r, minDistance, 1 - geometryID);
+                    return sdfIntersect(r, minDistance, -1 - geometryID);
                 return minDistance - 1.0;
             }
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
@@ -410,7 +411,7 @@ class WebGLGeometriesAdapter {
                 else if (geometryID >= GEOMETRY_TRIANGLE_MIN_INDEX)
                     triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);
                 else if (geometryID < 0)
-                    sdfMaterialData(position, data, 1 - geometryID);
+                    sdfMaterialData(position, data, -1 - geometryID);
                 return data;
             }`
             + this.sdf_adapter.getShaderSource();
