@@ -4,6 +4,7 @@ class WebGLSDFAdapter {
     }
     destroy() {}
     reset() {
+        this.ID_GEN = 1;
         this.geometries = [];
         this.sdfs = {};
         this.transforms = {};
@@ -91,7 +92,7 @@ class WebGLSDFAdapter {
                 ${this.geometries.map((g, i) => `if (sdfID == ${i}) sdfMaterialData_${i}(position, data);`).join("\n")}
             }`
         + this.geometries.map((g, i) => `
-            uniform int sdf_${i}_maxSamples;
+            uniform int sdf_${i}_max_samples;
             uniform float sdf_${i}_distance_epsilon;
             uniform float sdf_${i}_max_trace_distance;
             uniform float sdf_${i}_normal_step_size;
@@ -102,7 +103,7 @@ class WebGLSDFAdapter {
             float sdfIntersect_${i}(in Ray r, in float minDistance) {
                 float t = minDistance;
                 float rd_norm = length(r.d);
-                for (int i = 0; i < sdf_${i}_maxSamples; ++i) {
+                for (int i = 0; i < sdf_${i}_max_samples; ++i) {
                     vec4 p = r.o + t * r.d;
                     float distance = sdfDistance_${i}(r.o + t * r.d);
                     
@@ -129,7 +130,7 @@ class WebGLSDFAdapter {
     }
     writeShaderData(gl, program) {
         for (const [i, g] of Object.entries(this.geometries)) {
-            gl.uniform1i(gl.getUniformLocation(program, `sdf_${i}_maxSamples`), g.maxSamples);
+            gl.uniform1i(gl.getUniformLocation(program, `sdf_${i}_max_samples`), g.max_samples);
             gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_distance_epsilon`), g.distance_epsilon);
             gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_max_trace_distance`), g.max_trace_distance);
             gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_normal_step_size`), g.normal_step_size);
@@ -142,8 +143,9 @@ class WebGLSDFAdapter {
 }
 
 class WebGLSDFDecorator {
-    constructor(raw) {
+    constructor(raw, adapter) {
         this.raw = raw;
+        this.ID = adapter.ID_GEN++;
     }
     writeShaderData(gl, program) {}
     getShaderSourceDeclarations() {
@@ -162,7 +164,7 @@ class WebGLSDFDecorator {
 
 class WebGLUnionSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
     getDistanceShaderSource(position_src) {
@@ -175,7 +177,7 @@ class WebGLUnionSDFDecorator extends WebGLSDFDecorator {
 
 class WebGLIntersectionSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
     getDistanceShaderSource(position_src) {
@@ -188,7 +190,7 @@ class WebGLIntersectionSDFDecorator extends WebGLSDFDecorator {
 
 class WebGLDifferenceSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
         this.positive = adapter.wrapNodeSDF(raw.positive);
         this.negative = adapter.wrapNodeSDF(raw.negative);
     }
@@ -199,22 +201,22 @@ class WebGLDifferenceSDFDecorator extends WebGLSDFDecorator {
 
 class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
         this.transform = adapter.wrapNodeTransformer(raw.transformer);
         this.sdf = adapter.wrapNodeSDF(raw.child_sdf);
     }
     getShaderSourceDeclarations() {
-        return `float sdf_transformDistance_${this.raw.UID}(in vec4 position);`;
+        return `float sdf_transformDistance_${this.ID}(in vec4 position);`;
     }
     getShaderSource() {
         return `
-            float sdf_transformDistance_${this.raw.UID}(in vec4 position) {
+            float sdf_transformDistance_${this.ID}(in vec4 position) {
                 float scale = 1.0;
                 return ${this.sdf.getDistanceShaderSource(`${this.transform.getTransformShaderSource("position", "scale")}`)} * scale;
             }`;
     }
     getDistanceShaderSource(position_src) {
-        return `sdf_transformDistance_${this.raw.UID}(${position_src})`;
+        return `sdf_transformDistance_${this.ID}(${position_src})`;
     }
 }
 
@@ -222,56 +224,56 @@ class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
 // TODO: RecursiveTransformUnionSDF
 
 class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
-    constructor(raw) {
-        super(raw);
+    constructor(raw, adapter) {
+        super(raw, adapter);
     }
     getShaderSourceDeclarations() {
-        return `uniform float sdf_radius_${this.raw.UID};`;
+        return `uniform float sdf_radius_${this.ID};`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.raw.UID}`), this.raw.radius);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.ID}`), this.raw.radius);
     }
     getDistanceShaderSource(position_src) {
-        return `(length(${position_src}.xyz) - sdf_radius_${this.raw.UID})`;
+        return `(length(${position_src}.xyz) - sdf_radius_${this.ID})`;
     }
 }
 
 class WebGLBoxSDFDecorator extends WebGLSDFDecorator {
-    constructor(raw) {
-        super(raw);
+    constructor(raw, adapter) {
+        super(raw, adapter);
     }
     getShaderSourceDeclarations() {
-        return `uniform vec4 sdf_boxsize_${this.raw.UID};`;
+        return `uniform vec4 sdf_boxsize_${this.ID};`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_boxsize_${this.raw.UID}`), this.raw.size);
+        gl.uniform4fv(gl.getUniformLocation(program, `sdf_boxsize_${this.ID}`), this.raw.size);
     }
     getDistanceShaderSource(position_src) {
-        return `sdfBoxDistance(${position_src}, sdf_boxsize_${this.raw.UID})`;
+        return `sdfBoxDistance(${position_src}, sdf_boxsize_${this.ID})`;
     }
 }
 
 class WebGLPlaneSDFDecorator extends WebGLSDFDecorator {
-    constructor(raw) {
-        super(raw);
+    constructor(raw, adapter) {
+        super(raw, adapter);
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec4 sdf_planenormal_${this.raw.UID};
-            uniform float sdf_planedelta_${this.raw.UID};`;
+            uniform vec4 sdf_planenormal_${this.ID};
+            uniform float sdf_planedelta_${this.ID};`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_planenormal_${this.raw.UID}`), this.raw.normal);
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_planedelta_${this.raw.UID}`), this.raw.delta);
+        gl.uniform4fv(gl.getUniformLocation(program, `sdf_planenormal_${this.ID}`), this.raw.normal);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_planedelta_${this.ID}`), this.raw.delta);
     }
     getDistanceShaderSource(position_src) {
-        return `(dot(${position_src}, sdf_planenormal_${this.raw.UID}) + sdf_planedelta_${this.raw.UID})`;
+        return `(dot(${position_src}, sdf_planenormal_${this.ID}) + sdf_planedelta_${this.ID})`;
     }
 }
 
 class WebGLTetrahedronSDFDecorator extends WebGLSDFDecorator {
-    constructor(raw) {
-        super(raw);
+    constructor(raw, adapter) {
+        super(raw, adapter);
     }
     getDistanceShaderSource(position_src) {
         return `sdfUnitTetrahedronDistance(${position_src})`;
@@ -282,48 +284,48 @@ class WebGLTetrahedronSDFDecorator extends WebGLSDFDecorator {
 
 class WebGLMatrixTransformSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
     }
     getShaderSourceDeclarations() {
         return `
-            uniform mat4  sdf_transform_invmatrix_${this.raw.UID};
-            uniform float sdf_transform_scale_${this.raw.UID};
-            vec4 sdf_transform_${this.raw.UID}(in vec4 position, inout float scale);`;
+            uniform mat4  sdf_transform_invmatrix_${this.ID};
+            uniform float sdf_transform_scale_${this.ID};
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
     }
     writeShaderData(gl, program) {
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.raw.UID}`), true, this.raw._inv_transform.flat());
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.raw.UID}`), this.raw.scale);
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.ID}`), true, this.raw._inv_transform.flat());
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw.scale);
     }
     getShaderSource() {
         return `
-            vec4 sdf_transform_${this.raw.UID}(in vec4 position, inout float scale) {
-                scale *= sdf_transform_scale_${this.raw.UID};
-                return sdf_transform_invmatrix_${this.raw.UID} * position;
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale) {
+                scale *= sdf_transform_scale_${this.ID};
+                return sdf_transform_invmatrix_${this.ID} * position;
             }`;
     }
     getTransformShaderSource(position_src, scale_src) {
-        return `sdf_transform_${this.raw.UID}(${position_src}, ${scale_src})`;
+        return `sdf_transform_${this.ID}(${position_src}, ${scale_src})`;
     }
 }
 
 class WebGLTransformerSequenceSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
-        super(raw);
+        super(raw, adapter);
         this.transformers = raw.transformers.map(t => adapter.wrapNodeTransformer(t));
     }
     getShaderSourceDeclarations() {
         return `
-            vec4 sdf_transform_${this.raw.UID}(in vec4 position, inout float scale);`;
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
     }
     getShaderSource() {
         return `
-            vec4 sdf_transform_${this.raw.UID}(in vec4 position, inout float scale) {
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale) {
                 ${this.transformers.map(t => "position = " + t.getTransformShaderSource("position", "scale") + ";").join("\n")}
                 return position;
             }`;
     }
     getTransformShaderSource(position_src, scale_src) {
-        return `sdf_transform_${this.raw.UID}(${position_src}, ${scale_src})`;
+        return `sdf_transform_${this.ID}(${position_src}, ${scale_src})`;
     }
 }
 
