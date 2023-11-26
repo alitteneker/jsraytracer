@@ -78,7 +78,7 @@ class WebGLSDFAdapter {
             // =============== SDF ===============
             float sdfBoxDistance(in vec4 p, in vec4 size) {
                 p = abs(p) - size;
-                return length(max(p, vec4(0.0))) + min(max(p[0], max(p[1], p[2])), 0.0);
+                return length(max(p.xyz, vec3(0.0))) + min(max(p[0], max(p[1], p[2])), 0.0);
             }
             float sdfUnitTetrahedronDistance(in vec4 p) {
                 return (max(abs(p[0] + p[1]) - p[2],
@@ -294,7 +294,7 @@ class WebGLMatrixTransformSDFDecorator extends WebGLSDFDecorator {
     }
     writeShaderData(gl, program) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.ID}`), true, this.raw._inv_transform.flat());
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw.scale);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw._scale);
     }
     getShaderSource() {
         return `
