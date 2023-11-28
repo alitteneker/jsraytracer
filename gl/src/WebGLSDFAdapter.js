@@ -29,6 +29,8 @@ class WebGLSDFAdapter {
             adapter_ = new WebGLDifferenceSDFDecorator(sdf, this);
         else if (sdf instanceof TransformSDF)
             adapter_ = new WebGLTransformSDFDecorator(sdf, this);
+        else if (sdf instanceof RecursiveTransformUnionSDF)
+            adapter_ = new WebGLRecursiveTransformUnionSDFDecorator(sdf, this);
         
         else if (sdf instanceof SphereSDF)
             adapter_ = new WebGLSphereSDFDecorator(sdf, this);
@@ -56,9 +58,16 @@ class WebGLSDFAdapter {
             decorator = new WebGLTransformerSequenceSDFDecorator(transform, this);
         else if (transform instanceof SDFMatrixTransformer)
             decorator = new WebGLMatrixTransformSDFDecorator(transform, this);
+        else if (transform instanceof SDFReflectionTransformer)
+            decorator = new WebGLSDFReflectionTransformerSDFDecorator(transform, this);
+        else if (transform instanceof SDFRecursiveTransformer)
+            decorator = new WebGLSDFRecursiveTransformerSDFDecorator(transform, this);
+        else if (transform instanceof SDFInfiniteRepetitionTransformer)
+            decorator = new WebGLSDFInfiniteRepetitionTransformerSDFDecorator(transform, this);
+        
             
         else
-            throw "Unsupported SDF node type";
+            throw "Unsupported SDF transformer node type";
         
         return this.transforms[transform.UID] = decorator;
     }
@@ -168,8 +177,6 @@ class WebGLUnionSDFDecorator extends WebGLSDFDecorator {
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
     getDistanceShaderSource(position_src) {
-        if (this.children.length == 0)
-            return "1000.0";
         const cs = this.children.map(c => c.getDistanceShaderSource(position_src));
         return cs.slice(0, -1).map(c => `min(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1);
     }
@@ -181,8 +188,6 @@ class WebGLIntersectionSDFDecorator extends WebGLSDFDecorator {
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
     getDistanceShaderSource(position_src) {
-        if (this.children.length == 0)
-            return "1000.0";
         const cs = this.children.map(c => c.getDistanceShaderSource(position_src));
         return cs.slice(0, -1).map(c => `max(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1);
     }
@@ -220,8 +225,38 @@ class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
     }
 }
 
+class WebGLRecursiveTransformUnionSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.transformer = adapter.wrapNodeTransformer(raw.transformer);
+        this.sdf = adapter.wrapNodeSDF(raw.sdf);
+    }
+    getShaderSourceDeclarations() {
+        return `
+            uniform int sdf_recursiveUnionIterations_${this.ID};
+            float sdf_recursiveUnionDistance_${this.ID}(in vec4 position);`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform1i(gl.getUniformLocation(program, `sdf_recursiveUnionIterations_${this.ID}`), this.raw.iterations);
+    }
+    getShaderSource() {
+        return `
+            float sdf_recursiveUnionDistance_${this.ID}(in vec4 position) {
+                float s = 1.0;
+                float bestDist = ${this.sdf.getDistanceShaderSource("position")};
+                for (int i = 0; i < sdf_recursiveUnionIterations_${this.ID}; ++i) {
+                    position = ${this.transformer.getTransformShaderSource("position", "s")};
+                    bestDist = min(${this.sdf.getDistanceShaderSource("position")} * s, bestDist);
+                }
+                return bestDist;
+            }`;
+    }
+    getDistanceShaderSource(position_src) {
+        return `sdf_recursiveUnionDistance_${this.ID}(${position_src})`;
+    }
+}
+
 // TODO: RoundSDF
-// TODO: RecursiveTransformUnionSDF
 
 class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
@@ -329,6 +364,79 @@ class WebGLTransformerSequenceSDFDecorator extends WebGLSDFDecorator {
     }
 }
 
-// TODO: SDFRecursiveTransformer
-// TODO: SDFReflectionTransformer
+class WebGLSDFReflectionTransformerSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+    }
+    getShaderSourceDeclarations() {
+        return `
+            uniform vec4  sdf_transform_normal_${this.ID};
+            uniform float sdf_transform_delta_${this.ID};
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform4fv(gl.getUniformLocation(program, `sdf_transform_normal_${this.ID}`), this.raw.normal);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_delta_${this.ID}`), this.raw.delta);
+    }
+    getShaderSource() {
+        return `
+            vec4 sdf_transform_${this.ID}(in vec4 position) {
+                float d = dot(position, sdf_transform_normal_${this.ID}) - sdf_transform_delta_${this.ID};
+                return (d >= 0.0) ? position : position - 2.0 * d * sdf_transform_normal_${this.ID};
+            }`;
+    }
+    getTransformShaderSource(position_src, scale_src) {
+        return `sdf_transform_${this.ID}(${position_src})`;
+    }
+}
+
+class WebGLSDFRecursiveTransformerSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.transformer = adapter.wrapNodeTransformer(raw.transformer);
+    }
+    getShaderSourceDeclarations() {
+        return `
+            uniform int sdf_transform_iterations_${this.ID};
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform1i(gl.getUniformLocation(program, `sdf_transform_iterations_${this.ID}`), this.raw.iterations);
+    }
+    getShaderSource() {
+        return `
+            vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale) {
+                for (int i = 0; i < sdf_transform_iterations_${this.ID}; ++i)
+                    position = ${this.transformer.getTransformShaderSource("position", "scale")};
+                return position;
+            }`;
+    }
+    getTransformShaderSource(position_src, scale_src) {
+        return `sdf_transform_${this.ID}(${position_src}, ${scale_src})`;
+    }
+}
+
+class WebGLSDFInfiniteRepetitionTransformerSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+    }
+    getShaderSourceDeclarations() {
+        return `
+            uniform vec4 sdf_transform_sizes_${this.ID};
+            vec4 sdf_transform_${this.ID}(in vec4 position);`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform4fv(gl.getUniformLocation(program, `sdf_transform_sizes_${this.ID}`), this.raw.sizes.to4(0));
+    }
+    getShaderSource() {
+        return `
+            vec4 sdf_transform_${this.ID}(in vec4 position) {
+                return position - sdf_transform_sizes_${this.ID} * round(position / sdf_transform_sizes_${this.ID});
+            }`;
+    }
+    getTransformShaderSource(position_src, scale_src) {
+        return `sdf_transform_${this.ID}(${position_src})`;
+    }
+}
+
 // TODO: SDFInfiniteRepetitionTransformer
