@@ -78,9 +78,9 @@ class WebGLSDFAdapter {
             void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID);`
         + this.geometries.map((g, i) => `
             float sdfIntersect_${i}(in Ray r, in float minDistance);
-            void sdfMaterialData_${i}(in vec4 position, inout GeometricMaterialData data);`).join("")
-        + Object.values(this.sdfs).map(d => d.getShaderSourceDeclarations()).join("")
-        + Object.values(this.transforms).map(d => d.getShaderSourceDeclarations()).join("");
+            void sdfMaterialData_${i}(in vec4 position, inout GeometricMaterialData data);`).join("\n")
+        + Object.values(this.sdfs).map(d => d.getShaderSourceDeclarations()).join("\n")
+        + Object.values(this.transforms).map(d => d.getShaderSourceDeclarations()).join("\n");
     }
     getShaderSource() {
         return `
@@ -94,11 +94,11 @@ class WebGLSDFAdapter {
                             abs(p[0] - p[1]) + p[2]) - 1.0) / sqrt(3.0);
             }
             float sdfIntersect(in Ray r, in float minDistance, in int sdfID) {
-                ${this.geometries.map((g, i) => `if (sdfID == ${i}) return sdfIntersect_${i}(r, minDistance);`).join("\n")}
+${this.geometries.map((g, i) => `                if (sdfID == ${i}) return sdfIntersect_${i}(r, minDistance);`).join("\n")}
                 return minDistance - 1.0;
             }
             void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID) {
-                ${this.geometries.map((g, i) => `if (sdfID == ${i}) sdfMaterialData_${i}(position, data);`).join("\n")}
+${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialData_${i}(position, data);`).join("\n")}
             }`
         + this.geometries.map((g, i) => `
             uniform int sdf_${i}_max_samples;
@@ -132,9 +132,9 @@ class WebGLSDFAdapter {
                 float distance = sdfDistance_${i}(position);
                 for (int i = 0; i < 3; ++i)
                     data.normal[i] = (sdfDistance_${i}(position + sdf_${i}_normal_step_size * unitAxis4(i)) - distance) / sdf_${i}_normal_step_size;
-            }`).join("")
-        + Object.values(this.sdfs).map(d => d.getShaderSource()).join("")
-        + Object.values(this.transforms).map(d => d.getShaderSource()).join("");
+            }`).join("\n")
+        + Object.values(this.sdfs).map(d => d.getShaderSource()).join("\n")
+        + Object.values(this.transforms).map(d => d.getShaderSource()).join("\n");
             
     }
     writeShaderData(gl, program) {
@@ -217,7 +217,8 @@ class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
         return `
             float sdf_transformDistance_${this.ID}(in vec4 position) {
                 float scale = 1.0;
-                return ${this.sdf.getDistanceShaderSource(`${this.transform.getTransformShaderSource("position", "scale")}`)} * scale;
+                position = ${this.transform.getTransformShaderSource("position", "scale")};
+                return ${this.sdf.getDistanceShaderSource("position")} * scale;
             }`;
     }
     getDistanceShaderSource(position_src) {
@@ -355,7 +356,7 @@ class WebGLTransformerSequenceSDFDecorator extends WebGLSDFDecorator {
     getShaderSource() {
         return `
             vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale) {
-                ${this.transformers.map(t => "position = " + t.getTransformShaderSource("position", "scale") + ";").join("\n")}
+${this.transformers.map(t => "                position = " + t.getTransformShaderSource("position", "scale") + ";").join("\n")}
                 return position;
             }`;
     }
@@ -422,21 +423,19 @@ class WebGLSDFInfiniteRepetitionTransformerSDFDecorator extends WebGLSDFDecorato
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec4 sdf_transform_sizes_${this.ID};
+            uniform vec3 sdf_transform_sizes_${this.ID};
             vec4 sdf_transform_${this.ID}(in vec4 position);`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_transform_sizes_${this.ID}`), this.raw.sizes.to4(0));
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_transform_sizes_${this.ID}`), this.raw.sizes.to3());
     }
     getShaderSource() {
         return `
             vec4 sdf_transform_${this.ID}(in vec4 position) {
-                return position - sdf_transform_sizes_${this.ID} * round(position / sdf_transform_sizes_${this.ID});
+                return position - vec4(sdf_transform_sizes_${this.ID} * round(position.xyz / sdf_transform_sizes_${this.ID}), 0);
             }`;
     }
     getTransformShaderSource(position_src, scale_src) {
         return `sdf_transform_${this.ID}(${position_src})`;
     }
 }
-
-// TODO: SDFInfiniteRepetitionTransformer

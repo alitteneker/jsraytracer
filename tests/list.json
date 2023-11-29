@@ -29,5 +29,6 @@
     "SDF_BoxBall",
     "SDF_Menger",
     "SDF_Sierpinski",
-    "SDF_SphereRepetition"
+    "SDF_SphereRepetition",
+    "SDF_RecursiveUnionTest"
 ]
