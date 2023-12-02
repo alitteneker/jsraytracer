@@ -18,7 +18,7 @@ class WebGLSDFAdapter {
             throw "Attempt to wrap null/false SDF node";
         
         if (sdf.UID in this.sdfs)
-            return sdfs[sdf.UID];
+            return this.sdfs[sdf.UID];
         let adapter_ = null;
         
         if (sdf instanceof UnionSDF)
@@ -27,6 +27,14 @@ class WebGLSDFAdapter {
             adapter_ = new WebGLIntersectionSDFDecorator(sdf, this);
         else if (sdf instanceof DifferenceSDF)
             adapter_ = new WebGLDifferenceSDFDecorator(sdf, this);
+        
+        else if (sdf instanceof SmoothUnionSDF)
+            adapter_ = new WebGLSmoothUnionSDFDecorator(sdf, this);
+        else if (sdf instanceof SmoothIntersectionSDF)
+            adapter_ = new WebGLSmoothIntersectionSDFDecorator(sdf, this);
+        else if (sdf instanceof SmoothDifferenceSDF)
+            adapter_ = new WebGLSmoothDifferenceSDFDecorator(sdf, this);
+        
         else if (sdf instanceof TransformSDF)
             adapter_ = new WebGLTransformSDFDecorator(sdf, this);
         else if (sdf instanceof RecursiveTransformUnionSDF)
@@ -92,6 +100,23 @@ class WebGLSDFAdapter {
             float sdfUnitTetrahedronDistance(in vec4 p) {
                 return (max(abs(p[0] + p[1]) - p[2],
                             abs(p[0] - p[1]) + p[2]) - 1.0) / sqrt(3.0);
+            }
+            float sdfSmoothMin(in float a, in float b, in float k) {
+                float h = max( k - abs( a - b ), 0.0 ) / k;
+                return min( a, b ) - h * h * h * k * (1.0 / 6.0);
+            }
+            float sdfSmoothMinBlend(in float a, in float b, in float k) {
+                float h = max( k - abs( a - b ), 0.0 ) / k;
+                float m = h * h * h * 0.5;
+                return (a < b) ? m : (1.0 - m);
+            }
+            GeometricMaterialData sdfBlendMaterialData(in float mix_factor, in GeometricMaterialData data_a, in GeometricMaterialData data_b) {
+                if      (mix_factor <= 0.0) return data_a;
+                else if (mix_factor >= 1.0) return data_b;
+                GeometricMaterialData ret;
+                ret.baseColor = mix(data_a.baseColor, data_b.baseColor, mix_factor);
+                ret.UV = mix(data_a.UV, data_b.UV, mix_factor);
+                return ret;
             }
             float sdfIntersect(in Ray r, in float minDistance, in int sdfID) {
 ${this.geometries.map((g, i) => `                if (sdfID == ${i}) return sdfIntersect_${i}(r, minDistance);`).join("\n")}
@@ -264,6 +289,66 @@ class WebGLDifferenceSDFDecorator extends WebGLSDFDecorator {
     }
     getMaterialShaderSource(position_src) {
         return `sdfMaterialData_${this.ID}(${position_src})`;
+    }
+}
+
+class WebGLSmoothUnionSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.childA = adapter.wrapNodeSDF(raw.childA);
+        this.childB = adapter.wrapNodeSDF(raw.childB);
+    }
+    getShaderSourceDeclarations() {
+        return `uniform float sdf_smoothK_${this.ID};`;
+    }
+    getDistanceShaderSource(position_src) {
+        return `sdfSmoothMin(${this.childA.getDistanceShaderSource(position_src)}, ${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfBlendMaterialData(sdfSmoothMinBlend(${this.childA.getDistanceShaderSource(position_src)}, ${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.childA.getMaterialShaderSource(position_src)}, ${this.childB.getMaterialShaderSource(position_src)})`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
+    }
+}
+
+class WebGLSmoothIntersectionSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.childA = adapter.wrapNodeSDF(raw.childA);
+        this.childB = adapter.wrapNodeSDF(raw.childB);
+    }
+    getShaderSourceDeclarations() {
+        return `uniform float sdf_smoothK_${this.ID};`;
+    }
+    getDistanceShaderSource(position_src) {
+        return `-sdfSmoothMin(-${this.childA.getDistanceShaderSource(position_src)}, -${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfBlendMaterialData(1.0-sdfSmoothMinBlend(-${this.childA.getDistanceShaderSource(position_src)}, -${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.childA.getMaterialShaderSource(position_src)}, ${this.childB.getMaterialShaderSource(position_src)})`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
+    }
+}
+
+class WebGLSmoothDifferenceSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.positive = adapter.wrapNodeSDF(raw.positive);
+        this.negative = adapter.wrapNodeSDF(raw.negative);
+    }
+    getShaderSourceDeclarations() {
+        return `uniform float sdf_smoothK_${this.ID};`;
+    }
+    getDistanceShaderSource(position_src) {
+        return `-sdfSmoothMin(-${this.positive.getDistanceShaderSource(position_src)}, ${this.negative.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfBlendMaterialData(sdfSmoothMinBlend(-${this.positive.getDistanceShaderSource(position_src)}, ${this.negative.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.positive.getMaterialShaderSource(position_src)}, ${this.negative.getMaterialShaderSource(position_src)})`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
     }
 }
 
