@@ -106,7 +106,7 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
             uniform float sdf_${i}_max_trace_distance;
             uniform float sdf_${i}_normal_step_size;
         
-            float sdfDistance_${i}(in vec4 position) {
+            float sdfGeometryDistance_${i}(in vec4 position) {
                 return ${this.sdfs[g.root_sdf.UID].getDistanceShaderSource("position")};
             }
             float sdfIntersect_${i}(in Ray r, in float minDistance) {
@@ -114,7 +114,7 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
                 float rd_norm = length(r.d);
                 for (int i = 0; i < sdf_${i}_max_samples; ++i) {
                     vec4 p = r.o + t * r.d;
-                    float distance = sdfDistance_${i}(r.o + t * r.d);
+                    float distance = sdfGeometryDistance_${i}(r.o + t * r.d);
                     
                     if (isinf(distance) || isnan(distance))
                         break;
@@ -129,9 +129,13 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
                 return minDistance - 1.0;
             }
             void sdfMaterialData_${i}(in vec4 position, inout GeometricMaterialData data) {
-                float distance = sdfDistance_${i}(position);
+                float distance = sdfGeometryDistance_${i}(position);
                 for (int i = 0; i < 3; ++i)
-                    data.normal[i] = (sdfDistance_${i}(position + sdf_${i}_normal_step_size * unitAxis4(i)) - distance) / sdf_${i}_normal_step_size;
+                    data.normal[i] = (sdfGeometryDistance_${i}(position + sdf_${i}_normal_step_size * unitAxis4(i)) - distance) / sdf_${i}_normal_step_size;
+                
+                GeometricMaterialData sdf_data = ${this.sdfs[g.root_sdf.UID].getMaterialShaderSource("position")};
+                data.UV = sdf_data.UV;
+                data.baseColor = sdf_data.baseColor;
             }`).join("\n")
         + Object.values(this.sdfs).map(d => d.getShaderSource()).join("\n")
         + Object.values(this.transforms).map(d => d.getShaderSource()).join("\n");
@@ -166,6 +170,9 @@ class WebGLSDFDecorator {
     getDistanceShaderSource(position_src) {
         throw "Subclass has not implemented getShaderSource";
     }
+    getMaterialShaderSource(position_src) {
+        throw "Subclass has not implemented getMaterialShaderSource";
+    }
     getTransformShaderSource(position_src, scale_src) {
         throw "Subclass has not implemented getTransformShaderSource";
     }
@@ -176,9 +183,30 @@ class WebGLUnionSDFDecorator extends WebGLSDFDecorator {
         super(raw, adapter);
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
+    getShaderSourceDeclarations() {
+        return `
+            float sdfDistance_${this.ID}(in vec4 position);
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        const cs = this.children.map(c => c.getDistanceShaderSource("position"));
+        const cm = this.children.map(c => c.getMaterialShaderSource("position"));
+        return `
+            float sdfDistance_${this.ID}(in vec4 position) {
+                return ${cs.slice(0, -1).map(c => `min(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1)};
+            }
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                float bestDist = ${cs[0]};
+                GeometricMaterialData ret = ${cm[0]};
+                ${cs.slice(1).map((c,i) => `if (${c} < bestDist) ret = ${cm[i+1]};`).join('\n')}
+                return ret;
+            }`;
+    }
     getDistanceShaderSource(position_src) {
-        const cs = this.children.map(c => c.getDistanceShaderSource(position_src));
-        return cs.slice(0, -1).map(c => `min(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1);
+        return `sdfDistance_${this.ID}(${position_src})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -187,9 +215,30 @@ class WebGLIntersectionSDFDecorator extends WebGLSDFDecorator {
         super(raw, adapter);
         this.children = raw.children.map(c => adapter.wrapNodeSDF(c));
     }
+    getShaderSourceDeclarations() {
+        return `
+            float sdfDistance_${this.ID}(in vec4 position);
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        const cs = this.children.map(c => c.getDistanceShaderSource("position"));
+        const cm = this.children.map(c => c.getMaterialShaderSource("position"));
+        return `
+            float sdfDistance_${this.ID}(in vec4 position) {
+                return ${cs.slice(0, -1).map(c => `max(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1)};
+            }
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                float bestDist = ${cs[0]};
+                GeometricMaterialData ret = ${cm[0]};
+                ${cs.slice(1).map((c,i) => `if (${c} > bestDist) ret = ${cm[i+1]};`).join('\n')}
+                return ret;
+            }`;
+    }
     getDistanceShaderSource(position_src) {
-        const cs = this.children.map(c => c.getDistanceShaderSource(position_src));
-        return cs.slice(0, -1).map(c => `max(${c},`).join('') + cs[cs.length - 1] + ")".repeat(cs.length - 1);
+        return `sdfDistance_${this.ID}(${position_src})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -199,8 +248,22 @@ class WebGLDifferenceSDFDecorator extends WebGLSDFDecorator {
         this.positive = adapter.wrapNodeSDF(raw.positive);
         this.negative = adapter.wrapNodeSDF(raw.negative);
     }
+    getShaderSourceDeclarations() {
+        return `GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        return `
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                if (${this.positive.getDistanceShaderSource("position")} > -${this.negative.getDistanceShaderSource("position")})
+                    return ${this.positive.getMaterialShaderSource("position")};
+                return ${this.negative.getMaterialShaderSource("position")};
+            }`;
+    }
     getDistanceShaderSource(position_src) {
         return `max(${this.positive.getDistanceShaderSource(position_src)}, -${this.negative.getDistanceShaderSource(position_src)})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -223,6 +286,9 @@ class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
     }
     getDistanceShaderSource(position_src) {
         return `sdf_transformDistance_${this.ID}(${position_src})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return this.sdf.getMaterialShaderSource(position_src);
     }
 }
 
@@ -255,6 +321,9 @@ class WebGLRecursiveTransformUnionSDFDecorator extends WebGLSDFDecorator {
     getDistanceShaderSource(position_src) {
         return `sdf_recursiveUnionDistance_${this.ID}(${position_src})`;
     }
+    getMaterialShaderSource(position_src) {
+        return this.sdf.getMaterialShaderSource(position_src);
+    }
 }
 
 // TODO: RoundSDF
@@ -264,13 +333,31 @@ class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
         super(raw, adapter);
     }
     getShaderSourceDeclarations() {
-        return `uniform float sdf_radius_${this.ID};`;
+        return `
+            uniform float sdf_radius_${this.ID};
+            uniform vec3 sdf_basecolor_${this.ID};
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        return `
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                GeometricMaterialData ret;
+                vec3 n = normalize(position.xyz);
+                ret.UV.x = 0.5 + atan(n.z, n.x) / (2.0 * PI);
+                ret.UV.y = 0.5 - asin(n.y) / PI;
+                ret.baseColor = sdf_basecolor_${this.ID};
+                return ret;
+            }`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.ID}`), this.raw.radius);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.ID}`), this.raw.radius)
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `(length(${position_src}.xyz) - sdf_radius_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -279,13 +366,28 @@ class WebGLBoxSDFDecorator extends WebGLSDFDecorator {
         super(raw, adapter);
     }
     getShaderSourceDeclarations() {
-        return `uniform vec4 sdf_boxsize_${this.ID};`;
+        return `
+            uniform vec4 sdf_boxsize_${this.ID};
+            uniform vec3 sdf_basecolor_${this.ID};
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        return `
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                GeometricMaterialData ret;
+                ret.baseColor = sdf_basecolor_${this.ID};
+                return ret;
+            }`;
     }
     writeShaderData(gl, program) {
         gl.uniform4fv(gl.getUniformLocation(program, `sdf_boxsize_${this.ID}`), this.raw.size);
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `sdfBoxDistance(${position_src}, sdf_boxsize_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -296,14 +398,29 @@ class WebGLPlaneSDFDecorator extends WebGLSDFDecorator {
     getShaderSourceDeclarations() {
         return `
             uniform vec4 sdf_planenormal_${this.ID};
-            uniform float sdf_planedelta_${this.ID};`;
+            uniform float sdf_planedelta_${this.ID};
+            uniform vec3 sdf_basecolor_${this.ID};
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        return `
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                GeometricMaterialData ret;
+                data.UV = vec2(position.x, position.y);
+                ret.baseColor = sdf_basecolor_${this.ID};
+                return ret;
+            }`;
     }
     writeShaderData(gl, program) {
         gl.uniform4fv(gl.getUniformLocation(program, `sdf_planenormal_${this.ID}`), this.raw.normal);
         gl.uniform1f(gl.getUniformLocation(program, `sdf_planedelta_${this.ID}`), this.raw.delta);
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `(dot(${position_src}, sdf_planenormal_${this.ID}) + sdf_planedelta_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 
@@ -311,8 +428,27 @@ class WebGLTetrahedronSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
         super(raw, adapter);
     }
+    getShaderSourceDeclarations() {
+        return `
+            uniform vec3 sdf_basecolor_${this.ID};
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
+    }
+    getShaderSource() {
+        return `
+            GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
+                GeometricMaterialData ret;
+                ret.baseColor = sdf_basecolor_${this.ID};
+                return ret;
+            }`;
+    }
+    writeShaderData(gl, program) {
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
+    }
     getDistanceShaderSource(position_src) {
         return `sdfUnitTetrahedronDistance(${position_src})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return `sdfMaterialData_${this.ID}(${position_src})`;
     }
 }
 

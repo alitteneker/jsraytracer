@@ -27,6 +27,7 @@
     "toledo_json",
     "SDF_Simple",
     "SDF_BoxBall",
+    "SDF_Combinations",
     "SDF_Menger",
     "SDF_Sierpinski",
     "SDF_SphereRepetition",

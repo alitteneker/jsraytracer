@@ -128,7 +128,7 @@ class WebGLGeometriesAdapter {
     getShaderSourceDeclarations() {
         return `
             struct GeometricMaterialData {
-                vec3 basecolor;
+                vec3 baseColor;
                 vec4 normal;
                 vec2 UV;
             };
@@ -415,7 +415,7 @@ class WebGLGeometriesAdapter {
             }
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
                 GeometricMaterialData data;
-                data.basecolor = vec3(1.0);
+                data.baseColor = vec3(1.0);
                 if (geometryID < GEOMETRY_SDF_MIN_INDEX) {
                     if      (geometryID == GEOMETRY_SPHERE_TYPE)      unitSphereMaterialData (position, data);
                     else if (geometryID == GEOMETRY_CYLINDER_TYPE)    cylinderMaterialData   (position, data);
