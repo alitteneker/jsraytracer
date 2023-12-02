@@ -208,11 +208,11 @@ class WebGLMaterialsAdapter {
             void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
                 ivec4 mat_ind_1 = itexelFetchByIndex(materialID * 2    , umMaterialIndices),
                       mat_ind_2 = itexelFetchByIndex(materialID * 2 + 1, umMaterialIndices);
-                matParams.ambient              = getMaterialColor(mat_ind_1[0], geodata.UV);
-                matParams.diffuse              = getMaterialColor(mat_ind_1[1], geodata.UV);
-                matParams.specular             = getMaterialColor(mat_ind_1[2], geodata.UV);
-                matParams.reflectivity         = getMaterialColor(mat_ind_1[3], geodata.UV);
-                matParams.transmissivity       = getMaterialColor(mat_ind_2[0], geodata.UV);
+                matParams.ambient              = geodata.basecolor * getMaterialColor(mat_ind_1[0], geodata.UV);
+                matParams.diffuse              = geodata.basecolor * getMaterialColor(mat_ind_1[1], geodata.UV);
+                matParams.specular             =                     getMaterialColor(mat_ind_1[2], geodata.UV);
+                matParams.reflectivity         =                     getMaterialColor(mat_ind_1[3], geodata.UV);
+                matParams.transmissivity       =                     getMaterialColor(mat_ind_2[0], geodata.UV);
                 matParams.specularFactor       = getMaterialColor(mat_ind_2[1], geodata.UV).r;
                 matParams.refractiveIndexRatio = getMaterialColor(mat_ind_2[2], geodata.UV).r;
                 matParams.mirrorProbability    = getMaterialColor(mat_ind_2[3], geodata.UV).r;

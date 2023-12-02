@@ -24,6 +24,25 @@ Math.clamp = function(a, min, max) {
     return Math.min(Math.max(a, min), max);
 }
 
+Math.indexOfMin = function(...args) {
+    let min = Infinity, minIndex = -1;
+    for (let i = 0; i < args.length; ++i)
+        if (args[i] < min) {
+            min = args[i];
+            minIndex = i;
+        }
+    return minIndex;
+}
+Math.indexOfMax = function(...args) {
+    let max = -Infinity, maxIndex = -1;
+    for (let i = 0; i < args.length; ++i)
+        if (args[i] > max) {
+            max = args[i];
+            maxIndex = i;
+        }
+    return maxIndex;
+}
+
 function componentToHex(c) {
     const hex = Math.round(Math.clamp(c, 0, 1) * 255).toString(16);
     return (hex.length == 1) ? ("0" + hex) : hex;

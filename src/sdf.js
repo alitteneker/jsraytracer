@@ -41,14 +41,9 @@ class SDFGeometry extends Geometry {
     materialData(base_data, direction) {
         const distance = this.root_sdf.distance(base_data.position);
         const N = Vec.of(0,0,0,0);
-        for (let i = 0; i < 3; ++i) {
+        for (let i = 0; i < 3; ++i)
             N[i] = (this.root_sdf.distance(base_data.position.plus(Vec.axis(i, 4, this.normal_step_size))) - distance) / this.normal_step_size;
-        }
-        return Object.assign(base_data, {
-            normal: N.normalized(),
-            // TODO: UV? Most plain SDF's could have a sensible UV, but how should they be blended/combined?
-            // TODO: would be really nice to give a simple 1 color blending between different primitives in the graph. Easy enough for basics like union/intersection, but gets hard fast for more complicated operations like rounding and recursion. Also, how should that one color be fed into the current material color pipeline? Worse yet, if I move to a better PBR material, how would an SDF color fit into that material?
-        });
+        return Object.assign(base_data, this.root_sdf.getMaterialData(base_data.position), { normal: N.normalized() });
     }
     getBoundingBox(transform, inv_transform) {
         return this.root_sdf.getBoundingBox(transform, inv_transform);
@@ -65,6 +60,17 @@ class SDF {
     getBoundingBox(transform, inv_transform) {
         throw "SDF subclass has not implemented getBoundingBox";
     }
+    getMaterialData(p) {
+        throw "SDF subclass has not implemented getMaterialData";
+    }
+    static blendMaterialData(mix_factor, data_a, data_b) {
+        if      (mix_factor <= 0.0) return data_a;
+        else if (mix_factor >= 1.0) return data_b;
+        return {
+            basecolor: (data_a.basecolor || Vec.of(1,1,1)).mix(data_b.basecolor || Vec.of(1,1,1), mix_factor),
+            UV:        (data_a.UV        || Vec.of(0,0)  ).mix(data_b.UV        || Vec.of(0,0),   mix_factor)
+        };
+    }
 }
 
 
@@ -76,6 +82,9 @@ class UnionSDF extends SDF {
     }
     distance(p) {
         return Math.min(...this.children.map(c => c.distance(p)));
+    }
+    getMaterialData(p) {
+        return this.children[Math.indexOfMin(...this.children.map(c => c.distance(p)))].getMaterialData(p);
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.hull(this.children.map(c => c.getBoundingBox(transform, inv_transform)));
@@ -89,6 +98,9 @@ class IntersectionSDF extends SDF {
     }
     distance(p) {
         return Math.max(...this.children.map(c => c.distance(p)));
+    }
+    getMaterialData(p) {
+        return this.children[Math.indexOfMax(...this.children.map(c => c.distance(p)))].getMaterialData(p);
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.intersection(this.children.map(c => c.getBoundingBox(transform, inv_transform)));
@@ -104,11 +116,89 @@ class DifferenceSDF extends SDF {
     distance(p) {
         return Math.max(this.positive.distance(p), -this.negative.distance(p));
     }
+    getMaterialData(p) {
+        return (this.positive.distance(p) > -this.negative.distance(p)) ? this.positive.getMaterialData(p) : this.negative.getMaterialData(p);
+    }
     getBoundingBox(transform, inv_transform) {
         return this.positive.getBoundingBox(transform, inv_transform);
-        // TODO: is it ever worthwhile to consider the negative bounding box?
     }
 }
+
+// cubic with C2 continuity
+function smoothMin(a, b, k) {
+    const h = Math.max( k - Math.abs( a - b ), 0.0 ) / k;
+    return Math.min( a, b ) - h * h * h * k * (1.0 / 6.0);
+}
+
+function smoothMinBlend(a, b, k) {
+    const h = Math.max( k - Math.abs( a - b ), 0.0 ) / k;
+    const m = h * h * h * 0.5;
+    return (a<b) ? m : (1.0 - m);
+}
+
+class SmoothUnionSDF extends SDF {
+    constructor(childA, childB, k=1) {
+        super();
+        this.k = k;
+        this.childA = childA;
+        this.childB = childB;
+    }
+    distance(p) {
+        return smoothMin(this.childA.distance(p), this.childB.distance(p), this.k);
+    }
+    getMaterialData(p) {
+        return SDF.blendMaterialData(
+            smoothMinBlend(this.childA.distance(p), this.childB.distance(p), this.k),
+            this.childA.getMaterialData(p),
+            this.childB.getMaterialData(p));
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.hull([this.childA.getBoundingBox(transform, inv_transform), this.childB.getBoundingBox(transform, inv_transform)]).expand(this.k / 6);
+    }
+}
+
+class SmoothIntersectionSDF extends SDF {
+    constructor(childA, childB, k=1) {
+        super();
+        this.k = k;
+        this.childA = childA;
+        this.childB = childB;
+    }
+    distance(p) {
+        return -smoothMin(-this.childA.distance(p), -this.childB.distance(p), this.k);
+    }
+    getMaterialData(p) {
+        return SDF.blendMaterialData(
+            1.0 - smoothMinBlend( -this.childA.distance(p), -this.childB.distance(p), this.k),
+            this.childA.getMaterialData(p),
+            this.childB.getMaterialData(p));
+    }
+    getBoundingBox(transform, inv_transform) {
+        return AABB.intersection([this.childA.getBoundingBox(transform, inv_transform), this.childB.getBoundingBox(transform, inv_transform)]);
+    }
+}
+
+class SmoothDifferenceSDF extends SDF {
+    constructor(positive, negative, k=1) {
+        super();
+        this.k = k;
+        this.positive = positive;
+        this.negative = negative;
+    }
+    distance(p) {
+        return -smoothMin(-this.positive.distance(p), this.negative.distance(p), this.k);
+    }
+    getMaterialData(p) {
+        return SDF.blendMaterialData(
+            smoothMinBlend( -this.positive.distance(p), this.negative.distance(p), this.k),
+            this.positive.getMaterialData(p),
+            this.negative.getMaterialData(p));
+    }
+    getBoundingBox(transform, inv_transform) {
+        return this.positive.getBoundingBox(transform, inv_transform);
+    }
+}
+
 
 
 class RoundSDF extends SDF {
@@ -120,8 +210,11 @@ class RoundSDF extends SDF {
     distance(p) {
         return this.child_sdf.distance(p) - this.rounding;
     }
+    getMaterialData(p) {
+        return this.child_sdf.getMaterialData(p);
+    }
     getBoundingBox(transform, inv_transform) {
-        return this.child_sdf.getBoundingBox(transform, inv_transform);
+        return this.child_sdf.getBoundingBox(transform, inv_transform).expand(this.rounding);
     }
 }
 
@@ -131,12 +224,19 @@ class RoundSDF extends SDF {
 
 // Some SDFs for standard primitive pieces of geometry
 class SphereSDF extends SDF {
-    constructor(radius = 1) {
+    constructor(radius = 1, basecolor=Vec.of(1,1,1)) {
         super();
         this.radius = radius;
+        this.basecolor = basecolor;
     }
     distance(p) {
         return p.to4(0).norm() - this.radius;
+    }
+    getMaterialData(p) {
+        return {
+            basecolor: this.basecolor,
+            UV: Vec.cartesianToSpherical(p.to4(0).normalized())
+        };
     }
     getBoundingBox(transform, inv_transform) {
         return Sphere.computeBoundingBox(transform.times(Mat4.scale(this.radius), Mat4.scale(1/this.radius).times(inv_transform)));
@@ -144,12 +244,19 @@ class SphereSDF extends SDF {
 }
 
 class PlaneSDF extends SDF {
-    constructor(norm = Vec.of(0,0,1,0), delta=0) {
+    constructor(norm = Vec.of(0,0,1,0), delta=0, basecolor=Vec.of(1,1,1)) {
         this.normal = normal;
         this.delta = delta;
+        this.basecolor = basecolor;
     }
     distance(p) {
         return this.normal.dot(p) + delta;
+    }
+    getMaterialData(p) {
+        return {
+            basecolor: this.basecolor,
+            UV: Vec.of(p[0], p[1])
+        };
     }
     getBoundingBox(transform, inv_transform) {
         return new AABB(Vec.of(0,0,0,1), Vec.of(Infinity, Infinity, Infinity, 0));
@@ -157,13 +264,14 @@ class PlaneSDF extends SDF {
 }
 
 class BoxSDF extends SDF {
-    constructor(size = 0.5) {
+    constructor(size = 0.5, basecolor=Vec.of(1,1,1)) {
         super();
         this.size = size;
         if (size instanceof Vec)
             this.size = size.to4(0);
         else
             this.size = Vec.of(size, size, size, 0);
+        this.basecolor = basecolor;
     }
     static distanceComp(p, size) {
         const q = p.abs().minus(size).to4(0);
@@ -171,6 +279,12 @@ class BoxSDF extends SDF {
     }
     distance(p) {
         return BoxSDF.distanceComp(p, this.size);
+    }
+    getMaterialData(p) {
+        return {
+            basecolor: this.basecolor
+            // TODO: UV should be consistent with regular Box, whatever that is...
+        };
     }
     getBoundingBox(transform, inv_transform) {
         const scale_vec = this.size.length ? this.size : Vec.of(this.size, this.size, this.size);
@@ -184,12 +298,19 @@ class TetrahedronSDF extends SDF {
         Vec.of(-1,  1, -1, 0),
         Vec.of(-1, -1,  1, 0),
         Vec.of( 1, -1, -1, 0)];
-    constructor() {
+    constructor(basecolor=Vec.of(1,1,1)) {
         super();
+        this.basecolor = basecolor;
     }
     distance(p) {
         return (Math.max(Math.abs(p[0] + p[1]) - p[2],
                          Math.abs(p[0] - p[1]) + p[2]) - 1) / Math.sqrt(3);
+    }
+    getMaterialData(p) {
+        return {
+            basecolor: this.basecolor
+            // TODO: what should UV be here?
+        };
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints(TetrahedronSDF.vertices.map(v => transform.times(v)));
@@ -209,6 +330,9 @@ class TransformSDF extends SDF {
     distance(p) {
         const [pt, s] = this.transformer.transform(p);
         return this.child_sdf.distance(pt) * s;
+    }
+    getMaterialData(p) {
+        return this.child_sdf.getMaterialData(p);
     }
     getBoundingBox(transform, inv_transform) {
         return this.transformer.transformBoundingBox(this.child_sdf.getBoundingBox(transform, inv_transform));
@@ -230,6 +354,10 @@ class RecursiveTransformUnionSDF extends SDF {
             bestDist = Math.min(this.sdf.distance(p) * s, bestDist);
         }
         return bestDist;
+    }
+    getMaterialData(p) {
+        // TODO: could modify color by depth of max...
+        return this.sdf.getMaterialData(p);
     }
     getBoundingBox(transform, inv_transform) {
         let aabb = this.sdf.getBoundingBox(transform, inv_transform);

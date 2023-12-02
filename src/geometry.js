@@ -183,6 +183,9 @@ class AABB extends Geometry {
                 return false;
         return true;
     }
+    expand(amount) {
+        return new AABB(this.center, this.half_size.plus(amount));
+    }
     get_intersects(ray, minDistance = -Infinity, maxDistance = Infinity) {
         let t_min = -Infinity, t_max = Infinity;
         const p = this.center.minus(ray.origin),
