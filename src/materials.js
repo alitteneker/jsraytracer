@@ -220,6 +220,7 @@ class PhongMaterial extends Material {
         // R = normalize(N * (2 * dot(V, N)) - V)
         const R = N.times(2 * vdotn).minus(V).normalized();
 
+        const basecolor = data.basecolor || Vec.of(1,1,1);
         Object.assign(data, {
             V: V,
             N: N,
@@ -227,8 +228,8 @@ class PhongMaterial extends Material {
             backside: backside,
             vdotn: vdotn,
             
-            baseColor:      this.baseColor.color(data),
-            diffusivity:    this.diffusivity.color(data),
+            ambient:        basecolor.times(this.ambient.color(data)),
+            diffusivity:    basecolor.times(this.diffusivity.color(data)),
             specularity:    this.specularity.color(data),
             reflectivity:   this.reflectivity.color(data),
             transmissivity: this.transmissivity.color(data),
@@ -237,7 +238,7 @@ class PhongMaterial extends Material {
     }
 
     colorFromLights(data, world) {
-        let ret = this.ambient.color(data);
+        let ret = data.ambient;
         
         // compute contribution from each light in the world on this fragment
         for (let l of world.lights) {
