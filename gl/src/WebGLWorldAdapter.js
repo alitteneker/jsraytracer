@@ -558,6 +558,9 @@ class WrappedAggregate extends AbstractWrappedObject {
         else
             return [this.type_code, this.transformIndex, this.indicesStartIndex, this.primIndices.length];
     }
+    getMutableObjectProperties() {
+        return [];
+    }
     getMaterialValues() {
         return {};
     }
@@ -577,6 +580,9 @@ class WrappedPrimitive extends AbstractWrappedObject {
     }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
+    }
+    getMutableObjectProperties() {
+        return this.worldadapter.adapters.geometries.getMutableObjectProperties(this.geometryIndex, this.worldadapter.renderer_adapter);
     }
     changeGeometryType(newType) {
         return this.worldadapter.modifyGeometryType(this, newType);

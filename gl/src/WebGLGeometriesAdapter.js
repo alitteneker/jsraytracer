@@ -107,7 +107,7 @@ class WebGLGeometriesAdapter {
         if (geometry instanceof SDFGeometry) {
             if (WebGLGeometriesAdapter.SDF_BLOCK_COUNT == this.sdf_geometries.length)
                 throw "Too many SDFs for current WebGL configuration";
-            this.id_map[geometry.GEOMETRY_UID] = WebGLGeometriesAdapter.MIN_SDF_ID + this.sdf_geometries.length;
+            this.geometries[this.id_map[geometry.GEOMETRY_UID] = WebGLGeometriesAdapter.MIN_SDF_ID + this.sdf_geometries.length] = geometry;
             this.sdf_geometries.push(geometry);
             this.sdf_adapter.visitSDFGeometry(geometry, webgl_helper, this);
             return this.register_usage(this.id_map[geometry.GEOMETRY_UID]);
@@ -116,6 +116,10 @@ class WebGLGeometriesAdapter {
     }
     getGeometry(index) {
         return this.geometries[index];
+    }
+    getMutableObjectProperties(index, renderer_adapter) {
+        return (index >= WebGLGeometriesAdapter.MIN_SDF_ID && index < WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+            ? this.sdf_adapter.getMutableObjectProperties(index - WebGLGeometriesAdapter.MIN_SDF_ID, renderer_adapter) : [];
     }
     writeShaderData(gl, program, webgl_helper) {
         // Write triangle data, as all other types need no data written for geometry

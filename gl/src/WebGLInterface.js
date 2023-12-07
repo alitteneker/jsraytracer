@@ -71,7 +71,7 @@ class WebGLInterface {
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
             
-        $("#selected-object-controls").dialog({ autoOpen: false, title: "Selected Object", minWidth: 400 });
+        $("#selected-object-controls").dialog({ autoOpen: false, title: "Selected Object", minWidth: 400, maxHeight: 800 });
         $("#edit-object-button").on("click", function() { $("#selected-object-controls").dialog("open"); }.bind(this));
         
         $("#deselect-object-button").on("click", function() { this.selectObject(null); }.bind(this));
@@ -381,25 +381,7 @@ class WebGLInterface {
                 oc += `<option value="${t}" ${t == o.geometryIndex ? "selected" : ""}>${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`;
             oc += "</select>";
         }
-        
-        const [pos, rot, scale] = Mat4.breakdownTransform(o.getWorldTransform());
-        oc += `<div class="object-geometry-controls"><div><table>
-                    <tr><td>Position</td><td>
-                        <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${o.index}" value="${pos[0].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${o.index}" value="${pos[1].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${o.index}" value="${pos[2].toFixed(2)}">
-                    </td></tr>
-                    <tr><td>Rotation</td><td>
-                        <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${o.index}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${o.index}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${o.index}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
-                    </td></tr>
-                    <tr><td>Scale</td><td>
-                        <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${o.index}" value="${scale[0].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${o.index}" value="${scale[1].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${o.index}" value="${scale[2].toFixed(2)}">
-                    </td></tr>
-               </table></div></div>`;
+        oc += `<div class="object-geometry-controls">${this.getSourceForTransformControls(o.getWorldTransform(), o.index)}</div>`;
         
         
         const material = o.getMaterialValues();
@@ -408,36 +390,60 @@ class WebGLInterface {
             for (let mk of Object.keys(material)) {
                 const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
                 if (material[mk].type == "scalar") {
-                    oc += `<tr><td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td>
-                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+                    oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td>
+                            <td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td></tr>`;
                 }
                 if (material[mk].type == "solid") {
-                    oc += `<tr><td>
+                    oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td><td>
                                    <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
                                    <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">
                                </td>
-                               <td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td></tr>`;
+                               </tr>`;
                 }
                 if (material[mk].type == "checkerboard") {
-                    oc += `<tr><td>
+                    oc += `<tr><td><span>${label}</span></td><td>
                                <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color1._id}-intensity" data-mc-id="${material[mk].color1._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color1.color)}">
                                <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
                                <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color2._id}-intensity" data-mc-id="${material[mk].color2._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color2.color)}">
                                <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
-                           </td><td><span>${label}</span></td></tr>`;
+                           </td></tr>`;
                 }
             }
             oc += "</table></div>";
         }
         
         
+        const object_properties = o.getMutableObjectProperties();
+        if (object_properties) {
+            oc += `<div class="object-properties-controls"><table>`;
+            for (let [i,prop] of Object.entries(object_properties)) {
+                if (prop.type == "num") {
+                    oc += `<tr data-object-property-key="${prop.key}"><td><label for="object-property-${o.index}-${prop.key}">${prop.title}</label></td><td><input class="ui-spinner-input" id="object-property-${o.index}-${prop.key}" data-object-property-index="${i}" data-type="${prop.type}" value="${prop.value}"></td>
+                               </tr>`;
+                }
+                if (prop.type == "mat") {
+                    oc += `<tr><td colspan="100">${prop.title}</td></tr><tr data-object-property-key="${prop.key}" data-object-property-index="${i}" class="object-property-transform"><td colspan="100">${this.getSourceForTransformControls(prop.value, prop.key)}</td>`;
+                }
+                if (prop.type == "vec") {
+                    oc += `<tr><td colspan="100">${prop.title}</td></tr><tr data-object-property-key="${prop.key}"><td colspan="100">
+                        <input class="ui-spinner-input" id="object-property-${o.index}-${prop.key}" data-object-property-index="${i}" data-type="${prop.type}" data-comp="0" value="${prop.value[0]}">
+                        <input class="ui-spinner-input" id="object-property-${o.index}-${prop.key}" data-object-property-index="${i}" data-type="${prop.type}" data-comp="1" value="${prop.value[1]}">
+                        <input class="ui-spinner-input" id="object-property-${o.index}-${prop.key}" data-object-property-index="${i}" data-type="${prop.type}" data-comp="2" value="${prop.value[2]}">
+                        </td></tr>`;
+                }
+            }
+            oc += `</table></div>`;
+        }
+        
+        
         $("#selected-object-controls").append(oc);
         
-        $("#selected-object-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
+        $(".object-geometry-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
+        $(".object-material-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
-        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
-        $('#selected-object-controls .object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        $('.object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
+        $('.object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
         
         $('#geometry-type-select').on('change', (function() {
             o.changeGeometryType(Number.parseInt($('#geometry-type-select').val()));
@@ -447,11 +453,34 @@ class WebGLInterface {
         }).bind(this));
         
         if (o.notTransformable)
-            $("#selected-object-controls input[data-transform-type]").spinner("disable");
+            $("#selected-object-controls .object-geometry-controls input[data-transform-type]").spinner("disable");
         else
-            $("#selected-object-controls input[data-transform-type]").on('spinstop', this.modifySelectedObjectTransformValues.bind(this));
+            $("#selected-object-controls .object-geometry-controls input[data-transform-type]").on('spinstop',
+                this.objectTransformModified.bind(this, this.setSelectedObjectTransform.bind(this)));
         
         $("#transform-mode").selectmenu(this.transformObject ? "enable" : "disable");
+        
+        if (object_properties) {
+            for (let [i,prop] of Object.entries(object_properties)) {
+                $(`.object-properties-controls [data-object-property-key="${prop.key}"] .ui-spinner-input`).spinner({ step: prop.step || 0.01 });
+                if (prop.type == "num")
+                    $(`.object-properties-controls [data-object-property-key="${prop.key}"] .ui-spinner-input[data-object-property-index="${i}"]`)
+                        .on('spin spinstop', 
+                            ((prop, e, ui) => prop.modifyFn(prop.key, (ui && ui.value !== undefined) ? ui.value : $(e.target).val())).bind(this, prop));
+                else if (prop.type == "mat")
+                    $(`.object-properties-controls [data-object-property-key="${prop.key}"][data-object-property-index="${i}"] input[data-transform-type]`)
+                        .on('spinstop', this.objectTransformModified.bind(this, prop.modifyFn.bind(this, prop.key)));
+                else if (prop.type == "vec")
+                    $(`.object-properties-controls [data-object-property-key="${prop.key}"] .ui-spinner-input[data-object-property-index="${i}"]`)
+                        .on('spinstop', (function(prop, e, ui) {
+                            const dim = prop.value.length;
+                            const v = Vec.from(Array(dim).fill(0));
+                            for (let j = 0; j < dim; ++j)
+                                v[j] = $(`[data-object-property-key="${prop.key}"] .ui-spinner-input[data-object-property-index="${i}"][data-comp="${j}"]`).val() || 0;
+                            prop.modifyFn(prop.key, v);
+                        }).bind(this, prop));
+            }
+        }
     }
     
     initializeWorldControls(adapter) {
@@ -463,7 +492,7 @@ class WebGLInterface {
         
         function object_transformer(o, ancestors) {
             let title = "";
-            if      (o.type == "primitive") title = WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex);
+            if (o.type == "primitive") title = WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex);
             else{
                 if (o.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)  title = "BVH Aggregate";
                 else                                                            title = "Aggregate";
@@ -493,7 +522,6 @@ class WebGLInterface {
         }));
         lights_root.setExpanded(true);
     }
-    
     
     // Material modification/viewing functionality
     modifyMaterialColor(e) {
@@ -557,14 +585,36 @@ class WebGLInterface {
         this.updateSelectedObjectTransformValues();
     }
     
-    modifySelectedObjectTransformValues() {
+    getSourceForTransformControls(transform, id) {
+        const [pos, rot, scale] = Mat4.breakdownTransform(transform);
+        return `<div><table>
+                    <tr><td>Position</td><td>
+                        <input class="ui-spinner-input" data-transform-type="pos0" data-object-id="${id}" value="${pos[0].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="pos1" data-object-id="${id}" value="${pos[1].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="pos2" data-object-id="${id}" value="${pos[2].toFixed(2)}">
+                    </td></tr>
+                    <tr><td>Rotation</td><td>
+                        <input class="ui-spinner-input" data-transform-type="rot0" data-object-id="${id}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="rot1" data-object-id="${id}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="rot2" data-object-id="${id}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
+                    </td></tr>
+                    <tr><td>Scale</td><td>
+                        <input class="ui-spinner-input" data-transform-type="scale0" data-object-id="${id}" value="${scale[0].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="scale1" data-object-id="${id}" value="${scale[1].toFixed(2)}">
+                        <input class="ui-spinner-input" data-transform-type="scale2" data-object-id="${id}" value="${scale[2].toFixed(2)}">
+                    </td></tr>
+               </table></div>`;
+    }
+    objectTransformModified(modifyFn, e) {
+        const target = $(e.target);
+        const id = target.attr("data-object-id");
         const [pos, rot, scale] = [Vec.of(0,0,0), Vec.of(0,0,0), Vec.of(0,0,0)];
         for (let i of [0,1,2]) {
-            pos[i]   = Number.parseFloat($(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="pos${i}"]`  ).val());
-            scale[i] = Number.parseFloat($(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="scale${i}"]`).val());
-            rot[i]   = Number.parseFloat($(`input[data-object-id="${this.selectedObject.index}"][data-transform-type="rot${i}"]`  ).val()) * Math.PI / 180;
+            pos[i]   = Number.parseFloat($(`input[data-object-id="${id}"][data-transform-type="pos${i}"]`  ).val());
+            scale[i] = Number.parseFloat($(`input[data-object-id="${id}"][data-transform-type="scale${i}"]`).val());
+            rot[i]   = Number.parseFloat($(`input[data-object-id="${id}"][data-transform-type="rot${i}"]`  ).val()) * Math.PI / 180;
         }
-        this.setSelectedObjectTransform(...Mat4.transformAndInverseFromParts(pos, rot, scale));
+        modifyFn(...Mat4.transformAndInverseFromParts(pos, rot, scale));
     }
     
     updateSelectedObjectTransformValues() {

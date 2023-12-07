@@ -425,7 +425,10 @@ class SDFMatrixTransformer extends SDFTransformer {
         super();
         this._transform = transform;
         this._inv_transform = inv_transform;
-        this._scale = Math.min(...[0,1,2].map(i => this._transform.column(i).to3().norm()));
+        this._scale = SDFMatrixTransformer.calcScaleForTransform(transform);
+    }
+    static calcScaleForTransform(transform) {
+        return Math.min(...[0,1,2].map(i => transform.column(i).to3().norm()));
     }
     transform(p) {
         return [this._inv_transform.times(p), this._scale];

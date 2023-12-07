@@ -40,6 +40,10 @@ body {
     margin: auto;
 }
 
+#selected-object-controls {
+    max-height: 80%;
+    overflow-y: scroll;
+}
 #selected-object-controls .ui-spinner-input {
     width: 40px;
 }

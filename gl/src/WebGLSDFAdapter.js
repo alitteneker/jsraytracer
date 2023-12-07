@@ -73,11 +73,26 @@ class WebGLSDFAdapter {
         else if (transform instanceof SDFInfiniteRepetitionTransformer)
             decorator = new WebGLSDFInfiniteRepetitionTransformerSDFDecorator(transform, this);
         
-            
         else
             throw "Unsupported SDF transformer node type";
         
         return this.transforms[transform.UID] = decorator;
+    }
+    getMutableObjectProperties(index, renderer_adapter) {
+        const g = this.geometries[index], modifyFn = this.modifyGeometryProperty.bind(this, renderer_adapter, index);
+        return [
+            { title: "max_samples",        key: "max_samples",        value: g.max_samples,        type: "num", step: 1, modifyFn: modifyFn },
+            { title: "distance_epsilon",   key: "distance_epsilon",   value: g.distance_epsilon,   type: "num", modifyFn: modifyFn },
+            { title: "max_trace_distance", key: "max_trace_distance", value: g.max_trace_distance, type: "num", modifyFn: modifyFn },
+            { title: "normal_step_size",   key: "normal_step_size",   value: g.normal_step_size,   type: "num", modifyFn: modifyFn }
+        ].concat(this.sdfs[g.root_sdf.UID].getMutableObjectProperties(renderer_adapter));
+    }
+    modifyGeometryProperty(renderer_adapter, index, key, newvalue) {
+        this.geometries[index][key] = newvalue;
+        
+        renderer_adapter.useTracerProgram();
+        this.writeGeometryShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram, index);
+        renderer_adapter.resetDrawCount();
     }
     getShaderSourceDeclarations() {
         return `
@@ -164,15 +179,17 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
             }`).join("\n")
         + Object.values(this.sdfs).map(d => d.getShaderSource()).join("\n")
         + Object.values(this.transforms).map(d => d.getShaderSource()).join("\n");
-            
+    }
+    writeGeometryShaderData(gl, program, i) {
+        const g = this.geometries[i];
+        gl.uniform1i(gl.getUniformLocation(program, `sdf_${i}_max_samples`),        g.max_samples);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_distance_epsilon`),   g.distance_epsilon);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_max_trace_distance`), g.max_trace_distance);
+        gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_normal_step_size`),   g.normal_step_size);
     }
     writeShaderData(gl, program) {
-        for (const [i, g] of Object.entries(this.geometries)) {
-            gl.uniform1i(gl.getUniformLocation(program, `sdf_${i}_max_samples`), g.max_samples);
-            gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_distance_epsilon`), g.distance_epsilon);
-            gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_max_trace_distance`), g.max_trace_distance);
-            gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_normal_step_size`), g.normal_step_size);
-        }
+        for (let i = 0; i < this.geometries.length; ++i)
+            this.writeGeometryShaderData(gl, program, i);
         for (const [k, dec] of Object.entries(this.sdfs))
             dec.writeShaderData(gl, program);
         for (const [k, dec] of Object.entries(this.transforms))
@@ -182,6 +199,7 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
 
 class WebGLSDFDecorator {
     constructor(raw, adapter) {
+        this._adapter = adapter;
         this.raw = raw;
         this.ID = adapter.ID_GEN++;
     }
@@ -191,6 +209,31 @@ class WebGLSDFDecorator {
     }
     getShaderSource() {
         return "";
+    }
+    getMutableObjectProperties(renderer_adapter) {
+        const ret = [], titlebase = `${this.raw.constructor.name} ${this.ID}: `;
+        for (const [k,v] of Object.entries(this.raw)) {
+            if (typeof v === 'number' && k != "UID")
+                ret.push({ title: titlebase + k, key: k, value: v, type: "num", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
+            else if (v instanceof Vec)
+                ret.push({ title: titlebase + k, key: k, value: v, type: "vec", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
+            else if (v instanceof Mat)
+                ret.push({ title: titlebase + k, key: k, value: v, type: "mat", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
+        }
+        for (const [k,v] of Object.entries(this)) {
+            if (v instanceof WebGLSDFDecorator)
+                ret.push(... v.getMutableObjectProperties(renderer_adapter));
+            if (v instanceof Array)
+                ret.push(... v.filter(e => e instanceof WebGLSDFDecorator).map(e => e.getMutableObjectProperties(renderer_adapter)).flat());
+        }
+        return ret;
+    }
+    modifyProperty(renderer_adapter, key, newvalue) {
+        this.raw[key] = newvalue;
+        
+        renderer_adapter.useTracerProgram();
+        this.writeShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram);
+        renderer_adapter.resetDrawCount();
     }
     getDistanceShaderSource(position_src) {
         throw "Subclass has not implemented getShaderSource";
@@ -552,6 +595,17 @@ class WebGLMatrixTransformSDFDecorator extends WebGLSDFDecorator {
     writeShaderData(gl, program) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.ID}`), true, this.raw._inv_transform.flat());
         gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw._scale);
+    }
+    getMutableObjectProperties(index, renderer_adapter) {
+        return super.getMutableObjectProperties(index, renderer_adapter).filter(x => x.key == "_transform");
+    }
+    modifyProperty(renderer_adapter, key, newvalue, inv_newvalue) {
+        if (key == "_transform") {
+            this.raw._transform = newvalue;
+            this.raw._inv_transform = inv_newvalue || Mat4.inverse(newvalue);
+            this.raw._scale = SDFMatrixTransformer.calcScaleForTransform(newvalue);
+        }
+        super.modifyProperty(renderer_adapter, key, newvalue);
     }
     getShaderSource() {
         return `
