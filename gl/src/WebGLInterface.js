@@ -88,7 +88,7 @@ class WebGLInterface {
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
-        $("#help-button").button({ icon: "ui-icon-help", showLabel: false, click: function() { $('#help-dialog').dialog("open") }  });
+        $("#help-button").button({ icon: "ui-icon-help", showLabel: false }).on("click", function() { $('#help-dialog').dialog("open") });
         $('#help-dialog').dialog({ autoOpen: false, title: "Help" })
     }
     
@@ -413,7 +413,7 @@ class WebGLInterface {
         }
         
         
-        const object_properties = o.getMutableObjectProperties();
+        const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
         if (object_properties) {
             oc += `<div class="object-properties-controls"><table>`;
             for (let [i,prop] of Object.entries(object_properties)) {
@@ -536,7 +536,7 @@ class WebGLInterface {
     modifyMaterialColorIntensity(e, ui) {
         const target = $(e.target);
         const id = target.attr("data-mc-id");
-        const intensity = (ui && ui.value !== undefined) ? ui.value : target.val();
+        const intensity = (ui && ui.value !== undefined) ? ui.value : Number.parseFloat(target.val());
         const color = hexToRgb($(`input[data-mc-id="${id}"][type="color"]`).val());
         this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
     }

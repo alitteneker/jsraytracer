@@ -17,6 +17,7 @@ if sys.version_info < (3, 0):
         '.svg': 'image/svg+xml',
         '.css': 'text/css',
         '.js':  'application/x-javascript',
+        '.mjs': 'application/x-javascript',
         '': 'application/octet-stream', # Default
     }
     
@@ -41,6 +42,7 @@ else:
         '.svg': 'image/svg+xml',
         '.css': 'text/css',
         '.js':  'application/x-javascript',
+        '.mjs': 'application/x-javascript',
         '': 'application/octet-stream', # Default
     }
 
