@@ -16,14 +16,14 @@ export function configureTest(callback) {
         Mat4.translation([0,-6,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
 
     
-    const NI = 5, NJ = 5, NK = 2;
+    const NI = 5, NJ = 2, NK = 1;
     for (let i = 0; i < NI; ++i) {
         for (let j = 0; j < NJ; ++j) {
             for (let k = 0; k < NK; ++k) {
                 objects.push(new Primitive(
                     new Sphere(),
                     new PhongMaterial(Vec.of(0.1,0.1,1), 0.2, 0.4, 0.6, 100, 0.5),
-                    Mat4.translation([-11 + 2*i, -3.7 + 2*j, -12 + 2*k])));
+                    Mat4.translation([-11 + 2*i, -3.7 + 2*j, -12 - 2*k])));
             }
         }
     }
