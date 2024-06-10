@@ -19,7 +19,7 @@ class WebGLInterface {
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
         
-        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
+        $("#renderer-controlgroup").controlgroup({ /* direction: "vertical" */ });
         
         $(".control-group").controlgroup();
         
@@ -759,6 +759,8 @@ class WebGLInterface {
     pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)
             return;
+        if (e.target.hasPointerCapture(e.pointerID))
+            e.target.releasePointerCapture(e.pointerID);
         this.hasMouseMoved = false;
         this.isMouseDown = true;
         if (this.renderer_adapter) {
