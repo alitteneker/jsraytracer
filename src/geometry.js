@@ -443,6 +443,9 @@ class Sphere extends Geometry {
     intersect(r, minDistance) {
         return Sphere.staticIntersect(r, minDistance);
     }
+    sampleSurface() {
+        return Vec.spherePick().to4(1);
+    }
     materialData(base_data, direction) {
         const n = base_data.position.normalized();
         return Object.assign(base_data, {

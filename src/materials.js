@@ -406,7 +406,7 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
             return [null, null];
         
         if (Math.random() < (diffuseProb / probSum))
-            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity];
+            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity.times(1 / Math.PI)];
         
         return [PhongPathTracingMaterial.scatterSpecular(R, N, data.smoothness), data.specularity];
     }

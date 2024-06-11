@@ -6,11 +6,18 @@ export function configureTest(callback) {
         Mat4.translation([0,2,0])
             .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));/**/
 
-    const lights = [new SimplePointLight(
-        Vec.of(-15, 5, 12, 1),
+    // const lights = [new SimplePointLight(
+        // Vec.of(-15, 5, 12, 1),
+        // Vec.of(1, 1, 1),
+        // 7000
+    // )];
+    const lights = [new RandomSampleAreaLight(
+        new Sphere(),
+        Mat4.translation(Vec.of(-15, 5, 12, 1)),
         Vec.of(1, 1, 1),
         7000
     )];
+    
     const objs = [new Primitive(
         new Plane(),
         new PhongMaterial(Vec.of(0,0,1), 0.1, 0.5, 0.2, 100),

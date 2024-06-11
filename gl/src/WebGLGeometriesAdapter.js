@@ -235,7 +235,9 @@ class WebGLGeometriesAdapter {
                     return min(t1, t2);
                 return (t2 < minDistance) ? t1 : t2;
             }
-
+            vec4 unitSphereSurfaceSample(inout vec2 random_seed) {
+                return vec4(randomSpherePoint(random_seed), 1);
+            }
             void unitSphereMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 data.normal = vec4(normalize(position.xyz), 0);
                 data.UV.x = 0.5 + atan(data.normal.z, data.normal.x) / (2.0 * PI);
@@ -412,7 +414,8 @@ class WebGLGeometriesAdapter {
                 return minDistance - 1.0;
             }
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
-                if      (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
+                     if (geometryID == GEOMETRY_SPHERE_TYPE)           return unitSphereSurfaceSample( random_seed);
+                else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
                 else if (geometryID == GEOMETRY_UNITLINE_TYPE)    return unitLineSurfaceSample(   random_seed);
                 else if (geometryID == GEOMETRY_SQUARE_TYPE)      return squareSurfaceSample(     random_seed);
                 return vec4(0);

@@ -529,7 +529,7 @@ class WebGLInterface {
     modifyMaterialColor(e) {
         const target = $(e.target);
         const id = target.attr("data-mc-id");
-        const intensity = $(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || 1;
+        const intensity = Number.parseFloat($(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || "1");
         const color = hexToRgb(target.val());
         this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
     }
