@@ -388,7 +388,7 @@ class FresnelPhongMaterial extends PhongMaterial {
 
 class PhongPathTracingMaterial extends FresnelPhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity, mirrorProbability=0) {
-        super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio, Vec.of(1,1,1), Vec.of(1,1,1));
+        super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio, Vec.of(1,1,1), isFinite(refractiveIndexRatio) ? Vec.of(1,1,1) : Vec.of(0,0,0));
         this.mirrorProbability = mirrorProbability;
     }
     static deserialize(data) {

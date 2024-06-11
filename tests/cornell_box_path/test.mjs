@@ -63,11 +63,15 @@ export function configureTest(callback) {
     objects.push(new Primitive(
         new Sphere(),
         new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.1, 0.8, 10),
-        Mat4.translation([1, 2, -1]).times(Mat4.scale(2))));
+        Mat4.translation([1.75, 2, -1]).times(Mat4.scale(2))));
     objects.push(new Primitive(
         new Sphere(),
         new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.1, 0.9, 10, 2),
         Mat4.translation([-2, 1, 1.5])));
+    objects.push(new Primitive(
+        new UnitBox(),
+        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4),
+        Mat4.translation([-2, 2.5, -2]).times(Mat4.rotation(-0.5, Vec.of(0,1,0))).times(Mat4.scale([2.5, 6, 2.5]))));
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
