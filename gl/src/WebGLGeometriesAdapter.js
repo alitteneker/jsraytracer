@@ -102,7 +102,8 @@ class WebGLGeometriesAdapter {
             });
             this.id_map[geometry.GEOMETRY_UID] = this.geometries.length + 1;
             this.geometries.push(geometry);
-            return this.register_usage(this.id_map[geometry.GEOMETRY_UID]);
+            this.register_usage(WebGLGeometriesAdapter.MIN_TRIANGLE_ID);
+            return this.id_map[geometry.GEOMETRY_UID];
         }
         if (geometry instanceof SDFGeometry) {
             if (WebGLGeometriesAdapter.SDF_BLOCK_COUNT == this.sdf_geometries.length)
@@ -398,12 +399,14 @@ class WebGLGeometriesAdapter {
             // ---- Generics ----
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
                 if (geometryID < GEOMETRY_SDF_MIN_INDEX) {
-                         if (geometryID == GEOMETRY_SPHERE_TYPE)   return unitSphereIntersect(r, minDistance);
-                    else if (geometryID == GEOMETRY_CYLINDER_TYPE) return cylinderIntersect  (r, minDistance);
-                    else if (geometryID == GEOMETRY_PLANE_TYPE)    return planeIntersect     (r, minDistance);
-                    else if (geometryID == GEOMETRY_CIRCLE_TYPE)   return circleIntersect    (r, minDistance);
-                    else if (geometryID == GEOMETRY_SQUARE_TYPE)   return squareIntersect    (r, minDistance);
-                    else if (geometryID == GEOMETRY_UNITBOX_TYPE)  return unitBoxIntersect   (r, minDistance);
+                     switch(geometryID) {
+                         case GEOMETRY_SPHERE_TYPE  : return unitSphereIntersect(r, minDistance); break;
+                         case GEOMETRY_CYLINDER_TYPE: return cylinderIntersect  (r, minDistance); break;
+                         case GEOMETRY_PLANE_TYPE   : return planeIntersect     (r, minDistance); break;
+                         case GEOMETRY_CIRCLE_TYPE  : return circleIntersect    (r, minDistance); break;
+                         case GEOMETRY_SQUARE_TYPE  : return squareIntersect    (r, minDistance); break;
+                         case GEOMETRY_UNITBOX_TYPE : return unitBoxIntersect   (r, minDistance); break;
+                     }
                 }
                 else {
                     if (geometryID < GEOMETRY_TRIANGLE_MIN_INDEX)
@@ -414,24 +417,28 @@ class WebGLGeometriesAdapter {
                 return minDistance - 1.0;
             }
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
-                     if (geometryID == GEOMETRY_SPHERE_TYPE)           return unitSphereSurfaceSample( random_seed);
-                else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) return originPointSurfaceSample(random_seed);
-                else if (geometryID == GEOMETRY_UNITLINE_TYPE)    return unitLineSurfaceSample(   random_seed);
-                else if (geometryID == GEOMETRY_SQUARE_TYPE)      return squareSurfaceSample(     random_seed);
+                switch(geometryID) {
+                    case GEOMETRY_SPHERE_TYPE     : return unitSphereSurfaceSample( random_seed); break;
+                    case GEOMETRY_ORIGINPOINT_TYPE: return originPointSurfaceSample(random_seed); break;
+                    case GEOMETRY_UNITLINE_TYPE   : return unitLineSurfaceSample(   random_seed); break;
+                    case GEOMETRY_SQUARE_TYPE     : return squareSurfaceSample(     random_seed); break;
+                }
                 return vec4(0);
             }
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
                 GeometricMaterialData data;
                 data.baseColor = vec3(1.0);
                 if (geometryID < GEOMETRY_SDF_MIN_INDEX) {
-                    if      (geometryID == GEOMETRY_SPHERE_TYPE)      unitSphereMaterialData (position, data);
-                    else if (geometryID == GEOMETRY_CYLINDER_TYPE)    cylinderMaterialData   (position, data);
-                    else if (geometryID == GEOMETRY_PLANE_TYPE)       planeMaterialData      (position, data);
-                    else if (geometryID == GEOMETRY_CIRCLE_TYPE)      circleMaterialData     (position, data);
-                    else if (geometryID == GEOMETRY_SQUARE_TYPE)      squareMaterialData     (position, data);
-                    else if (geometryID == GEOMETRY_UNITBOX_TYPE)     unitBoxMaterialData    (position, data);
-                    else if (geometryID == GEOMETRY_ORIGINPOINT_TYPE) originPointMaterialData(position, direction, data);
-                    else if (geometryID == GEOMETRY_UNITLINE_TYPE)    unitLineMaterialData   (position, direction, data);
+                    switch(geometryID) { 
+                        case GEOMETRY_SPHERE_TYPE     : unitSphereMaterialData (position, data); break;
+                        case GEOMETRY_CYLINDER_TYPE   : cylinderMaterialData   (position, data); break;
+                        case GEOMETRY_PLANE_TYPE      : planeMaterialData      (position, data); break;
+                        case GEOMETRY_CIRCLE_TYPE     : circleMaterialData     (position, data); break;
+                        case GEOMETRY_SQUARE_TYPE     : squareMaterialData     (position, data); break;
+                        case GEOMETRY_UNITBOX_TYPE    : unitBoxMaterialData    (position, data); break;
+                        case GEOMETRY_ORIGINPOINT_TYPE: originPointMaterialData(position, direction, data); break;
+                        case GEOMETRY_UNITLINE_TYPE   : unitLineMaterialData   (position, direction, data); break;
+                    }
                 }
                 else {
                     if (geometryID < GEOMETRY_TRIANGLE_MIN_INDEX)

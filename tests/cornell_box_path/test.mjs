@@ -6,7 +6,7 @@ export function configureTest(callback) {
     const lights = [];
     lights.push(new RandomSampleAreaLight(
         new Square(),
-        Mat4.translation([0,10,0])
+        Mat4.translation([0,8.9,0])
             .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
             .times(Mat4.scale([1,1,1])),
         Vec.of(1,1,1), 2000, 4));
@@ -38,26 +38,27 @@ export function configureTest(callback) {
         Mat4.translation([-5,5,0]).times(Mat4.scale([1,10,10])).times(Mat4.rotation(-Math.PI/2, Vec.of(0,1,0)))));
     // ceiling
     const ceilingmaterial = new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4);
+    const ceiling_thickness = 1, cto = 10 + (ceiling_thickness - 1) / 2;
     objects.push(new Primitive(
         new Square(),
         ceilingmaterial,
-        Mat4.translation([0,10.5,0]).times(Mat4.scale([2,1,2])).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
+        Mat4.translation([0,10 + ceiling_thickness/2,0]).times(Mat4.scale([2,1,2])).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0)))));
     objects.push(new Primitive(
         new UnitBox(),
         ceilingmaterial,
-        Mat4.translation([0,10,3]).times(Mat4.scale([10,1,4]))));
+        Mat4.translation([0,cto,3]).times(Mat4.scale([10,ceiling_thickness,4]))));
     objects.push(new Primitive(
         new UnitBox(),
         ceilingmaterial,
-        Mat4.translation([0,10,-3]).times(Mat4.scale([10,1,4]))));
+        Mat4.translation([0,cto,-3]).times(Mat4.scale([10,ceiling_thickness,4]))));
     objects.push(new Primitive(
         new UnitBox(),
         ceilingmaterial,
-        Mat4.translation([3,10,0]).times(Mat4.scale([4,1,2]))));
+        Mat4.translation([3,cto,0]).times(Mat4.scale([4,ceiling_thickness,2]))));
     objects.push(new Primitive(
         new UnitBox(),
         ceilingmaterial,
-        Mat4.translation([-3,10,0]).times(Mat4.scale([4,1,2]))));
+        Mat4.translation([-3,cto,0]).times(Mat4.scale([4,ceiling_thickness,2]))));
 
     // objects
     objects.push(new Primitive(
@@ -67,11 +68,11 @@ export function configureTest(callback) {
     objects.push(new Primitive(
         new Sphere(),
         new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.1, 0.9, 10, 2),
-        Mat4.translation([-2, 1, 1.5])));
+        Mat4.translation([-3, 1.2, 1.5])));
     objects.push(new Primitive(
         new UnitBox(),
-        new PhongPathTracingMaterial(Vec.of(1,1,1), 0, 0.4),
-        Mat4.translation([-2, 2.5, -2]).times(Mat4.rotation(-0.5, Vec.of(0,1,0))).times(Mat4.scale([2.5, 6, 2.5]))));
+        new PhongPathTracingMaterial(Vec.of(0.1,0.1,1), 0, 0.9),
+        Mat4.translation([-2, 4, -2]).times(Mat4.rotation(-Math.PI/4, Vec.of(0,1,0))).times(Mat4.scale([2, 8, 2]))));
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
