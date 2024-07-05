@@ -130,7 +130,7 @@ class WebGLGeometriesAdapter {
             this.triangle_indices_texture_unit, "tTriangleIndices", program);
         this.sdf_adapter.writeShaderData(gl, program, webgl_helper);
     }
-    getShaderSourceDeclarations() {
+    getShaderSourceDeclarations(sceneEditable) {
         return `
             struct GeometricMaterialData {
                 vec3 baseColor;
@@ -143,7 +143,7 @@ class WebGLGeometriesAdapter {
             vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`
             + this.sdf_adapter.getShaderSourceDeclarations();
     }
-    getShaderSource() {
+    getShaderSource(sceneEditable) {
         return `
             // ---- Plane ----
             #define GEOMETRY_PLANE_TYPE ${WebGLGeometriesAdapter.PLANE_ID}

@@ -60,7 +60,7 @@ class WebGLLightsAdapter {
             gl.uniformMatrix4fv(gl.getUniformLocation(program, "uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
         }
     }
-    getShaderSourceDeclarations() {
+    getShaderSourceDeclarations(sceneEditable) {
         return `
             uniform int uNumLights;
             struct LightStruct {
@@ -76,7 +76,7 @@ class WebGLLightsAdapter {
             };
             LightSample sampleLight(in int lightID, in vec4 position, inout vec2 random_seed);`;
     }
-    getShaderSource() {
+    getShaderSource(sceneEditable) {
         return `
             #define LIGHT_TYPE_WORLD ${WebGLLightsAdapter.LIGHT_TYPE_WORLD}
             #define LIGHT_TYPE_DIRECTIONAL ${WebGLLightsAdapter.LIGHT_TYPE_DIRECTIONAL}

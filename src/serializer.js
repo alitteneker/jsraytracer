@@ -44,7 +44,7 @@ class Serializer {
         if (typeof obj.serialize == "function")
             ref._v = obj.serialize(this);
         
-        // If this is an array, we can make a small performance savings with map over object enumeration.
+        // If this is an array, we can make a small performance savings with map over object key/value enumeration.
         else if (obj instanceof Array)
             ref._v = obj.map(v => this.serializeStep(v));
         
@@ -88,17 +88,17 @@ class Serializer {
         // Fetch the typename for this object, and add to the cache.
         const typename = (typeof json_obj._t == "number") ? typenames[json_obj._t] : (typenames[json_obj._t[1]] = json_obj._t[0]);
         
-        // First, we have to dereference any descendant properties contained in this object.
+        // First, we have to deserialize any descendant properties contained in this object.
         let derefed = null, ret = null;
         if (json_obj._v instanceof Array)
             derefed = json_obj._v.map(v => Serializer.deserializeStep(v, deserialized_rs, typenames, type_cache));
         else {
             derefed = {};
             for (let [k,v] of Object.entries(json_obj._v))
-            derefed[k] = Serializer.deserializeStep(v, deserialized_rs, typenames, type_cache);
+                derefed[k] = Serializer.deserializeStep(v, deserialized_rs, typenames, type_cache);
         }
         
-        // If this object is a plain object or array, we can then just use the derefed object.
+        // If this object is a plain object or array, we can then just use the deserialized object.
         if (typename == "Object" || typename == "Array")
             ret = derefed;
         

@@ -153,7 +153,7 @@ class WebGLMaterialsAdapter {
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }
-    getShaderSource() {
+    getShaderSource(sceneEditable) {
         function makeStaticTextureShaderSource(i) {
             return `
                 case ${i}:

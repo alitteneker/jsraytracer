@@ -168,7 +168,7 @@ class BVHAggregateNode {
             throw("Empty aabb for BVH node");
     }
     static deserialize(data) {
-        return new BVHAggregateNode(data.depth, data.isLeaf, data.objects, data.aabb, data.lesser_node, data.greater_node);
+        return new BVHAggregateNode(data.depth, !!data.isLeaf, data.objects, data.aabb, data.lesser_node, data.greater_node);
     }
     
     intersect(ray, ret, minDist, maxDist, intersectTransparent=true) {

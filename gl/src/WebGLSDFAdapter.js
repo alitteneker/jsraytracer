@@ -94,7 +94,7 @@ class WebGLSDFAdapter {
         this.writeGeometryShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram, index);
         renderer_adapter.resetDrawCount();
     }
-    getShaderSourceDeclarations() {
+    getShaderSourceDeclarations(sceneEditable) {
         return `
             // =============== SDF ===============
             float sdfIntersect(in Ray r, in float minDistance, in int sdfID);
@@ -105,7 +105,7 @@ class WebGLSDFAdapter {
         + Object.values(this.sdfs).map(d => d.getShaderSourceDeclarations()).join("\n")
         + Object.values(this.transforms).map(d => d.getShaderSourceDeclarations()).join("\n");
     }
-    getShaderSource() {
+    getShaderSource(sceneEditable) {
         if (this.sdfs.length == 0)
             return `
             // =============== SDF ===============

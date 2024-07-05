@@ -348,11 +348,11 @@ class WebGLWorldAdapter {
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
-    getShaderSource() {
+    getShaderSource(sceneEditable) {
         return `
             uniform vec3 uBackgroundColor;
 
-            uniform mat4 uTransforms[${Math.max(16, this.transform_store.size())}]; // TODO: should safety check the size of this
+            uniform mat4 uTransforms[${Math.max(16, this.transform_store.size())}]; // TODO: should safety check the size of this, for larger sizes need a texture
             mat4 getTransform(in int index) {
                 if (index < 0)
                     return mat4(1.0);
@@ -405,8 +405,15 @@ class WebGLWorldAdapter {
                 inout float min_found_t, inout int min_prim_id)
             {
                 bool found_min = false;
+                ivec4 indexTexel;
+                int indexTexelEnd = -1;
                 for (int i = 0; i < listLength; ++i) {
-                    int prim_id = getIndexFromList(listStartIndex + i);
+                    int index = listStartIndex + i;
+                    if (index > indexTexelEnd) {
+                        indexTexel = itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData);
+                        indexTexelEnd = 4 * (index / 4) + 3;
+                    }
+                    int prim_id = indexTexel[index % 4];
                     float t = worldObjectIntersect(prim_id, r, minT, shadowFlag);
                     if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
                         min_found_t = t;
