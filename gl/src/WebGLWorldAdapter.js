@@ -324,11 +324,11 @@ class WebGLWorldAdapter {
                 if (a.bvh_reuse_from)
                     aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.acceleratorsStartIndex, a.bvh_reuse_from.indicesStartIndex);
                 else {
-                    aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = accelerators_list.length / 4, a.indicesStartIndex = indices_list.length);
+                    aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = aabb_data.length / 8, a.indicesStartIndex = indices_list.length);
                     indices_list = indices_list.concat(a.bvh_object_list);
-                    accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) =>
-                        [0, (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex, n.missIndex, 0]).flat());
-                    aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
+                    aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
+                        ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
+                        ...n.aabb.half_size.to3(), n.missIndex]).flat());
                 }
             }
             else
@@ -444,22 +444,22 @@ class WebGLWorldAdapter {
                 
                 int node_index = 0;
                 while (node_index >= 0) {
-                    
-                    // aabb_index, hitIndex (>0 for children, <0 for leaf indices list start), missIndex, indices_length
-                    ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + root_index + node_index, uWorldData);
-                    
                     int aabb_index = 2 * (root_index + node_index);
-                    vec2 aabb_ts = AABBIntersects(r,
-                        texelFetchByIndex(aabb_index,     uWorldAABBs),
-                        texelFetchByIndex(aabb_index + 1, uWorldAABBs), minT, maxT);
+                    vec4 node1 = texelFetchByIndex(aabb_index,     uWorldAABBs);
+                    vec4 node2 = texelFetchByIndex(aabb_index + 1, uWorldAABBs);
                     
+                    int hitIndex  = int(node1.w);
+                    int missIndex = int(node2.w);
+                    
+                    vec2 aabb_ts = AABBIntersects(r, vec4(node1.xyz, 1.0), vec4(node2.xyz, 0.0), minT, maxT);
                     bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
+                    
                     if (hit_node) {
                         
                         // if this is a leaf node, check all objects in this node
-                        if (node.g < 0) {
+                        if (hitIndex < 0) {
                             // there are two possibilities: either the id corresponds to a single primitive id, or to a list
-                            int id = -node.g - 1;
+                            int id = -hitIndex - 1;
                             
                             // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
                             if (id < uWorldNumPrimitives) {
@@ -478,14 +478,14 @@ class WebGLWorldAdapter {
                         }
                         
                         // if this node has children, visit this node's left child next
-                        else if (node.g > 0)
-                            node_index = node.g;
+                        else if (hitIndex > 0)
+                            node_index = hitIndex;
                     }
                     
                     // if we missed this node or this node has NO child nodes (e.g. leaf node),
                     // find the closest ancestor that is a left child, and visit its right sibling next
-                    if (!hit_node || node.g < 0)
-                        node_index = node.b;
+                    if (!hit_node || hitIndex < 0)
+                        node_index = missIndex;
                 }
                 
                 return found_min;

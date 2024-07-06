@@ -2,6 +2,7 @@
     "ASimpleScene",
     "Aggregates",
     "AHollowTetrahedron",
+    "AMultipleBVH",
     "refraction_simple",
     "BoxBall",
     "bottle",
