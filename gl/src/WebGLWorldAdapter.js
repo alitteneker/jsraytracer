@@ -110,7 +110,8 @@ class WebGLWorldAdapter {
                 ancestors: ancestors,
                 type_code: WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE,
                 transformIndex: this.registerTransform(obj.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), obj),
-                children: []
+                children: [],
+                primIndices: []
             }, this);
             
             this.aggregate_id_index_map[ID] = this.aggregates.length;
@@ -133,10 +134,12 @@ class WebGLWorldAdapter {
                 function BVHVisitorFn(node, parent_node=null, isGreater=false) {
                     const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
                     const node_data = {
-                        raw_node:    node,
-                        parent_node: parent_node,
-                        aabb:        node.aabb,
-                        isGreater:   isGreater,
+                        raw_node:       node,
+                        parent_node:    parent_node,
+                        aabb:           node.aabb,
+                        isGreater:      isGreater,
+                        isLeaf:         node.isLeaf,
+                        isSingularLeaf: node.isLeaf && node.objects.length == 1
                     };
                     bvh_nodes.push(node_data);
                     
@@ -146,13 +149,17 @@ class WebGLWorldAdapter {
                         node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
                     }
                     else {
-                        node_data.hitIndex = -1 - bvh_object_list.length;
-                        for (let o of node.objects) {
-                            const p = me.visitPrimitive(o, webgl_helper);
-                            p.notTransformable = true;
-                            //agg.children.push(p);
-                            p.parents.push(agg);
-                            bvh_object_list.push(p.index);
+                        const ps = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
+                        ps.forEach(p => p.notTransformable = true);
+                        if (ps.length == 1)
+                            node_data.hitIndex = -1 - ps[0].index;
+                        else {
+                            node_data.hitIndex = bvh_object_list.length;
+                            bvh_object_list.push(ps.length);
+                            for (let p of ps) {
+                                p.parents.push(agg);
+                                bvh_object_list.push(p.index);
+                            }
                         }
                     }
                 };
@@ -166,7 +173,7 @@ class WebGLWorldAdapter {
                 }
                 
                 agg.bvh_nodes = bvh_nodes;
-                agg.primIndices = bvh_object_list;
+                agg.bvh_object_list = bvh_object_list;
                 
                 this.bvh_first_instances[obj.kdtree.NODE_UID] = agg;
             }
@@ -318,8 +325,9 @@ class WebGLWorldAdapter {
                     aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.acceleratorsStartIndex, a.bvh_reuse_from.indicesStartIndex);
                 else {
                     aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = accelerators_list.length / 4, a.indicesStartIndex = indices_list.length);
-                    indices_list = indices_list.concat(a.primIndices);
-                    accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) => [(aabb_data.length / 4) + 2 * i, n.hitIndex, n.missIndex, n.raw_node.isLeaf ? n.raw_node.objects.length : 0]).flat());
+                    indices_list = indices_list.concat(a.bvh_object_list);
+                    accelerators_list = accelerators_list.concat(a.bvh_nodes.map((n, i) =>
+                        [0, (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex, n.missIndex, 0]).flat());
                     aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [...n.raw_node.aabb.center, ...n.aabb.half_size]).flat());
                 }
             }
@@ -386,6 +394,17 @@ class WebGLWorldAdapter {
                 mat4 objectInverseTransform = getTransform(obj.transform_id);
                 return geometryIntersect(obj.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
             }
+            bool worldRayCastObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
+                inout float min_found_t, inout int min_prim_id)
+            {
+                float t = worldObjectIntersect(prim_id, r, minT, shadowFlag);
+                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                    min_found_t = t;
+                    min_prim_id = prim_id;
+                    return true;
+                }
+                return false;
+            }
             vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 Primitive ids = getPrimitive(primID);
                 mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
@@ -415,13 +434,8 @@ class WebGLWorldAdapter {
                         indexTexel = itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData);
                         indexTexelEnd = 4 * (index / 4) + 3;
                     }
-                    int prim_id = indexTexel[index % 4];
-                    float t = worldObjectIntersect(prim_id, r, minT, shadowFlag);
-                    if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                        min_found_t = t;
-                        min_prim_id = prim_id;
+                    if (worldRayCastObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                         found_min = true;
-                    }
                 }
                 return found_min;
             }
@@ -444,8 +458,23 @@ class WebGLWorldAdapter {
                         
                         // if this is a leaf node, check all objects in this node
                         if (node.g < 0) {
-                            if (worldRayCastList(indices_offset - node.g - 1, node.a, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                               found_min = true;
+                            // there are two possibilities: either the id corresponds to a single primitive id, or to a list
+                            int id = -node.g - 1;
+                            
+                            // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
+                            if (id < uWorldNumPrimitives) {
+                                if (worldRayCastObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                    found_min = true;
+                            }
+                            
+                            // lists are a bit harder: we don't know how long the list is, so we have to first lookup the length before we can test.
+                            // Fortunately, these should be a small fraction of BVH nodes, so the cost should be much lower on average.
+                            else {
+                                int listStart = indices_offset + (id - uWorldNumPrimitives);
+                                int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
+                                if (worldRayCastList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                    found_min = true;
+                            }
                         }
                         
                         // if this node has children, visit this node's left child next
@@ -453,7 +482,8 @@ class WebGLWorldAdapter {
                             node_index = node.g;
                     }
                     
-                    // if we missed this node or this node has NO children, find the closest ancestor that is a left child, and visit its right sibling next
+                    // if we missed this node or this node has NO child nodes (e.g. leaf node),
+                    // find the closest ancestor that is a left child, and visit its right sibling next
                     if (!hit_node || node.g < 0)
                         node_index = node.b;
                 }
