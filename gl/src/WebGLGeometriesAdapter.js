@@ -1,4 +1,5 @@
 class WebGLGeometriesAdapter {
+    static NULL_ID         = 0;
     static PLANE_ID        = 1;
     static SPHERE_ID       = 2;
     static UNITBOX_ID      = 3;
@@ -16,6 +17,8 @@ class WebGLGeometriesAdapter {
     static SWITCHABLE_TYPES = Math.range(1, 9);
 
     static TypeStringLabel(type) {
+        if (type == WebGLGeometriesAdapter.NULL_ID)
+            return "Null";
         if (type == WebGLGeometriesAdapter.PLANE_ID)
             return "Plane";
         if (type == WebGLGeometriesAdapter.SPHERE_ID)

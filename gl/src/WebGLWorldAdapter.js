@@ -329,6 +329,7 @@ class WebGLWorldAdapter {
         
         // Write world node data
         gl.uniform1i(gl.getUniformLocation(program, "uWorldNumAggregates"), this.aggregates.length);
+        gl.uniform1i(gl.getUniformLocation(program, "uWorldNumPrimitives"), this.primitives.length);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldAcceleratorsStart"), this.aggregates.length + this.primitives.length);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length + accelerators_list.length / 4);
         this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...accelerators_list, ...indices_list],
@@ -362,6 +363,7 @@ class WebGLWorldAdapter {
             uniform int uWorldListsStart;
             uniform int uWorldAcceleratorsStart;
             uniform int uWorldNumAggregates;
+            uniform int uWorldNumPrimitives;
             uniform isampler2D uWorldData;
             uniform  sampler2D uWorldAABBs;
             
@@ -432,9 +434,10 @@ class WebGLWorldAdapter {
                     // aabb_index, hitIndex (>0 for children, <0 for leaf indices list start), missIndex, indices_length
                     ivec4 node = itexelFetchByIndex(uWorldAcceleratorsStart + root_index + node_index, uWorldData);
                     
+                    int aabb_index = 2 * (root_index + node_index);
                     vec2 aabb_ts = AABBIntersects(r,
-                        texelFetchByIndex(node.r,     uWorldAABBs),
-                        texelFetchByIndex(node.r + 1, uWorldAABBs), minT, maxT);
+                        texelFetchByIndex(aabb_index,     uWorldAABBs),
+                        texelFetchByIndex(aabb_index + 1, uWorldAABBs), minT, maxT);
                     
                     bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
                     if (hit_node) {
