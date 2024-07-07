@@ -1,6 +1,7 @@
 class WebGLMaterialsAdapter {
     static SPECIAL_COLOR_CHECKERBOARD = 1;
     static SPECIAL_COLOR_TEXTURE = 2;
+    static USE_TEXTURES_FOR_MAT_PARAMS = false;
     
     static MATERIAL_PROPERTIES = ["ambient", "diffuse", "specular", "reflectivity", "transmissivity", "specularFactor", "refractiveIndexRatio", "mirrorProbability"];
     
@@ -133,41 +134,65 @@ class WebGLMaterialsAdapter {
         this.modifySolidColor(index, Vec.of(new_scalar, 0, 0));
         this.solid_mc_map[index].value = new_scalar;
     }
-    writeShaderData(gl, program, webgl_helper) {
-        this.material_colors_texture.setDataPixelsUnit(this.solid_colors.flat(), this.material_colors_texture_unit, "umMaterialColors", program);
-        this.material_indices_texture.setDataPixelsUnit(
-            this.materials.map(m => WebGLMaterialsAdapter.MATERIAL_PROPERTIES.map(k => m[k]._id)).flat(),
-            this.material_indices_texture_unit, "umMaterialIndices", program);
-        
-        if (this.special_colors.length)
-            gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
-        if (this.textures.length)
-            gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
-                this.textures.map(t => WebGLHelper.textureUnitIndex(t.texture_unit)));
-    }
     getShaderSourceDeclarations() {
         return `
             #define MATERIALCOLOR_SPECIAL_CHECKERBOARD ${WebGLMaterialsAdapter.SPECIAL_COLOR_CHECKERBOARD}
             #define MATERIALCOLOR_SPECIAL_TEXTURE      ${WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE}
+            void getMaterialIndices(in int materialID, out ivec4 mat_ind_1, out ivec4 mat_ind_2);
             vec3 getMaterialColor(in int color_index, in vec2 UV);
             vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
                 inout vec2 random_seed, inout RecursiveNextRays nextRays);`
     }
     getShaderSource(sceneEditable) {
+        let ret = `
+            struct PhongMaterialParameters {
+                vec3 ambient;
+                vec3 diffuse;
+                vec3 specular;
+                vec3 reflectivity;
+                vec3 transmissivity;
+                float specularFactor;
+                float refractiveIndexRatio;
+                float mirrorProbability;
+            };`;
+        if (WebGLMaterialsAdapter.USE_TEXTURES_FOR_MAT_PARAMS || sceneEditable ||  (this.solid_colors.size() * 3 + this.materials.length * 8) > 512) {
+            this.ShaderUsesTexturesForProperties = true;
+            ret += `
+            uniform  sampler2D umMaterialColors;
+            vec3 getSolidColor(in int color_index) {
+                return texelFetchByIndex(color_index, umMaterialColors).xyz;
+            }
+            
+            uniform isampler2D umMaterialIndices;
+            void getMaterialIndices(in int materialID, out ivec4 mat_ind_1, out ivec4 mat_ind_2) {
+                mat_ind_1 = itexelFetchByIndex(materialID * 2    , umMaterialIndices);
+                mat_ind_2 = itexelFetchByIndex(materialID * 2 + 1, umMaterialIndices);
+            }`;
+        }
+        else {
+            this.ShaderUsesTexturesForProperties = false;
+            ret += `
+            uniform vec3 uMaterialColors[ ${Math.max(16, this.solid_colors.size())}];
+            vec3 getSolidColor(in int color_index) {
+                return uMaterialColors[color_index];
+            }
+            
+            uniform ivec4 uMaterialIndices[${Math.max(16, 2 * this.materials.length)}];
+            void getMaterialIndices(in int materialID, out ivec4 mat_ind_1, out ivec4 mat_ind_2) {
+                mat_ind_1 = uMaterialIndices[materialID * 2    ];
+                mat_ind_2 = uMaterialIndices[materialID * 2 + 1];
+            }`;
+        }
+        
         function makeStaticTextureShaderSource(i) {
             return `
                 case ${i}:
                     return texture(umTextures[${i}], vec2(UV.x, 1.0-UV.y)).xyz * getSolidColor(special_color.z);`;
         }
-        return `
+        ret += `
             uniform sampler2D umTextures [${ Math.max(1, this.textures.length)       }];
             uniform ivec3 umSpecialColors[${ Math.max(4, this.special_colors.length) }];
-            uniform  sampler2D umMaterialColors;
-            uniform isampler2D umMaterialIndices;
 
-            vec3 getSolidColor(in int color_index) {
-                return texelFetchByIndex(color_index, umMaterialColors).xyz;
-            }
             vec3 getMaterialColor(in int color_index, in vec2 UV) {
                 
                 // Special colors
@@ -194,20 +219,9 @@ class WebGLMaterialsAdapter {
                 return getSolidColor(color_index);
             }
             
-            struct PhongMaterialParameters {
-                vec3 ambient;
-                vec3 diffuse;
-                vec3 specular;
-                vec3 reflectivity;
-                vec3 transmissivity;
-                float specularFactor;
-                float refractiveIndexRatio;
-                float mirrorProbability;
-            };
-            
             void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
-                ivec4 mat_ind_1 = itexelFetchByIndex(materialID * 2    , umMaterialIndices),
-                      mat_ind_2 = itexelFetchByIndex(materialID * 2 + 1, umMaterialIndices);
+                ivec4 mat_ind_1, mat_ind_2;
+                getMaterialIndices(materialID, mat_ind_1, mat_ind_2);
                 matParams.ambient              = geodata.baseColor * getMaterialColor(mat_ind_1[0], geodata.UV);
                 matParams.diffuse              = geodata.baseColor * getMaterialColor(mat_ind_1[1], geodata.UV);
                 matParams.specular             =                     getMaterialColor(mat_ind_1[2], geodata.UV);
@@ -412,5 +426,25 @@ class WebGLMaterialsAdapter {
                 getPhongMaterialParameters(materialID, geodata, matParams);
                 return computePhongMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
             }`;
+            return ret;
+    }
+    writeShaderData(gl, program, webgl_helper) {
+        if (this.ShaderUsesTexturesForProperties) {
+            this.material_colors_texture.setDataPixelsUnit(this.solid_colors.flat(), this.material_colors_texture_unit, "umMaterialColors", program);
+            this.material_indices_texture.setDataPixelsUnit(
+                this.materials.map(m => WebGLMaterialsAdapter.MATERIAL_PROPERTIES.map(k => m[k]._id)).flat(),
+                this.material_indices_texture_unit, "umMaterialIndices", program);
+        }
+        else {
+            gl.uniform3fv(gl.getUniformLocation(program, "uMaterialColors"), this.solid_colors.flat());
+            gl.uniform4iv(gl.getUniformLocation(program, "uMaterialIndices"),
+                this.materials.map(m => WebGLMaterialsAdapter.MATERIAL_PROPERTIES.map(k => m[k]._id)).flat());
+        }
+        
+        if (this.special_colors.length)
+            gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
+        if (this.textures.length)
+            gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
+                this.textures.map(t => WebGLHelper.textureUnitIndex(t.texture_unit)));
     }
 }

@@ -529,9 +529,9 @@ class WebGLWorldAdapter {
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
                 return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
             }`
-            + this.adapters.lights.getShaderSource()     + "\n"
-            + this.adapters.materials.getShaderSource()  + "\n"
-            + this.adapters.geometries.getShaderSource() + "\n";
+            + this.adapters.lights.getShaderSource(sceneEditable)     + "\n"
+            + this.adapters.materials.getShaderSource(sceneEditable)  + "\n"
+            + this.adapters.geometries.getShaderSource(sceneEditable) + "\n";
     }
 }
 
