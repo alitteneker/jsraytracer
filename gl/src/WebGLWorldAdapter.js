@@ -10,9 +10,9 @@ class WebGLWorldAdapter {
         
         this.transform_store = new WebGLTransformStore();
         this.adapters = {
-            lights:     new WebGLLightsAdapter(webgl_helper),
-            materials:  new WebGLMaterialsAdapter(webgl_helper),
-            geometries: new WebGLGeometriesAdapter(webgl_helper)
+            lights:     new WebGLLightsAdapter(webgl_helper, this),
+            materials:  new WebGLMaterialsAdapter(webgl_helper, this),
+            geometries: new WebGLGeometriesAdapter(webgl_helper, this)
         };
         
         this.visitWorld(world, webgl_helper);
@@ -150,7 +150,10 @@ class WebGLWorldAdapter {
                     }
                     else {
                         const ps = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
-                        ps.forEach(p => p.notTransformable = true);
+                        for (let p of ps) {
+                            p.notTransformable = true;
+                            agg.primIndices.push(p.index);
+                        }
                         if (ps.length == 1)
                             node_data.hitIndex = -1 - ps[0].index;
                         else {

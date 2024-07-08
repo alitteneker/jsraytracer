@@ -5,7 +5,8 @@ class WebGLMaterialsAdapter {
     
     static MATERIAL_PROPERTIES = ["ambient", "diffuse", "specular", "reflectivity", "transmissivity", "specularFactor", "refractiveIndexRatio", "mirrorProbability"];
     
-    constructor(webgl_helper) {
+    constructor(webgl_helper, world_adapter) {
+        this.world_adapter = world_adapter;
         this.webgl_helper = webgl_helper;
         
         [this.material_colors_texture_unit,  this.material_colors_texture]  = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
@@ -127,7 +128,11 @@ class WebGLMaterialsAdapter {
     }
     modifySolidColor(solid_color_index, new_color) {
         this.solid_colors.set(solid_color_index, new_color);
-        this.material_colors_texture.modifyDataPixel(solid_color_index, new_color);
+        this.world_adapter.renderer_adapter.useTracerProgram();
+        if (this.ShaderUsesTexturesForProperties)
+            this.material_colors_texture.modifyDataPixel(solid_color_index, new_color);
+        else
+            this.world_adapter.renderer_adapter.gl.uniform3fv(this.world_adapter.renderer_adapter.getUniformLocation("uMaterialColors"), this.solid_colors.flat());
         this.solid_mc_map[solid_color_index].color = new_color;
     }
     modifyScalar(index, new_scalar) {

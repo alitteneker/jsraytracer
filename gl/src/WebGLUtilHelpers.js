@@ -26,10 +26,10 @@ class WebGLVecStore {
         return this.data_map[key];
     }
     get(index) {
-        return this.data[index];
+        return Vec.of(this.data[index]);
     }
     set(index, value) {
-        return this.data[index] = value;
+        return this.data[index] = Array.from(value);
     }
     flat() {
         return this.data.flat();
