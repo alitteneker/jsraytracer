@@ -13,10 +13,12 @@ export function configureTest(callback) {
         new PhongMaterial(Vec.of(0.7,0.7,1), 0.1, 0.4, 0.6, 100, 0.2),
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];
 
-    const trans1 = Mat4.translation([0.5,-1.5,-5])
+    const trans1 = Mat4.translation([-0.5,-1.5,-5])
             .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
             .times(Mat4.scale(0.3));
-    const trans2 = Mat4.translation([1.5,2,-3])
+    const trans2 = Mat4.translation([0.59,0.58,-3.5])
+            .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
+            .times(Mat4.rotation(1.5, Vec.of(1,0,0)))
             .times(Mat4.scale(0.3));
 
     loadObjFiles(

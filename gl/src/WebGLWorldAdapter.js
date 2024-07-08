@@ -314,7 +314,7 @@ class WebGLWorldAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
                 
         const primitive_list = this.primitives.map(o => [o.geometryIndex, o.materialIndex, o.transformIndex, Number(o.object.does_cast_shadow)]).flat();
-        let aggregate_list = [], accelerators_list = [], indices_list = [], aabb_data = [];
+        let aggregate_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex = indices_list.length, a.primIndices.length);
@@ -322,9 +322,9 @@ class WebGLWorldAdapter {
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
                 if (a.bvh_reuse_from)
-                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.acceleratorsStartIndex, a.bvh_reuse_from.indicesStartIndex);
+                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.aabb_start_index, a.bvh_reuse_from.indicesStartIndex);
                 else {
-                    aggregate_list.push(a.type_code, a.transformIndex, a.acceleratorsStartIndex = aabb_data.length / 8, a.indicesStartIndex = indices_list.length);
+                    aggregate_list.push(a.type_code, a.transformIndex, a.aabb_start_index = aabb_data.length / 8, a.indicesStartIndex = indices_list.length);
                     indices_list = indices_list.concat(a.bvh_object_list);
                     aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
                         ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
@@ -338,9 +338,8 @@ class WebGLWorldAdapter {
         // Write world node data
         gl.uniform1i(gl.getUniformLocation(program, "uWorldNumAggregates"), this.aggregates.length);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldNumPrimitives"), this.primitives.length);
-        gl.uniform1i(gl.getUniformLocation(program, "uWorldAcceleratorsStart"), this.aggregates.length + this.primitives.length);
-        gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length + accelerators_list.length / 4);
-        this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...accelerators_list, ...indices_list],
+        gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length);
+        this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...indices_list],
             this.world_node_texture_unit, "uWorldData", program);
         this.world_aabb_texture.setDataPixelsUnit(aabb_data.flat(), this.world_aabb_texture_unit, "uWorldAABBs", program);
         
@@ -369,7 +368,6 @@ class WebGLWorldAdapter {
             }
             
             uniform int uWorldListsStart;
-            uniform int uWorldAcceleratorsStart;
             uniform int uWorldNumAggregates;
             uniform int uWorldNumPrimitives;
             uniform isampler2D uWorldData;
@@ -594,7 +592,7 @@ class WrappedAggregate extends AbstractWrappedObject {
     }
     getDataVector() {
         if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
-            return [this.type_code, this.transformIndex, this.acceleratorsStartIndex, this.indicesStartIndex];
+            return [this.type_code, this.transformIndex, this.aabb_start_index, this.indicesStartIndex];
         else
             return [this.type_code, this.transformIndex, this.indicesStartIndex, this.primIndices.length];
     }
