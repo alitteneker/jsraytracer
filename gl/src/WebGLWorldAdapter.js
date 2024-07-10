@@ -71,7 +71,8 @@ class WebGLWorldAdapter {
             if (node instanceof Primitive
                 && !(node.OBJECT_UID in me.primitive_id_index_map)
                 && node.geometry instanceof Triangle
-                && node.getTransform().is_identity())
+                && node.getTransform().is_identity()
+                && node.does_cast_shadow)
                 me.untransformed_triangles.push(me.visitPrimitive(node, webgl_helper));
             else if (node instanceof Aggregate)
                 for (let child of node.objects)
@@ -409,13 +410,18 @@ class WebGLWorldAdapter {
                 return Primitive(p.r, p.g, p.b, bool(p.a));
             }
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
-                // if (prim_id < uWorldNumUntransformedTriangles)
-                    // return geometryIntersect(prim_id + GEOMETRY_TRIANGLE_MIN_INDEX, r, minDistance);
-                Primitive obj = getPrimitive(prim_id);
-                if (shadowFlag && !obj.castsShadow)
-                    return minDistance - 1.0;
-                mat4 objectInverseTransform = getTransform(obj.transform_id);
-                return geometryIntersect(obj.geometry_id, Ray(objectInverseTransform * r.o, objectInverseTransform * r.d), minDistance);
+                int geometry_id = 0;
+                if (prim_id < uWorldNumUntransformedTriangles)
+                    geometry_id = prim_id + GEOMETRY_TRIANGLE_MIN_INDEX;
+                else {
+                    Primitive obj = getPrimitive(prim_id);
+                    if (shadowFlag && !obj.castsShadow)
+                        return minDistance - 1.0;
+                    mat4 objectInverseTransform = getTransform(obj.transform_id);
+                    r = Ray(objectInverseTransform * r.o, objectInverseTransform * r.d);
+                    geometry_id = obj.geometry_id;
+                }
+                return geometryIntersect(geometry_id, r, minDistance);
             }
             bool worldRayCastObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
