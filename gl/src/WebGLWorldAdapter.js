@@ -54,13 +54,31 @@ class WebGLWorldAdapter {
         this.adapters.geometries.reset();
         this.adapters.materials.reset();
     }
-    visitWorld(world, webgl_helper) {
+    visitWorld(world, webgl_helper, sceneEditable) {
         this.reset();
         this.world = world;
         
         // deal with lights
+        // TODO: light geometry should be included in world objects as well, with geometric materials. how should materials be handled?
         for (let light of world.lights)
             this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
+        
+        // As an acceleration for scenes with lots of triangles, any triangle primitive without a local transformation in the scene will be indexed in a way
+        // that allows for ray intersection testing without the need to load all the primitive's data.
+        const me = this;
+        this.untransformed_triangles = [];
+        function visitNode(node) {
+            if (node instanceof Primitive
+                && !(node.OBJECT_UID in me.primitive_id_index_map)
+                && node.geometry instanceof Triangle
+                && node.getTransform().is_identity())
+                me.untransformed_triangles.push(me.visitPrimitive(node, webgl_helper));
+            else if (node instanceof Aggregate)
+                for (let child of node.objects)
+                    visitNode(child);
+        }
+        for (let node of world.objects)
+            visitNode(node);
         
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
@@ -341,6 +359,7 @@ class WebGLWorldAdapter {
         // Write world node data
         gl.uniform1i(gl.getUniformLocation(program, "uWorldNumAggregates"), this.aggregates.length);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldNumPrimitives"), this.primitives.length);
+        gl.uniform1i(gl.getUniformLocation(program, "uWorldNumUntransformedTriangles"), this.untransformed_triangles.length);
         gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length);
         this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...indices_list],
             this.world_node_texture_unit, "uWorldData", program);
@@ -373,6 +392,7 @@ class WebGLWorldAdapter {
             uniform int uWorldListsStart;
             uniform int uWorldNumAggregates;
             uniform int uWorldNumPrimitives;
+            uniform int uWorldNumUntransformedTriangles;
             uniform isampler2D uWorldData;
             uniform  sampler2D uWorldAABBs;
             
@@ -389,6 +409,8 @@ class WebGLWorldAdapter {
                 return Primitive(p.r, p.g, p.b, bool(p.a));
             }
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
+                if (prim_id < uWorldNumUntransformedTriangles)
+                    return geometryIntersect(prim_id + GEOMETRY_TRIANGLE_MIN_INDEX, r, minDistance);
                 Primitive obj = getPrimitive(prim_id);
                 if (shadowFlag && !obj.castsShadow)
                     return minDistance - 1.0;

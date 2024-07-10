@@ -135,6 +135,7 @@ class WebGLGeometriesAdapter {
     }
     getShaderSourceDeclarations(sceneEditable) {
         return `
+            #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
             struct GeometricMaterialData {
                 vec3 baseColor;
                 vec4 normal;
@@ -314,8 +315,6 @@ class WebGLGeometriesAdapter {
 
 
             // ---- Triangle ----
-            #define GEOMETRY_TRIANGLE_MIN_INDEX ${WebGLGeometriesAdapter.MIN_TRIANGLE_ID}
-            
             uniform sampler2D tTriangleData;
             vec3 getTriangleData(in int index) {
                 return texelFetchByIndex(index, tTriangleData).rgb;

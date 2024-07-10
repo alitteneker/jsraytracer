@@ -313,6 +313,20 @@ class Mat extends Array {
         }
         return Mat.of.apply(Mat, data);
     }
+    is_identity(epsilon=1E-6) {
+        if ("_isIdentity" in this)
+            return this._isIdentity;
+        for (let i = 0; i < this.length; ++i) {
+            for (let j = 0; j < this[i].length; ++j) {
+                if (Math.abs(this[i][j] - (i == j ? 1 : 0)) > epsilon) {
+                    this._isIdentity = false;
+                    return false;
+                }
+            }
+        }
+        this._isIdentity = true;
+        return true;
+    }
     sub_block(start, end) {
         return Mat.from(this.slice(start[0], end[0]).map(r => r.slice(start[1], end[1])));
     }
@@ -323,6 +337,7 @@ class Mat extends Array {
         return Vec.from(this.map((r) => r[index]));
     }
     set_col(index, vec) {
+        delete this._isIdentity;
         for (let i = 0; i < this[index].length; ++i)
             this[i][index] = vec[i];
     }
@@ -368,12 +383,15 @@ class Mat extends Array {
         return result;
     }
     pre_multiply(b) {
+        delete this._isIdentity;
         const new_value = b.times(this);
         this.length = 0;
         this.push(...new_value);
+        
         return this;
     }
     post_multiply(b) {
+        delete this._isIdentity;
         const new_value = this.times(b);
         this.length = 0;
         this.push(...new_value);
