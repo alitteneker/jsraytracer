@@ -409,8 +409,8 @@ class WebGLWorldAdapter {
                 return Primitive(p.r, p.g, p.b, bool(p.a));
             }
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
-                if (prim_id < uWorldNumUntransformedTriangles)
-                    return geometryIntersect(prim_id + GEOMETRY_TRIANGLE_MIN_INDEX, r, minDistance);
+                // if (prim_id < uWorldNumUntransformedTriangles)
+                    // return geometryIntersect(prim_id + GEOMETRY_TRIANGLE_MIN_INDEX, r, minDistance);
                 Primitive obj = getPrimitive(prim_id);
                 if (shadowFlag && !obj.castsShadow)
                     return minDistance - 1.0;
