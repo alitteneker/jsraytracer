@@ -564,7 +564,7 @@ class WebGLWorldAdapter {
     }
 }
 
-class AbstractWrappedObject {
+class AbstractWrappedWorldObject {
     getBoundingBox() {
         return this.object.getBoundingBox();
     }
@@ -594,7 +594,7 @@ class AbstractWrappedObject {
     }
 }
 
-class WrappedLight extends AbstractWrappedObject {
+class WrappedLight extends AbstractWrappedWorldObject {
     constructor(light, worldadapter) {
         super();
         Object.assign(this, light);
@@ -614,7 +614,7 @@ class WrappedLight extends AbstractWrappedObject {
     }
 }
 
-class WrappedAggregate extends AbstractWrappedObject {
+class WrappedAggregate extends AbstractWrappedWorldObject {
     constructor(base_data, worldadapter) {
         super();
         Object.assign(this, base_data);
@@ -635,7 +635,7 @@ class WrappedAggregate extends AbstractWrappedObject {
     }
 }
 
-class WrappedPrimitive extends AbstractWrappedObject {
+class WrappedPrimitive extends AbstractWrappedWorldObject {
     constructor(base_data, ancestors, worldadapter) {
         super();
         Object.assign(this, base_data);

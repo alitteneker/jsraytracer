@@ -330,7 +330,8 @@ class WebGLHelper {
                     throw 'An error occurred compiling the vertex shader: ' + gl.getShaderInfoLog(vertexShader);
                 if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
                     const flines = fsSource.split("\n");
-                    throw 'An error occurred compiling the fragment shader: ' + gl.getShaderInfoLog(fragmentShader);
+                    const error_txt = gl.getShaderInfoLog(fragmentShader);
+                    throw 'An error occurred compiling the fragment shader: ' + error_txt;
                 }
                 throw 'Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram);
             }
