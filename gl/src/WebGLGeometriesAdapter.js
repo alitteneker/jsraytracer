@@ -141,6 +141,15 @@ class WebGLGeometriesAdapter {
                 vec4 normal;
                 vec2 UV;
             };
+            
+            float planeIntersect(in Ray r, in float minDistance);
+            float squareIntersect(in Ray r, in float minDistance);
+            float circleIntersect(in Ray r, in float minDistance);
+            float unitBoxIntersect(in Ray r, in float minDistance);
+            float unitSphereIntersect(in Ray r, in float minDistance);
+            float cylinderIntersect(in Ray r, in float minDistance);
+            float triangleIntersect(in Ray r, in float minDistance, in int triangleID);
+            
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);
@@ -451,6 +460,34 @@ class WebGLGeometriesAdapter {
                 return data;
             }`
             + this.sdf_adapter.getShaderSource();
+    }
+    getIntersectShaderSource(geometryID, ray_src, minDist_src) {
+        if (geometryID < WebGLGeometriesAdapter.MIN_SDF_ID) {
+            switch(geometryID) { 
+                case WebGLGeometriesAdapter.SPHERE_ID  : return `unitSphereIntersect(${ray_src}, ${minDist_src})`;
+                case WebGLGeometriesAdapter.CYLINDER_ID: return `cylinderIntersect(${ray_src}, ${minDist_src})`;
+                case WebGLGeometriesAdapter.PLANE_ID   : return `planeIntersect(${ray_src}, ${minDist_src})`;
+                case WebGLGeometriesAdapter.CIRCLE_ID  : return `circleIntersect(${ray_src}, ${minDist_src})`;
+                case WebGLGeometriesAdapter.SQUARE_ID  : return `squareIntersect(${ray_src}, ${minDist_src})`;
+                case WebGLGeometriesAdapter.UNITBOX_ID : return `unitBoxIntersect(${ray_src}, ${minDist_src})`;
+                default                                : return `${minDist_src} - 1.0`;
+            }
+        }
+        else {
+            if (geometryID < WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+                return `sdfIntersect(${ray_src}, ${minDist_src}, ${geometryID - WebGLGeometriesAdapter.MIN_SDF_ID})`;
+            else
+                return `triangleIntersect(${ray_src}, ${minDist_src}, ${geometryID - WebGLGeometriesAdapter.MIN_TRIANGLE_ID})`;
+        }
+    }
+    getSampleSurfaceShaderSource(geometryID, random_seed_src) {
+        switch(geometryID) {
+            case WebGLGeometriesAdapter.SPHERE_ID     : return `unitSphereSurfaceSample( ${random_seed_src})`;
+            case WebGLGeometriesAdapter.ORIGINPOINT_ID: return `originPointSurfaceSample(${random_seed_src})`;
+            case WebGLGeometriesAdapter.UNITLINE_ID   : return `unitLineSurfaceSample(   ${random_seed_src})`;
+            case WebGLGeometriesAdapter.SQUARE_ID     : return `squareSurfaceSample(     ${random_seed_src})`;
+        }
+        return `vec4(0)`;
     }
 }
 

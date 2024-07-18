@@ -177,12 +177,12 @@ class WebGLMaterialsAdapter {
         else {
             this.ShaderUsesTexturesForProperties = false;
             ret += `
-            uniform vec3 uMaterialColors[ ${Math.max(16, this.solid_colors.size())}];
+            uniform vec3 uMaterialColors[ ${Math.max(64, this.solid_colors.size())}];
             vec3 getSolidColor(in int color_index) {
                 return uMaterialColors[color_index];
             }
             
-            uniform ivec4 uMaterialIndices[${Math.max(16, 2 * this.materials.length)}];
+            uniform ivec4 uMaterialIndices[${Math.max(8, 2 * this.materials.length)}];
             void getMaterialIndices(in int materialID, out ivec4 mat_ind_1, out ivec4 mat_ind_2) {
                 mat_ind_1 = uMaterialIndices[materialID * 2    ];
                 mat_ind_2 = uMaterialIndices[materialID * 2 + 1];

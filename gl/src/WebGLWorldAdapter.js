@@ -59,12 +59,13 @@ class WebGLWorldAdapter {
         this.world = world;
         
         // deal with lights
-        // TODO: light geometry should be included in world objects as well, with geometric materials. how should materials be handled?
+        // TODO: light geometry should be included in world objects as well, with geometric materials. How should materials be handled?
         for (let light of world.lights)
             this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
         
-        // As an acceleration for scenes with lots of triangles, any triangle primitive without a local transformation in the scene will be indexed in a way
-        // that allows for ray intersection testing without the need to load all the primitive's data.
+        // As an acceleration for scenes with lots of triangles, any triangle primitive without a local
+        // transformation in the scene will be indexed in a way that allows for ray intersection testing without
+        // the need to load all the primitive's data.
         const me = this;
         this.untransformed_triangles = [];
         function visitNode(node) {
@@ -92,20 +93,12 @@ class WebGLWorldAdapter {
         if (prim.OBJECT_UID in this.primitive_id_index_map)
             return this.primitives[this.primitive_id_index_map[prim.OBJECT_UID]];
         
-        const index = this.primitives.length;
-        this.primitive_id_index_map[prim.OBJECT_UID] = index;
+        const index = this.primitive_id_index_map[prim.OBJECT_UID] = this.primitives.length;
         
-        const wrapped = {
-            ID: prim.OBJECT_UID,
-            type: "primitive",
-            index: index,
-            object: prim,
-            parents: [],
-            
-            transformIndex: this.registerTransform(prim.getInvTransform(), prim),
-            geometryIndex:  this.adapters.geometries.visit(prim.geometry, webgl_helper),
-            materialIndex:  this.adapters.materials.visit( prim.material, webgl_helper)
-        };
+        const wrapped = new WrappedPrimitive(index, prim,
+            this.registerTransform(prim.getInvTransform(), prim),
+            this.adapters.geometries.visit(prim.geometry, webgl_helper),
+            this.adapters.materials.visit( prim.material, webgl_helper), this);
         this.primitives.push(wrapped);
         
         return wrapped;
@@ -115,23 +108,15 @@ class WebGLWorldAdapter {
             const prim = this.visitPrimitive(obj, webgl_helper, ancestors);
             if (ancestors && ancestors.length) {
                 ancestors[ancestors.length-1].primIndices.push(prim.index);
+                ancestors[ancestors.length-1].immediatePrimitiveChildren.push(prim);
                 prim.parents.push(ancestors[ancestors.length-1]);
             }
             return prim;
         }
         else if (obj instanceof BVHAggregate) {
             const ID = (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + obj.OBJECT_UID;
-            const agg = new WrappedAggregate({
-                index: this.aggregates.length,
-                ID: ID,
-                object: obj,
-                type: "BVH ",
-                ancestors: ancestors,
-                type_code: WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE,
-                transformIndex: this.registerTransform(obj.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), obj),
-                children: [],
-                primIndices: []
-            }, this);
+            const agg = new WrappedBVHAggregate(this.aggregates.length, obj, ancestors,
+                this.registerObjectTransform(obj, ancestors), this);
             
             this.aggregate_id_index_map[ID] = this.aggregates.length;
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
@@ -203,19 +188,9 @@ class WebGLWorldAdapter {
             return agg;
         }
         else if (obj instanceof Aggregate) {
-            const ID = (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + obj.OBJECT_UID;
-            const agg = new WrappedAggregate({
-                index: this.aggregates.length,
-                ID: ID,
-                object: obj,
-                type: "aggregate",
-                type_code: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
-                ancestors: ancestors,
-                transformIndex: this.registerTransform(obj.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), obj),
-                primIndices: [],
-                children: []
-            }, this);
-            this.aggregate_id_index_map[ID] = this.aggregates.length;
+            const agg = new WrappedAggregate(this.aggregates.length, obj, ancestors,
+                this.registerObjectTransform(obj, ancestors), this);
+            this.aggregate_id_index_map[agg.ID] = this.aggregates.length;
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
@@ -233,7 +208,7 @@ class WebGLWorldAdapter {
         const intersect = this.world.cast(ray);
         if (!intersect.object)
             return null;
-        return new WrappedPrimitive(this.primitives[this.primitive_id_index_map[intersect.object.OBJECT_UID]],
+        return new WrappedPrimitiveInstance(this.primitives[this.primitive_id_index_map[intersect.object.OBJECT_UID]],
             intersect.ancestors.map((a,i) => this.aggregates[this.aggregate_id_index_map[this.aggregates[0].object.OBJECT_UID + ":" + intersect.ancestors.slice(0, i+1).map(aa => aa.OBJECT_UID).join(":")]]), this);
     }
     getLights(renderer_adapter, gl, program) {
@@ -249,6 +224,9 @@ class WebGLWorldAdapter {
             this.transform_object_map[transformIndex] = [];
         this.transform_object_map[transformIndex].push(object);
         return transformIndex;
+    }
+    registerObjectTransform(object, ancestors) {
+        return this.registerTransform(object.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), object);
     }
     updateTransformsRecursive(wrapped_obj) {
         if (wrapped_obj.type == "primitive")
@@ -334,7 +312,8 @@ class WebGLWorldAdapter {
         
         // write transforms
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
-                
+        
+        // process world node data for writing
         const primitive_list = this.primitives.map(o => [o.geometryIndex, o.materialIndex, o.transformIndex, Number(o.object.does_cast_shadow)]).flat();
         let aggregate_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
@@ -380,7 +359,7 @@ class WebGLWorldAdapter {
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
     getShaderSource(sceneEditable) {
-        return `
+        let ret = `
             uniform vec3 uBackgroundColor;
 
             uniform mat4 uTransforms[${Math.max(16, this.transform_store.size())}]; // TODO: should safety check the size of this, for larger sizes need a texture
@@ -423,12 +402,18 @@ class WebGLWorldAdapter {
                 }
                 return geometryIntersect(geometry_id, r, minDistance);
             }
+            bool worldRayCastCompareTime(in float t, in float minT, in float maxT, inout float min_found_t) {
+                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                    min_found_t = t;
+                    return true;
+                }
+                return false;
+            }
             bool worldRayCastObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
                 float t = worldObjectIntersect(prim_id, r, minT, shadowFlag);
-                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                    min_found_t = t;
+                if (worldRayCastCompareTime(t, minT, maxT, min_found_t)) {
                     min_prim_id = prim_id;
                     return true;
                 }
@@ -519,6 +504,27 @@ class WebGLWorldAdapter {
                 
                 return found_min;
             }
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
+                int primID = -1;
+                mat4 ancestorInvTransform = mat4(1.0);
+                return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
+            }
+
+            // ---- World Color ----
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
+                int primID = -1;
+                mat4 ancestorInvTransform = mat4(1.0);
+                
+                float intersect_time = worldRayCast(in_ray, EPSILON, 1E20, false, primID, ancestorInvTransform);
+                if (primID == -1)
+                    return uBackgroundColor;
+                
+                intersect_position = in_ray.o + intersect_time * in_ray.d;
+                return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
+            }`;
+        if (sceneEditable) {
+            ret += `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
 
@@ -539,25 +545,19 @@ class WebGLWorldAdapter {
                 }
 
                 return min_found_t;
-            }
-            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
-                int primID = -1;
-                mat4 ancestorInvTransform = mat4(1.0);
-                return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
-            }
-
-            // ---- World Color ----
-            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
-                int primID = -1;
-                mat4 ancestorInvTransform = mat4(1.0);
-                
-                float intersect_time = worldRayCast(in_ray, EPSILON, 1E20, false, primID, ancestorInvTransform);
-                if (primID == -1)
-                    return uBackgroundColor;
-                
-                intersect_position = in_ray.o + intersect_time * in_ray.d;
-                return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
             }`
+        }
+        else {
+            ret += `
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
+                float min_found_t = minT - 1.0;
+                
+                ${this.aggregates.map(agg => agg.getIntersectShaderSource("r", "minT", "maxT", "shadowFlag", "primID", "min_found_t", "ancestorInvTransform")).join("\n")}
+                
+                return min_found_t;
+            }`
+        }
+        return ret
             + this.adapters.lights.getShaderSource(sceneEditable)     + "\n"
             + this.adapters.materials.getShaderSource(sceneEditable)  + "\n"
             + this.adapters.geometries.getShaderSource(sceneEditable) + "\n";
@@ -565,6 +565,12 @@ class WebGLWorldAdapter {
 }
 
 class AbstractWrappedWorldObject {
+    constructor(type, object, ancestors, worldadapter) {
+        this.type = type;
+        this.object = object;
+        this.ancestors = ancestors;
+        this.worldadapter = worldadapter;
+    }
     getBoundingBox() {
         return this.object.getBoundingBox();
     }
@@ -596,12 +602,8 @@ class AbstractWrappedWorldObject {
 
 class WrappedLight extends AbstractWrappedWorldObject {
     constructor(light, worldadapter) {
-        super();
+        super("light", light.light, [], worldadapter);
         Object.assign(this, light);
-        
-        this.object = light.light;
-        this.ancestors = [];
-        this.worldadapter = worldadapter;
     }
     intersect(ray) {
         return { object: null, ancestors: [], distance: -Infinity };
@@ -615,17 +617,20 @@ class WrappedLight extends AbstractWrappedWorldObject {
 }
 
 class WrappedAggregate extends AbstractWrappedWorldObject {
-    constructor(base_data, worldadapter) {
-        super();
-        Object.assign(this, base_data);
-        this.worldadapter = worldadapter;
-        this.transform = { index: this.transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
-    }
-    getDataVector() {
-        if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
-            return [this.type_code, this.transformIndex, this.aabb_start_index, this.indicesStartIndex];
-        else
-            return [this.type_code, this.transformIndex, this.indicesStartIndex, this.primIndices.length];
+    static TypeCodeMap = {
+        "aggregate": WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
+        "BVH": WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE
+    };
+    constructor(index, object, ancestors, transformIndex, worldadapter) {
+        super("aggregate", object, ancestors, worldadapter);
+        this.type_code = WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE;
+        this.ID = (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + object.OBJECT_UID;
+        this.transformIndex = transformIndex;
+        this.transform = { index: transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
+        
+        this.children = [];
+        this.primIndices = [];
+        this.immediatePrimitiveChildren = [];
     }
     getMutableObjectProperties() {
         return [];
@@ -633,19 +638,77 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
     getMaterialValues() {
         return {};
     }
+    getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
+        if (this.immediatePrimitiveChildren.length == 0)
+            return "";
+        let ret = `
+                    {
+                        mat4 root_invTransform = getTransform(${this.transformIndex}), local_invTransform;
+                        Ray root_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d), local_r;
+        `;
+        
+        for (const prim of this.immediatePrimitiveChildren) {
+            if (prim.getInvTransform().is_identity())
+                ret += `
+                        local_r = root_r;`;
+            else
+                ret += `
+                        local_invTransform = getTransform(${prim.transformIndex});
+                        local_r.o = local_invTransform * root_r.o;
+                        local_r.d = local_invTransform * root_r.d;`;
+            ret += `
+                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " || " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
+                            ${primID_src} = ${prim.index};
+                            ${ancestorInvTransform_src} = root_invTransform;
+                        }`;
+        }
+        return ret + `
+                    }`;
+    }
+}
+
+class WrappedBVHAggregate extends WrappedAggregate {
+    constructor(index, object, ancestors, transformIndex, worldadapter) {
+        super(index, object, ancestors, transformIndex, worldadapter);
+        this.type = "BVH";
+        this.type_code = WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE;
+    }
+    getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
+        return `
+                    { 
+                        mat4 root_invTransform = getTransform(${this.transformIndex});
+                        Ray local_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d);
+                    
+                        if (worldRayCastBVH(${this.start_index}, ${this.indices_start_index}, local_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${min_found_t_src}, ${primID}))
+                            ${ancestorInvTransform_src} = root_invTransform;
+                    }
+        `;
+    }
 }
 
 class WrappedPrimitive extends AbstractWrappedWorldObject {
-    constructor(base_data, ancestors, worldadapter) {
-        super();
-        Object.assign(this, base_data);
-        
-        this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + base_data.ID;
-        this.worldadapter = worldadapter;
-        this.ancestors = ancestors;
+    constructor(index, object, transformIndex, geometryIndex, materialIndex, worldadapter) {
+        super("primitive", object, [], worldadapter);
+        this.ID = object.OBJECT_UID;
+        this.index = index;
+        this.shadowFlag = object.does_cast_shadow;
+        this.transformIndex = transformIndex;
+        this.geometryIndex = geometryIndex;
+        this.materialIndex = materialIndex;
+        this.parents = [];
     }
     getDataVector() {
         return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
+    }
+}
+
+class WrappedPrimitiveInstance extends AbstractWrappedWorldObject {
+    constructor(wrapped_primitive, ancestors, worldadapter) {
+        super("wrapped_primitive", wrapped_primitive.object, ancestors, worldadapter);
+        Object.assign(this, wrapped_primitive);
+        this.ancestors = ancestors;
+        this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" :
+"") + wrapped_primitive.ID;
     }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
