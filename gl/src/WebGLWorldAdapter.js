@@ -49,6 +49,7 @@ class WebGLWorldAdapter {
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
         this.bvh_first_instances    = {};
+        this.bvh_node_count = 0;
         
         this.adapters.lights.reset();
         this.adapters.geometries.reset();
@@ -68,7 +69,7 @@ class WebGLWorldAdapter {
         // the need to load all the primitive's data.
         const me = this;
         this.untransformed_triangles = [];
-        function visitNode(node) {
+        function searchForUntransformedTriangles(node) {
             if (node instanceof Primitive
                 && !(node.OBJECT_UID in me.primitive_id_index_map)
                 && node.geometry instanceof Triangle
@@ -77,13 +78,23 @@ class WebGLWorldAdapter {
                 me.untransformed_triangles.push(me.visitPrimitive(node, webgl_helper));
             else if (node instanceof Aggregate)
                 for (let child of node.objects)
-                    visitNode(child);
+                    searchForUntransformedTriangles(child);
         }
         for (let node of world.objects)
-            visitNode(node);
+            searchForUntransformedTriangles(node);
         
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
+        
+        // finally, we need to determine an order for any list start positions, as traversal order may change
+        let indices_count = 0;
+        for (const a of this.aggregates) {
+            a.indicesStartIndex = indices_count;
+            if (a.type == "BVH")
+                indices_count += a.bvh_object_list.length;
+            else
+                indices_count += a.indicesList.length;
+        }
     }
     
     visitPrimitive(prim, webgl_helper) {
@@ -107,27 +118,27 @@ class WebGLWorldAdapter {
         if (obj instanceof Primitive) {
             const prim = this.visitPrimitive(obj, webgl_helper, ancestors);
             if (ancestors && ancestors.length) {
-                ancestors[ancestors.length-1].primIndices.push(prim.index);
+                ancestors[ancestors.length-1].indicesList.push(prim.index);
                 ancestors[ancestors.length-1].immediatePrimitiveChildren.push(prim);
                 prim.parents.push(ancestors[ancestors.length-1]);
             }
             return prim;
         }
         else if (obj instanceof BVHAggregate) {
-            const ID = (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + obj.OBJECT_UID;
             const agg = new WrappedBVHAggregate(this.aggregates.length, obj, ancestors,
                 this.registerObjectTransform(obj, ancestors), this);
             
-            this.aggregate_id_index_map[ID] = this.aggregates.length;
+            this.aggregate_id_index_map[agg.ID] = this.aggregates.length;
+            this.aggregates.push(agg);
+            
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
-            this.aggregates.push(agg);
             
             if (obj.kdtree.NODE_UID in this.bvh_first_instances) {
                 agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
                 agg.bvh_nodes = agg.bvh_reuse_from.bvh_nodes;
-                agg.primIndices = agg.bvh_reuse_from.primIndices;
+                agg.indicesList = agg.bvh_reuse_from.indicesList;
             }
             else {
                 const bvh_nodes = [];
@@ -156,7 +167,7 @@ class WebGLWorldAdapter {
                         const ps = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
                         for (let p of ps) {
                             p.notTransformable = true;
-                            agg.primIndices.push(p.index);
+                            agg.indicesList.push(p.index);
                         }
                         if (ps.length == 1)
                             node_data.hitIndex = -1 - ps[0].index;
@@ -182,6 +193,8 @@ class WebGLWorldAdapter {
                 agg.bvh_nodes = bvh_nodes;
                 agg.bvh_object_list = bvh_object_list;
                 
+                agg.bvhStartIndex = this.bvh_node_count;
+                this.bvh_node_count += bvh_nodes.length;
                 this.bvh_first_instances[obj.kdtree.NODE_UID] = agg;
             }
             
@@ -191,10 +204,12 @@ class WebGLWorldAdapter {
             const agg = new WrappedAggregate(this.aggregates.length, obj, ancestors,
                 this.registerObjectTransform(obj, ancestors), this);
             this.aggregate_id_index_map[agg.ID] = this.aggregates.length;
+            this.aggregates.push(agg);
+            
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
-            this.aggregates.push(agg);
+            
             for (let o of obj.objects)
                 agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
             
@@ -318,14 +333,14 @@ class WebGLWorldAdapter {
         let aggregate_list = [], indices_list = [], aabb_data = [];
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex = indices_list.length, a.primIndices.length);
-                indices_list = indices_list.concat(a.primIndices);
+                aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex, a.indicesList.length);
+                indices_list = indices_list.concat(a.indicesList);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
                 if (a.bvh_reuse_from)
-                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.aabb_start_index, a.bvh_reuse_from.indicesStartIndex);
+                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.bvhStartIndex, a.bvh_reuse_from.indicesStartIndex);
                 else {
-                    aggregate_list.push(a.type_code, a.transformIndex, a.aabb_start_index = aabb_data.length / 8, a.indicesStartIndex = indices_list.length);
+                    aggregate_list.push(a.type_code, a.transformIndex, a.bvhStartIndex, a.indicesStartIndex);
                     indices_list = indices_list.concat(a.bvh_object_list);
                     aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
                         ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
@@ -629,8 +644,11 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
         this.transform = { index: transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
         
         this.children = [];
-        this.primIndices = [];
+        this.indicesList = [];
         this.immediatePrimitiveChildren = [];
+    }
+    getObjectCount() {
+        return this.indicesList.length;
     }
     getMutableObjectProperties() {
         return [];
@@ -654,8 +672,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
             else
                 ret += `
                         local_invTransform = getTransform(${prim.transformIndex});
-                        local_r.o = local_invTransform * root_r.o;
-                        local_r.d = local_invTransform * root_r.d;`;
+                        local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
             ret += `
                         if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " || " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
                             ${primID_src} = ${prim.index};
@@ -677,9 +694,9 @@ class WrappedBVHAggregate extends WrappedAggregate {
         return `
                     { 
                         mat4 root_invTransform = getTransform(${this.transformIndex});
-                        Ray local_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d);
+                        Ray root_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d);
                     
-                        if (worldRayCastBVH(${this.start_index}, ${this.indices_start_index}, local_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${min_found_t_src}, ${primID}))
+                        if (worldRayCastBVH(${this.bvhStartIndex}, ${this.indicesStartIndex}, root_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${min_found_t_src}, ${primID_src}))
                             ${ancestorInvTransform_src} = root_invTransform;
                     }
         `;
