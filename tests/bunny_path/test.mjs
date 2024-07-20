@@ -31,7 +31,7 @@ export function configureTest(callback) {
 
         function(triangles) {
             objs.push(BVHAggregate.build(triangles,
-                Mat4.translation([-0.6, 1, -4]),
+                Mat4.translation([-0.6, 1, -4])));
 //                  .times(Mat4.rotation(0, Vec.of(0,1,0))),
 //                  .times(Mat4.scale(15)),));
             
