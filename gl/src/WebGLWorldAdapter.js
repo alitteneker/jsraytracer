@@ -48,8 +48,10 @@ class WebGLWorldAdapter {
         this.primitive_id_index_map = {};
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
+        this.untransformed_triangles = [];
         this.bvh_first_instances    = {};
         this.bvh_node_count = 0;
+        this.bvh_only_uses_untransformed_triangles = true;
         
         this.adapters.lights.reset();
         this.adapters.geometries.reset();
@@ -68,7 +70,6 @@ class WebGLWorldAdapter {
         // transformation in the scene will be indexed in a way that allows for ray intersection testing without
         // the need to load all the primitive's data.
         const me = this;
-        this.untransformed_triangles = [];
         function searchForUntransformedTriangles(node) {
             if (node instanceof Primitive
                 && !(node.OBJECT_UID in me.primitive_id_index_map)
@@ -139,6 +140,8 @@ class WebGLWorldAdapter {
                 agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
                 agg.bvh_nodes = agg.bvh_reuse_from.bvh_nodes;
                 agg.indicesList = agg.bvh_reuse_from.indicesList;
+                agg.bvh_object_list = agg.bvh_reuse_from.bvh_object_list;
+                agg.bvhStartIndex = agg.bvh_reuse_from.bvhStartIndex;
             }
             else {
                 const bvh_nodes = [];
@@ -168,6 +171,8 @@ class WebGLWorldAdapter {
                         for (let p of ps) {
                             p.notTransformable = true;
                             agg.indicesList.push(p.index);
+                            if (p.index >= me.untransformed_triangles.length)
+                                me.bvh_only_uses_untransformed_triangles = false;
                         }
                         if (ps.length == 1)
                             node_data.hitIndex = -1 - ps[0].index;
@@ -368,6 +373,7 @@ class WebGLWorldAdapter {
     getShaderSourceDeclarations() {
         return `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
@@ -468,6 +474,51 @@ class WebGLWorldAdapter {
                 }
                 return found_min;
             }
+            
+            // ========== BVH ==========`
+        if (!sceneEditable && this.bvh_only_uses_untransformed_triangles)
+            ret += `
+            bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
+                inout float min_found_t, inout int min_prim_id)
+            {
+                float t = triangleIntersect(r, minT, prim_id);
+                if (worldRayCastCompareTime(t, minT, maxT, min_found_t)) {
+                    min_prim_id = prim_id;
+                    return true;
+                }
+                return false;
+            }
+            bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
+                inout float min_found_t, inout int min_prim_id)
+            {
+                bool found_min = false;
+                ivec4 indexTexel;
+                int indexTexelEnd = -1;
+                for (int i = 0; i < listLength; ++i) {
+                    int index = listStartIndex + i;
+                    if (index > indexTexelEnd) {
+                        indexTexel = itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData);
+                        indexTexelEnd = 4 * (index / 4) + 3;
+                    }
+                    if (worldRayCastBVHObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                        found_min = true;
+                }
+                return found_min;
+            }`;
+        else
+            ret += `
+            bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
+                inout float min_found_t, inout int min_prim_id)
+            {
+                return worldRayCastObject(prim_id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
+            }
+            bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
+                inout float min_found_t, inout int min_prim_id)
+            {
+                return worldRayCastList(listStartIndex, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
+            }`;
+            
+        ret += `
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
@@ -492,7 +543,7 @@ class WebGLWorldAdapter {
                             
                             // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
                             if (id < uWorldNumPrimitives) {
-                                if (worldRayCastObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
                             }
                             
@@ -501,7 +552,7 @@ class WebGLWorldAdapter {
                             else {
                                 int listStart = indices_offset + (id - uWorldNumPrimitives);
                                 int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
-                                if (worldRayCastList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
                             }
                         }
@@ -519,12 +570,7 @@ class WebGLWorldAdapter {
                 
                 return found_min;
             }
-            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
-            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
-                int primID = -1;
-                mat4 ancestorInvTransform = mat4(1.0);
-                return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
-            }
+           
 
             // ---- World Color ----
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
@@ -537,6 +583,14 @@ class WebGLWorldAdapter {
                 
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
                 return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
+            }
+            
+            
+            // -------- Generic Ray Cast ---------
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
+                int primID = -1;
+                mat4 ancestorInvTransform = mat4(1.0);
+                return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
             }`;
         if (sceneEditable) {
             ret += `
