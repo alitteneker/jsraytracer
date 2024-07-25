@@ -49,6 +49,7 @@ class WebGLWorldAdapter {
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
         this.untransformed_triangles = [];
+        this.untransformed_triangles_by_material = [];
         this.bvh_first_instances    = {};
         this.bvh_node_count = 0;
         this.bvh_only_uses_untransformed_triangles = true;
@@ -68,21 +69,37 @@ class WebGLWorldAdapter {
         
         // As an acceleration for scenes with lots of triangles, any triangle primitive without a local
         // transformation in the scene will be indexed in a way that allows for ray intersection testing without
-        // the need to load all the primitive's data.
-        const me = this;
+        // the need to load all the primitive's data. As an added complication, we're also going to bin those
+        // triangles by material, so that material data can be handled efficiently.
+        const me = this, visited = {};
         function searchForUntransformedTriangles(node) {
+            if (node.OBJECT_UID in visited)
+                return;
+            visited[node.OBJECT_UID] = true;
             if (node instanceof Primitive
-                && !(node.OBJECT_UID in me.primitive_id_index_map)
                 && node.geometry instanceof Triangle
                 && node.getTransform().is_identity()
                 && node.does_cast_shadow)
-                me.untransformed_triangles.push(me.visitPrimitive(node, webgl_helper));
+            {
+                const materialIndex = me.adapters.materials.visit(node.material);
+                while (me.untransformed_triangles_by_material.length <= materialIndex)
+                    me.untransformed_triangles_by_material.push({ materialIndex: materialIndex, triangles: [] });
+                me.untransformed_triangles_by_material[materialIndex].triangles.push(node);
+            }
             else if (node instanceof Aggregate)
                 for (let child of node.objects)
                     searchForUntransformedTriangles(child);
         }
         for (let node of world.objects)
             searchForUntransformedTriangles(node);
+        
+        let count = 0;
+        for (let bin of this.untransformed_triangles_by_material) {
+            for (let t of bin.triangles)
+                this.untransformed_triangles.push(this.visitPrimitive(t, webgl_helper));
+            bin.maxIndex = bin.triangles.length + count;
+            count += bin.triangles.length;
+        }
         
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
@@ -374,6 +391,7 @@ class WebGLWorldAdapter {
         return `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays);
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
@@ -440,13 +458,7 @@ class WebGLWorldAdapter {
                 }
                 return false;
             }
-            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
-                Primitive ids = getPrimitive(primID);
-                mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
-                GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
-                geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
-                return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
-            }
+            
 
             
             
@@ -594,6 +606,13 @@ class WebGLWorldAdapter {
             }`;
         if (sceneEditable) {
             ret += `
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+                Primitive ids = getPrimitive(primID);
+                mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
+                GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
+                geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
+                return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
+            }
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
 
@@ -618,6 +637,35 @@ class WebGLWorldAdapter {
         }
         else {
             ret += `
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+                int materialID = 0;
+                mat4 inverseTransform = mat4(1.0);
+                GeometricMaterialData geomatdata;
+                geomatdata.baseColor = vec3(1.0);
+                if (primID < uWorldNumUntransformedTriangles) {`
+            for (let bin of this.untransformed_triangles_by_material) {
+                ret += `
+                    if (primID <= ${bin.maxIndex}) {
+                        triangleMaterialData(rp, geomatdata, primID);
+                        materialID = ${bin.materialIndex};
+                    }`;
+            }
+            ret += `
+                }
+                else { switch (primID) {`;
+            for (let prim of this.primitives.filter(p => p.index >= this.untransformed_triangles.length)) {
+                ret += `
+                    case ${prim.index}:
+                        inverseTransform = getTransform(${prim.transformIndex}) * ancestorInvTransform;
+                        ${WebGLGeometriesAdapter.getMaterialDataShaderSource(prim.geometryIndex, "inverseTransform * rp", "inverseTransform * r.d", "geomatdata")};
+                        geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
+                        materialID = ${prim.materialIndex};
+                        break;`;
+            }
+            ret += `
+                }}
+                return colorForMaterial(materialID, rp, r, geomatdata, random_seed, nextRays);
+            }
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
                 
@@ -728,7 +776,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                         local_invTransform = getTransform(${prim.transformIndex});
                         local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
             ret += `
-                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " || " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
+                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " || " : ""}worldRayCastCompareTime(${WebGLGeometriesAdapter.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
                             ${primID_src} = ${prim.index};
                             ${ancestorInvTransform_src} = root_invTransform;
                         }`;

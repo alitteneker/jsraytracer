@@ -142,13 +142,21 @@ class WebGLGeometriesAdapter {
                 vec2 UV;
             };
             
-            float planeIntersect(in Ray r, in float minDistance);
-            float squareIntersect(in Ray r, in float minDistance);
-            float circleIntersect(in Ray r, in float minDistance);
-            float unitBoxIntersect(in Ray r, in float minDistance);
+            float planeIntersect(     in Ray r, in float minDistance);
+            float squareIntersect(    in Ray r, in float minDistance);
+            float circleIntersect(    in Ray r, in float minDistance);
+            float unitBoxIntersect(   in Ray r, in float minDistance);
             float unitSphereIntersect(in Ray r, in float minDistance);
-            float cylinderIntersect(in Ray r, in float minDistance);
-            float triangleIntersect(in Ray r, in float minDistance, in int triangleID);
+            float cylinderIntersect(  in Ray r, in float minDistance);
+            float triangleIntersect(  in Ray r, in float minDistance, in int triangleID);
+            
+            void planeMaterialData(     in vec4 position, inout GeometricMaterialData data);
+            void squareMaterialData(    in vec4 position, inout GeometricMaterialData data);
+            void circleMaterialData(    in vec4 position, inout GeometricMaterialData data);
+            void unitBoxMaterialData(   in vec4 position, inout GeometricMaterialData data);
+            void unitSphereMaterialData(in vec4 position, inout GeometricMaterialData data);
+            void cylinderMaterialData(  in vec4 position, inout GeometricMaterialData data);
+            void triangleMaterialData(  in vec4 position, inout GeometricMaterialData data, in int triangleID);
             
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
             GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
@@ -461,7 +469,7 @@ class WebGLGeometriesAdapter {
             }`
             + this.sdf_adapter.getShaderSource();
     }
-    getIntersectShaderSource(geometryID, ray_src, minDist_src) {
+    static getIntersectShaderSource(geometryID, ray_src, minDist_src) {
         if (geometryID < WebGLGeometriesAdapter.MIN_SDF_ID) {
             switch(geometryID) { 
                 case WebGLGeometriesAdapter.SPHERE_ID  : return `unitSphereIntersect(${ray_src}, ${minDist_src})`;
@@ -480,7 +488,7 @@ class WebGLGeometriesAdapter {
                 return `triangleIntersect(${ray_src}, ${minDist_src}, ${geometryID - WebGLGeometriesAdapter.MIN_TRIANGLE_ID})`;
         }
     }
-    getSampleSurfaceShaderSource(geometryID, random_seed_src) {
+    static getSampleSurfaceShaderSource(geometryID, random_seed_src) {
         switch(geometryID) {
             case WebGLGeometriesAdapter.SPHERE_ID     : return `unitSphereSurfaceSample( ${random_seed_src})`;
             case WebGLGeometriesAdapter.ORIGINPOINT_ID: return `originPointSurfaceSample(${random_seed_src})`;
@@ -489,5 +497,36 @@ class WebGLGeometriesAdapter {
         }
         return `vec4(0)`;
     }
+    static getMaterialDataShaderSource(geometryID, position_src, direction_src, data_src) {
+        if (geometryID < WebGLGeometriesAdapter.MIN_SDF_ID) {
+            switch(geometryID) { 
+                case WebGLGeometriesAdapter.SPHERE_ID     : return `unitSphereMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.CYLINDER_ID   : return `cylinderMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.PLANE_ID      : return `planeMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.CIRCLE_ID     : return `circleMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.SQUARE_ID     : return `squareMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.UNITBOX_ID    : return `unitBoxMaterialData(${position_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.ORIGINPOINT_ID: return `originPointMaterialData(${position_src}, ${direction_src}, ${data_src})`;
+                case WebGLGeometriesAdapter.UNITLINE_ID   : return `unitLineMaterialData(${position_src}, ${direction_src}, ${data_src})`;
+            }
+        }
+        else {
+            if (geometryID < WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+                return `sdfMaterialData(${position_src}, ${data_src}, ${geometryID - WebGLGeometriesAdapter.MIN_SDF_ID})`;
+            else
+                return `triangleMaterialData(${position_src}, ${data_src}, ${geometryID - WebGLGeometriesAdapter.MIN_TRIANGLE_ID})`;
+        }
+    }
 }
+
+
+
+
+
+
+
+
+
+
+
 
