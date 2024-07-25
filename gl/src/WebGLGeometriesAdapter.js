@@ -487,6 +487,7 @@ class WebGLGeometriesAdapter {
             else
                 return `triangleIntersect(${ray_src}, ${minDist_src}, ${geometryID - WebGLGeometriesAdapter.MIN_TRIANGLE_ID})`;
         }
+        throw "Unsupported geometry type: " + geometryID;
     }
     static getSampleSurfaceShaderSource(geometryID, random_seed_src) {
         switch(geometryID) {
@@ -516,6 +517,7 @@ class WebGLGeometriesAdapter {
             else
                 return `triangleMaterialData(${position_src}, ${data_src}, ${geometryID - WebGLGeometriesAdapter.MIN_TRIANGLE_ID})`;
         }
+        throw "Unsupported geometry type: " + geometryID;
     }
 }
 

@@ -30,14 +30,15 @@ export function configureTest(callback) {
         "../assets/diamond.obj",
         new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.8, 100, 2.4),
 
-        Mat4.translation([-0.2,1.5,-10])
-            .times(Mat4.rotation(-0.4, Vec.of(0,1,0)))
-            .times(Mat4.rotation(0.1, Vec.of(1,0,0)))
-            .times(Mat4.scale(1)),
+        Mat4.identity(),
 
         function(triangles) {
             //objs.push(...triangles);
-            objs.push(BVHAggregate.build(triangles));
+            objs.push(BVHAggregate.build(triangles,
+                Mat4.translation([-0.2,1.5,-10])
+                    .times(Mat4.rotation(-0.4, Vec.of(0,1,0)))
+                    .times(Mat4.rotation(0.1, Vec.of(1,0,0)))
+                    .times(Mat4.scale(1))));
 
             callback({
                 renderer: new SimpleRenderer(new World(objs, lights, Vec.of(0.9, 0.9, 0.9)), camera, 4),

@@ -653,7 +653,7 @@ class WebGLWorldAdapter {
             ret += `
                 }
                 else { switch (primID) {`;
-            for (let prim of this.primitives.filter(p => p.index >= this.untransformed_triangles.length)) {
+            for (let prim of this.primitives.filter(p => p.index >= this.untransformed_triangles.length && p.geometryIndex != WebGLGeometriesAdapter.NULL_ID)) {
                 ret += `
                     case ${prim.index}:
                         inverseTransform = getTransform(${prim.transformIndex}) * ancestorInvTransform;
