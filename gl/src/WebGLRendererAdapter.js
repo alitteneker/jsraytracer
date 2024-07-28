@@ -100,6 +100,13 @@ class WebGLRendererAdapter {
                 -1.0, -1.0
             ]), gl.STATIC_DRAW);
 
+        const fsSource =
+                "#version 300 es \n"
+                    + this.getShaderSourceDeclarations()
+                    + this.getShaderSource();
+        myconsole.log(`Compiling generated shader with ${(fsSource.match(/\n/g)||[]).length + 1} lines`);
+
+        
         WebGLHelper.compileMultipleShaderProgramsFromSources(gl,
             // Compile and link shader program for the tracer
             [{
@@ -110,9 +117,7 @@ class WebGLRendererAdapter {
                         gl_Position = vertexPosition;
                     }`,
             
-                fragment: "#version 300 es \n"
-                    + this.getShaderSourceDeclarations()
-                    + this.getShaderSource()
+                fragment: fsSource
             },
             
             // Because we're rendering to a texture, we also need a simple pass-through shader

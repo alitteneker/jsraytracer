@@ -649,12 +649,13 @@ class WebGLWorldAdapter {
                 mat4 inverseTransform = mat4(1.0);
                 GeometricMaterialData geomatdata;
                 geomatdata.baseColor = vec3(1.0);
-                if (primID < uWorldNumUntransformedTriangles) {
+                if (primID < ${this.untransformed_triangles.length}) {
                     triangleMaterialData(ancestorInvTransform * rp, geomatdata, primID);
-                    geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);`
+                    geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);
+                    if (false) {}`
             for (let bin of this.untransformed_triangles_by_material) {
                 ret += `
-                    if (primID <= ${bin.maxIndex})
+                    else if (primID < ${bin.maxIndex})
                         materialID = ${bin.materialIndex};`;
             }
             ret += `
@@ -825,6 +826,9 @@ class WrappedPrimitive extends AbstractWrappedWorldObject {
     }
     getDataVector() {
         return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
+    }
+    toInstance(ancestors) {
+        return new WrappedPrimitiveInstance(this, ancestors, this.worldadapter)
     }
 }
 

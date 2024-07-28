@@ -363,7 +363,7 @@ class WebGLInterface {
             return;
         if (d.node.data._worldobj && d.node.data._worldobj.type == "primitive") {
             const parentobj = d.node.parent.data._worldobj;
-            this.selectObject(new WrappedPrimitive(d.node.data._worldobj, parentobj ? parentobj.ancestors.concat(parentobj) : [], this.renderer_adapter.adapters.world));
+            this.selectObject(d.node.data._worldobj.toInstance(parentobj ? parentobj.ancestors.concat(parentobj) : []));
         }
         else
             this.selectObject(d.node.data._worldobj);

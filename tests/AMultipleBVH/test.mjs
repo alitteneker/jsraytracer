@@ -12,6 +12,10 @@ export function configureTest(callback) {
         new Plane(),
         new PhongMaterial(Vec.of(0.7,0.7,1), 0.1, 0.4, 0.6, 100, 0.2),
         Mat4.translation([0,-1,0]).times(Mat4.rotation(Math.PI/2, Vec.of(1,0,0))))];
+    objects.push(new Primitive(
+        new Sphere(),
+        new PhongMaterial(Vec.of(0,0,1), 0.2, 0.4, 0.6, 100, 0.5),
+        Mat4.translation([-2, 0.3, -9])));
 
     const trans1 = Mat4.translation([-0.5,-1.5,-5])
             .times(Mat4.rotation(0.3, Vec.of(0,1,0)))
