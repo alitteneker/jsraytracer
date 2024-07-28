@@ -114,11 +114,15 @@ class WebGLWorldAdapter {
         // finally, we need to determine an order for any list start positions, as traversal order may change
         let indices_count = 0;
         for (const a of this.aggregates) {
-            a.indicesStartIndex = indices_count;
-            if (a.type == "BVH")
-                indices_count += a.bvh_object_list.length;
-            else
-                indices_count += a.indicesList.length;
+            if (a.bvh_reuse_from)
+                a.indicesStartIndex = a.bvh_reuse_from.indicesStartIndex;
+            else {
+                a.indicesStartIndex = indices_count;
+                if (a.type == "BVH")
+                    indices_count += a.bvh_object_list.length;
+                else
+                    indices_count += a.indicesList.length;
+            }
         }
     }
     
