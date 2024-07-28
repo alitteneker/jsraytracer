@@ -24,8 +24,6 @@ export function configureTest(callback) {
         "../assets/hollow_tetrahedron.obj",
         new PhongMaterial(Vec.of(1,0.7,0.7), 0.1, 0.4, 0.6, 100, 0.4),
 
-        Mat4.identity(),
-
         function(triangles) {
             const bvh1 = BVHAggregate.build(triangles, trans1);
             const bvh2 = new BVHAggregate(triangles, bvh1.kdtree, trans2);

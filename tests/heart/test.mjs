@@ -27,12 +27,11 @@ export function configureTest(callback) {
         "../assets/heart.obj",
         new PhongMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100, 0.6),
 
-        Mat4.translation([-0.2,-1,-7])
-            .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
-            .times(Mat4.scale(0.05)),
-
         function(triangles) {
-            objs.push(BVHAggregate.build(triangles));
+            objs.push(BVHAggregate.build(triangles,
+                Mat4.translation([-0.2,-1,-7])
+                    .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
+                    .times(Mat4.scale(0.05))));
 
             callback({
                 renderer: new SimpleRenderer(new World(objs, lights), camera, 4),

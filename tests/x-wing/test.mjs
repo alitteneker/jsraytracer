@@ -36,12 +36,11 @@ export function configureTest(callback) {
         "../assets/x_wing_fighter.obj",
         new PhongMaterial(Vec.of(1,0,0.5), 0.1, 0.4, 0.6, 100, 0.5),
 
-        Mat4.translation([-0.75, 1, -4])
-              .times(Mat4.rotation(-0.8, Vec.of(0,1,0)))
-              .times(Mat4.scale(0.01)),
-
         function(triangles) {
-            objs.push(BVHAggregate.build(triangles));
+            objs.push(BVHAggregate.build(triangles,
+                Mat4.translation([-0.75, 1, -4])
+                  .times(Mat4.rotation(-0.8, Vec.of(0,1,0)))
+                  .times(Mat4.scale(0.01))));
             
             callback({
                 renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 16, 4),

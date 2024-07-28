@@ -30,8 +30,6 @@ export function configureTest(callback) {
         "../assets/diamond.obj",
         new FresnelPhongMaterial(Vec.of(0.827,0.827,0.827), 0.1, 0.4, 0.8, 100, 2.4),
 
-        Mat4.identity(),
-
         function(triangles) {
             //objs.push(...triangles);
             objs.push(BVHAggregate.build(triangles,

@@ -146,7 +146,7 @@ function parseIndices(ts) {
         x => Number.parseInt(x) - 1));
 }
 
-function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform=Mat4.identity(), isPath=false) {
+function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform=Mat4.identity(), minArea=0.0, isPath=false) {
 
     let lines = data.split("\n");
 
@@ -194,14 +194,14 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
                 let indices = parseIndices(t);
                 for (let i = 2; i < indices.length; ++i) {
                     const abc = [indices[0], indices[i-1], indices[i]];
-                    let data = {};
+                    const data = {};
                     if (abc.every(x => x[1] !== undefined && !isNaN(x[1])))
                         data.UV = abc.map(x => textures[x[1]]);
                     if (abc.every(x => x[2] !== undefined && !isNaN(x[2])))
                         data.normal = abc.map(x => normals[x[2]]);
-                    triangles.push(new Primitive(
-                        new Triangle(abc.map(x => positions[x[0]]), data),
-                        currentMaterial, transform, inv_transform));
+                    const triangle = new Triangle(abc.map(x => positions[x[0]]), data);
+                    if (triangle.area >= minArea)
+                        triangles.push(new Primitive(triangle, currentMaterial, transform, inv_transform));
                 }
                 continue;
             }
@@ -237,16 +237,16 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
     }, prefix, isPath);
 }
 
-function loadObjFile(filename, defaultMaterial, transform, callback) {
+function loadObjFile(filename, defaultMaterial=null, callback, transform=Mat4.identity(), minArea=0.00001) {
     textFetch(filename).then(function(text) {
         let prefix = "";
         if (filename.lastIndexOf("/") > 0)
             prefix = filename.substring(0, filename.lastIndexOf("/") + 1);
-        parseObjFile(callback, text, prefix, defaultMaterial, transform);
+        parseObjFile(callback, text, prefix, defaultMaterial, transform, minArea);
     });
 }
 
-function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.identity()) {
+function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.identity(), minArea=0.00001) {
     let toDoCount = files.length;
     let triangle_sets = new Array(files.length).fill(null);
     for (let i = 0; i < files.length; ++i) {
@@ -255,12 +255,13 @@ function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.iden
             loadObjFile(
                 files[i].filename || files[i],
                 files[i].defaultMaterial || defaultMaterial,
-                files[i].transform || transform,
                 function(obj_triangles) {
                     triangle_sets[i] = obj_triangles;
                     if (--toDoCount === 0)
                         callback(triangle_sets);
-                }
+                },
+                files[i].transform || transform,
+                minArea
             );
         })(i);
     }

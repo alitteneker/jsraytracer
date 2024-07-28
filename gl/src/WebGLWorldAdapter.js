@@ -83,7 +83,7 @@ class WebGLWorldAdapter {
             {
                 const materialIndex = me.adapters.materials.visit(node.material);
                 while (me.untransformed_triangles_by_material.length <= materialIndex)
-                    me.untransformed_triangles_by_material.push({ materialIndex: materialIndex, triangles: [] });
+                    me.untransformed_triangles_by_material.push({ materialIndex: materialIndex, triangles: [], prims: [] });
                 me.untransformed_triangles_by_material[materialIndex].triangles.push(node);
             }
             else if (node instanceof Aggregate)
@@ -95,10 +95,17 @@ class WebGLWorldAdapter {
         
         let count = 0;
         for (let bin of this.untransformed_triangles_by_material) {
-            for (let t of bin.triangles)
-                this.untransformed_triangles.push(this.visitPrimitive(t, webgl_helper));
-            bin.maxIndex = bin.triangles.length + count;
-            count += bin.triangles.length;
+            for (let t of bin.triangles) {
+                const geometryIndex = this.adapters.geometries.visit(t.geometry, webgl_helper);
+                if (geometryIndex != WebGLGeometriesAdapter.NULL_ID) {
+                    const prim = this.visitPrimitive(t, webgl_helper);
+                    this.untransformed_triangles.push(prim);
+                    bin.prims.push(prim);
+                }
+            }
+            delete(bin.triangles);
+            bin.maxIndex = bin.prims.length + count;
+            count += bin.prims.length;
         }
         
         // deal with world objects
@@ -174,7 +181,6 @@ class WebGLWorldAdapter {
                         aabb:           node.aabb,
                         isGreater:      isGreater,
                         isLeaf:         node.isLeaf,
-                        isSingularLeaf: node.isLeaf && node.objects.length == 1
                     };
                     bvh_nodes.push(node_data);
                     
@@ -184,19 +190,20 @@ class WebGLWorldAdapter {
                         node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
                     }
                     else {
-                        const ps = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
-                        for (let p of ps) {
+                        const primitives = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
+                        node_data.isSingularLeaf = primitives.length == 1;
+                        for (let p of primitives) {
                             p.notTransformable = true;
                             agg.indicesList.push(p.index);
                             if (p.index >= me.untransformed_triangles.length)
                                 me.bvh_only_uses_untransformed_triangles = false;
                         }
-                        if (ps.length == 1)
-                            node_data.hitIndex = -1 - ps[0].index;
+                        if (primitives.length == 1)
+                            node_data.hitIndex = -1 - primitives[0].index;
                         else {
                             node_data.hitIndex = bvh_object_list.length;
-                            bvh_object_list.push(ps.length);
-                            for (let p of ps) {
+                            bvh_object_list.push(primitives.length);
+                            for (let p of primitives) {
                                 p.parents.push(agg);
                                 bvh_object_list.push(p.index);
                             }
@@ -646,7 +653,8 @@ class WebGLWorldAdapter {
             for (let bin of this.untransformed_triangles_by_material) {
                 ret += `
                     if (primID <= ${bin.maxIndex}) {
-                        triangleMaterialData(rp, geomatdata, primID);
+                        triangleMaterialData(ancestorInvTransform * rp, geomatdata, primID);
+                        geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);
                         materialID = ${bin.materialIndex};
                     }`;
             }

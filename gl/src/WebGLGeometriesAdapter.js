@@ -469,6 +469,8 @@ class WebGLGeometriesAdapter {
             }`
             + this.sdf_adapter.getShaderSource();
     }
+    
+    
     static getIntersectShaderSource(geometryID, ray_src, minDist_src) {
         if (geometryID < WebGLGeometriesAdapter.MIN_SDF_ID) {
             switch(geometryID) { 

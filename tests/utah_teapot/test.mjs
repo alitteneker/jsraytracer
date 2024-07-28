@@ -20,13 +20,12 @@ export function configureTest(callback) {
         "../assets/high-poly-teapot.obj",
         new PhongMaterial(Vec.of(1,1,1), 0.1, 0.4, 0.6, 100, 0.6),
 
-        Mat4.translation([-0.4,-1.5,-6])
-            .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
-            .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
-            .times(Mat4.scale(0.15)),
-
         function(triangles) {
-            objs.push(BVHAggregate.build(triangles));
+            objs.push(BVHAggregate.build(triangles,
+                Mat4.translation([-0.4,-1.5,-6])
+                    .times(Mat4.rotation(-0.5, Vec.of(0,1,0)))
+                    .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
+                    .times(Mat4.scale(0.15))));
             
             callback({
                 renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 8, 4),

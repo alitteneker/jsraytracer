@@ -312,6 +312,8 @@ class WebGLHelper {
     // As shader compilation may take a long time, potentially locking the browser for the duration,
     // this provides async support for the KHR_parallel_shader_compile extension.
     static compileShaderProgramFromSources(gl, vsSource, fsSource, callback=null) {
+        myconsole.log(`Compiling shader with ${(vsSource.match(/\n/g)||[]).length + (fsSource.match(/\n/g)||[]).length + 2} combined lines`);
+        
         const parallel_compile_ext = callback && gl.getExtension('KHR_parallel_shader_compile');
         
         const vertexShader   = WebGLHelper.compileShaderOfTypeFromSource(gl, gl.VERTEX_SHADER,   vsSource);
