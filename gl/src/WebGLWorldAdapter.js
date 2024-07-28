@@ -784,7 +784,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                         local_invTransform = getTransform(${prim.transformIndex});
                         local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
             ret += `
-                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " || " : ""}worldRayCastCompareTime(${WebGLGeometriesAdapter.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
+                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " && " : ""}worldRayCastCompareTime(${WebGLGeometriesAdapter.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
                             ${primID_src} = ${prim.index};
                             ${ancestorInvTransform_src} = root_invTransform;
                         }`;
