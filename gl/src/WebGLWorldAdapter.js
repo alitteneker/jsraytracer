@@ -649,14 +649,13 @@ class WebGLWorldAdapter {
                 mat4 inverseTransform = mat4(1.0);
                 GeometricMaterialData geomatdata;
                 geomatdata.baseColor = vec3(1.0);
-                if (primID < uWorldNumUntransformedTriangles) {`
+                if (primID < uWorldNumUntransformedTriangles) {
+                    triangleMaterialData(ancestorInvTransform * rp, geomatdata, primID);
+                    geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);`
             for (let bin of this.untransformed_triangles_by_material) {
                 ret += `
-                    if (primID <= ${bin.maxIndex}) {
-                        triangleMaterialData(ancestorInvTransform * rp, geomatdata, primID);
-                        geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);
-                        materialID = ${bin.materialIndex};
-                    }`;
+                    if (primID <= ${bin.maxIndex})
+                        materialID = ${bin.materialIndex};`;
             }
             ret += `
                 }
