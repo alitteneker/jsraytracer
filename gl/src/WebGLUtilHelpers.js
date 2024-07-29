@@ -179,7 +179,6 @@ class WebGLHelper {
                 x += ( x << 15u );
                 return x;
             }
-            
             uint hash_uint( uvec2 v ) {
                 return hash_uint( v.x ^ hash_uint(v.y));
             }
@@ -278,18 +277,11 @@ class WebGLHelper {
             ivec2 computeGenericIndex(in int index, in ivec2 size) {
                 return ivec2(index % size.x, index / size.x);
             }
-            ivec2 computeGenericIndex(in int index, in sampler2D texture) {
-                return computeGenericIndex(index, textureSize(texture, 0));
+            ivec2 computeGenericIndex(in int index, in sampler2D texture) {   return computeGenericIndex(index, textureSize(texture, 0)); }
+            ivec2 icomputeGenericIndex(in int index, in isampler2D texture) { return computeGenericIndex(index, textureSize(texture, 0)); }
+            vec4 texelFetchByIndex(in int index, in sampler2D texture) {    return texelFetch(texture, computeGenericIndex(index, texture), 0);
             }
-            ivec2 icomputeGenericIndex(in int index, in isampler2D texture) {
-                return computeGenericIndex(index, textureSize(texture, 0));
-            }
-            vec4 texelFetchByIndex(in int index, in sampler2D texture) {
-                return texelFetch(texture, computeGenericIndex(index, texture), 0);
-            }
-            ivec4 itexelFetchByIndex(in int index, in isampler2D texture) {
-                return texelFetch(texture, icomputeGenericIndex(index, texture), 0);
-            }`;
+            ivec4 itexelFetchByIndex(in int index, in isampler2D texture) { return texelFetch(texture, icomputeGenericIndex(index, texture), 0); }`;
     }
     writeShaderData() {}
     

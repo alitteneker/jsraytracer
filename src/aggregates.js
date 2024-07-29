@@ -139,8 +139,41 @@ class BVHAggregateNode {
             }
         }
 
-        if (best_axis < 0)
-            return null;
+        if (best_axis < 0) {
+            // Sometimes the bins are too coarse, or the objects too similar in AABB size/alignment, for a useful
+            // axis split to be found in the most efficient way. As a fall back, try the median of the centers on
+            // each axis, and see if that splits at all well.
+            const aabbs = objects.map(o => o.getBoundingBox());
+            for (let axis = 0; axis < 3; ++axis) {
+                const median_axis_val = median(aabbs.map(a => a.center[axis]));
+                
+                const aabbs0 = aabbs.filter(a => a.center[axis] < median_axis_val),
+                    aabbs1 = aabbs.filter(a => a.center[axis] >= median_axis_val);
+                
+                const cost = .125 + (aabbs0.length * AABB.hull(aabbs0).surfaceArea() +
+                                     aabbs1.length * AABB.hull(aabbs1).surfaceArea()) / bounds.surfaceArea();
+                
+                if (cost < best_cost && aabbs0.length > 0 && aabbs1.length > 0) {
+                    best_axis = axis;
+                    best_sep_value = median_axis_val;
+                    best_cost = cost;
+                }
+            }
+            
+            if (best_axis < 0) {
+                // If we still haven't found an axis that allows for any splitting, this usually means that we
+                // have all AABBs with identical centers, which will never be able to split. Since we still have
+                // available depth, try just splitting the array arbitrarily down the middle.
+                const split = Math.floor(objects.length / 2);
+                return {
+                    bounds: bounds,
+                    sep_axis: 0,
+                    sep_value: aabbs[0].center[0],
+                    lesser_objs:  objects.slice(0, split),
+                    greater_objs: objects.slice(split)
+                };
+            }
+        }
 
         return {
             bounds: bounds,

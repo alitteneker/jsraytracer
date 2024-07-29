@@ -106,11 +106,11 @@ class WebGLSDFAdapter {
         + Object.values(this.transforms).map(d => d.getShaderSourceDeclarations()).join("\n");
     }
     getShaderSource(sceneEditable) {
-        if (this.sdfs.length == 0)
+        if (Object.keys(this.sdfs).length == 0)
             return `
             // =============== SDF ===============
             float sdfIntersect(in Ray r, in float minDistance, in int sdfID) { return minDistance - 1.0; }
-            void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID) {}`
+            void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID) {}`;
         return `
             // =============== SDF ===============
             float sdfBoxDistance(in vec4 p, in vec4 size) {

@@ -60,11 +60,13 @@ $(document).ready(function() {
     function loadTest(test) {
         $(".loading").css('visibility', 'visible');
         
-        myconsole.log("Loading " + test + "...");
+        const start = Date.now();
+        myconsole.log(`Loading test ${test}...`);
         try {
-            import("../tests/" + test + "/test.mjs").then(function(module) {
-                module.configureTest(function(test) {
-                    i.changeTest(test);
+            import(`../tests/${test}/test.mjs`).then(function(module) {
+                module.configureTest(function(test_data) {
+                    myconsole.log(`Test ${test} successfully loaded in ${(Date.now() - start) / 1000} seconds.`);
+                    i.changeTest(test_data);
                 });
                 document.title = defaultTitle + ": " + test;
             }, function(e) {

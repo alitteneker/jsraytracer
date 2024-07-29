@@ -105,7 +105,7 @@ class AABB extends Geometry {
     }
     static fromPoints(points) {
         if (points.length == 0)
-            throw "Cannot build AABB with zero points";
+            return AABB.empty();
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
             max = Vec.of(-Infinity, -Infinity, -Infinity, 1);
         for (let p of points) {
@@ -120,7 +120,7 @@ class AABB extends Geometry {
     }
     static hull(boxes) {
         if (boxes.length == 0)
-            throw "Cannot build AABB with zero boxes";
+            return AABB.empty();
         let min = Vec.of( Infinity,  Infinity,  Infinity, 1),
             max = Vec.of(-Infinity, -Infinity, -Infinity, 1);
         for (let b of boxes) {

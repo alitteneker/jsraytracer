@@ -53,6 +53,7 @@ class WebGLWorldAdapter {
         this.bvh_first_instances    = {};
         this.bvh_node_count = 0;
         this.bvh_only_uses_untransformed_triangles = true;
+        this.bvh_all_leaves_singular = true;
         
         this.adapters.lights.reset();
         this.adapters.geometries.reset();
@@ -199,18 +200,18 @@ class WebGLWorldAdapter {
                         for (let p of primitives) {
                             p.notTransformable = true;
                             agg.indicesList.push(p.index);
+                            p.parents.push(agg);
                             if (p.index >= me.untransformed_triangles.length)
                                 me.bvh_only_uses_untransformed_triangles = false;
                         }
                         if (primitives.length == 1)
                             node_data.hitIndex = -1 - primitives[0].index;
                         else {
+                            me.bvh_all_leaves_singular = agg.all_leaves_singular = false;
                             node_data.hitIndex = bvh_object_list.length;
                             bvh_object_list.push(primitives.length);
-                            for (let p of primitives) {
-                                p.parents.push(agg);
+                            for (let p of primitives)
                                 bvh_object_list.push(p.index);
-                            }
                         }
                     }
                 };
@@ -562,8 +563,13 @@ class WebGLWorldAdapter {
                         // if this is a leaf node, check all objects in this node
                         if (hitIndex < 0) {
                             // there are two possibilities: either the id corresponds to a single primitive id, or to a list
-                            int id = -hitIndex - 1;
-                            
+                            int id = -hitIndex - 1;`;
+        if (!sceneEditable && this.bvh_all_leaves_singular)
+            ret += `
+                            if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                found_min = true;`;
+        else
+            ret += `
                             // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
                             if (id < uWorldNumPrimitives) {
                                 if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
@@ -577,7 +583,8 @@ class WebGLWorldAdapter {
                                 int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
                                 if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
-                            }
+                            }`
+        ret += `
                         }
                         
                         // if this node has children, visit this node's left child next
@@ -803,6 +810,7 @@ class WrappedBVHAggregate extends WrappedAggregate {
         super(index, object, ancestors, transformIndex, worldadapter);
         this.type = "BVH";
         this.type_code = WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE;
+        this.all_leaves_singular = true;
     }
     getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
         return `
