@@ -14,14 +14,14 @@ class WebGLLightsAdapter {
         
         if (light instanceof SimplePointLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
-            light_data.geometry      = geometry_adapter.visit(new OriginPoint());
+            light_data.geometry      = geometry_adapter.visit(new OriginPoint(), webgl_helper, false, true);
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
             light_data.transform     = Mat4.translation(light.position);
             light_data.inv_transform = Mat4.translation(light.position.times(-1));
         }
         else if (light instanceof RandomSampleAreaLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
-            light_data.geometry      = geometry_adapter.visit(light.surface_geometry);
+            light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, false, true);
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
             light_data.transform     = light.transform;
             light_data.inv_transform = light.inv_transform;

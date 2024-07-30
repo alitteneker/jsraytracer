@@ -190,7 +190,8 @@ class WebGLRendererAdapter {
     
     getShaderSourceDeclarations() {
         let ret = this.webgl_helper.getShaderSourceDeclarations() + "\n"
-        +  `#define PI 3.14159265359
+        +  `
+            #define PI 3.14159265359
             #define EPSILON 0.0001
             
             struct Ray { vec4 o; vec4 d; };

@@ -50,7 +50,7 @@ class WebGLWorldAdapter {
         this.aggregate_instance_map = {};
         this.untransformed_triangles = [];
         this.untransformed_triangles_by_material = [];
-        this.bvh_first_instances    = {};
+        this.bvh_first_instances = {};
         this.bvh_node_count = 0;
         this.bvh_only_uses_untransformed_triangles = true;
         this.bvh_all_leaves_singular = true;
@@ -439,6 +439,14 @@ class WebGLWorldAdapter {
                 ivec4 p = itexelFetchByIndex(prim_id + uWorldNumAggregates, uWorldData);
                 return Primitive(p.r, p.g, p.b, bool(p.a));
             }
+            bool worldRayCastCompareTime(in float t, in float minT, in float maxT, inout float min_found_t) {
+                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
+                    min_found_t = t;
+                    return true;
+                }
+                return false;
+            }
+            
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
                 int geometry_id = 0;
                 if (prim_id < uWorldNumUntransformedTriangles)
@@ -452,13 +460,6 @@ class WebGLWorldAdapter {
                     geometry_id = obj.geometry_id;
                 }
                 return geometryIntersect(geometry_id, r, minDistance);
-            }
-            bool worldRayCastCompareTime(in float t, in float minT, in float maxT, inout float min_found_t) {
-                if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
-                    min_found_t = t;
-                    return true;
-                }
-                return false;
             }
             bool worldRayCastObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
@@ -497,11 +498,13 @@ class WebGLWorldAdapter {
                         found_min = true;
                 }
                 return found_min;
-            }
+            }`
             
-            // ========== BVH ==========`
-        if (!sceneEditable && this.bvh_only_uses_untransformed_triangles)
+        if (sceneEditable || this.bvh_node_count > 0) {
             ret += `
+            // ========== BVH ==========`;
+            if (!sceneEditable && this.bvh_only_uses_untransformed_triangles)
+                ret += `
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -529,8 +532,8 @@ class WebGLWorldAdapter {
                 }
                 return found_min;
             }`;
-        else
-            ret += `
+            else
+                ret += `
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -542,7 +545,7 @@ class WebGLWorldAdapter {
                 return worldRayCastList(listStartIndex, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
             }`;
             
-        ret += `
+            ret += `
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
@@ -564,12 +567,12 @@ class WebGLWorldAdapter {
                         if (hitIndex < 0) {
                             // there are two possibilities: either the id corresponds to a single primitive id, or to a list
                             int id = -hitIndex - 1;`;
-        if (!sceneEditable && this.bvh_all_leaves_singular)
-            ret += `
+            if (!sceneEditable && this.bvh_all_leaves_singular)
+                ret += `
                             if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                 found_min = true;`;
-        else
-            ret += `
+            else
+                ret += `
                             // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
                             if (id < uWorldNumPrimitives) {
                                 if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
@@ -584,7 +587,7 @@ class WebGLWorldAdapter {
                                 if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
                             }`
-        ret += `
+            ret += `
                         }
                         
                         // if this node has children, visit this node's left child next
@@ -599,9 +602,10 @@ class WebGLWorldAdapter {
                 }
                 
                 return found_min;
-            }
+            }`;
+        }
            
-
+        ret += `
             // ---- World Color ----
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
                 int primID = -1;
@@ -622,6 +626,7 @@ class WebGLWorldAdapter {
                 mat4 ancestorInvTransform = mat4(1.0);
                 return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
             }`;
+            
         if (sceneEditable) {
             ret += `
             vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
@@ -659,30 +664,34 @@ class WebGLWorldAdapter {
                 int materialID = 0;
                 mat4 inverseTransform = mat4(1.0);
                 GeometricMaterialData geomatdata;
-                geomatdata.baseColor = vec3(1.0);
+                geomatdata.baseColor = vec3(1.0);`;
+            if (this.untransformed_triangles.length) {
+                ret += `
                 if (primID < ${this.untransformed_triangles.length}) {
                     triangleMaterialData(ancestorInvTransform * rp, geomatdata, primID);
                     geomatdata.normal = vec4(normalize((transpose(ancestorInvTransform) * geomatdata.normal).xyz), 0);
                     if (false) {}`
-            for (let bin of this.untransformed_triangles_by_material) {
-                ret += `
+                for (let bin of this.untransformed_triangles_by_material) {
+                    ret += `
                     else if (primID < ${bin.maxIndex})
                         materialID = ${bin.materialIndex};`;
+                }
+                ret += `
+                } else`;
             }
             ret += `
-                }
-                else { switch (primID) {`;
+                switch (primID) {`;
             for (let prim of this.primitives.filter(p => p.index >= this.untransformed_triangles.length && p.geometryIndex != WebGLGeometriesAdapter.NULL_ID)) {
                 ret += `
                     case ${prim.index}:
                         inverseTransform = getTransform(${prim.transformIndex}) * ancestorInvTransform;
-                        ${WebGLGeometriesAdapter.getMaterialDataShaderSource(prim.geometryIndex, "inverseTransform * rp", "inverseTransform * r.d", "geomatdata")};
+                        ${this.adapters.geometries.getMaterialDataShaderSource(prim.geometryIndex, "inverseTransform * rp", "inverseTransform * r.d", "geomatdata")};
                         geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
                         materialID = ${prim.materialIndex};
                         break;`;
             }
             ret += `
-                }}
+                }
                 return colorForMaterial(materialID, rp, r, geomatdata, random_seed, nextRays);
             }
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
@@ -696,7 +705,7 @@ class WebGLWorldAdapter {
         return ret
             + this.adapters.lights.getShaderSource(sceneEditable)     + "\n"
             + this.adapters.materials.getShaderSource(sceneEditable)  + "\n"
-            + this.adapters.geometries.getShaderSource(sceneEditable) + "\n";
+            + this.adapters.geometries.getShaderSource(sceneEditable, !this.bvh_only_uses_untransformed_triangles) + "\n";
     }
 }
 
@@ -795,7 +804,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                         local_invTransform = getTransform(${prim.transformIndex});
                         local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
             ret += `
-                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " && " : ""}worldRayCastCompareTime(${WebGLGeometriesAdapter.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
+                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " && " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
                             ${primID_src} = ${prim.index};
                             ${ancestorInvTransform_src} = root_invTransform;
                         }`;
