@@ -62,7 +62,7 @@ class WebGLGeometriesAdapter {
         
         // sphere
         new WebGLStaticGeometryShaderSource("sphere", `
-            float unitSphereIntersect(in Ray r, in float minDistance) {
+            float sphereIntersect(in Ray r, in float minDistance) {
                 float a = dot(r.d, r.d),
                       b = dot(r.o, r.d),
                       c = dot(r.o.xyz, r.o.xyz) - 1.0;
@@ -76,10 +76,10 @@ class WebGLGeometriesAdapter {
                     return min(t1, t2);
                 return (t2 < minDistance) ? t1 : t2;
             }`, `
-            vec4 unitSphereSurfaceSample(inout vec2 random_seed) {
+            vec4 sphereSurfaceSample(inout vec2 random_seed) {
                 return vec4(randomSpherePoint(random_seed), 1);
             }`, `
-            void unitSphereMaterialData(in vec4 position, inout GeometricMaterialData data) {
+            void sphereMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 data.normal = vec4(normalize(position.xyz), 0);
                 data.UV.x = 0.5 + atan(data.normal.z, data.normal.x) / (2.0 * PI);
                 data.UV.y = 0.5 - asin(data.normal.y) / PI;
@@ -204,6 +204,9 @@ class WebGLGeometriesAdapter {
         this.triangle_indices_texture.destroy();
     }
     register_usage(ID, intersect, sample) {
+        ID = Math.min(ID, WebGLGeometriesAdapter.MIN_TRIANGLE_ID);
+        if (!this.geometry_usage_map[ID])
+            throw "Attempt to register usage of invalid geometry";
         if (intersect)
             ++this.geometry_usage_map[ID].intersect;
         if (sample)
@@ -287,18 +290,22 @@ class WebGLGeometriesAdapter {
             uniform isampler2D tTriangleIndices;
             
             float planeIntersect(in Ray r, in float minDistance, in vec4 n, in float delta);
-            vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);`;
+            vec2 AABBIntersects(in Ray r, in vec4 center, in vec4 half_size, in float minDistance, in float maxDistance);
+            
+            vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);
+            float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
+            GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
+            GeometricMaterialData getSampleGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);`;
         for (let [type_index, shader_src_module] of this.ShaderSourceModules.entries()) {
             const usage = this.geometry_usage_map[type_index];
             if (sceneEditable || usage.intersect || usage.sample)
-                ret += "\n" + shader_src_module.getShaderSourceDeclarations(sceneEditable || usage.intersect, sceneEditable || usage.sample);
+                ret += "\n\n" + shader_src_module.getShaderSourceDeclarations(sceneEditable || usage.intersect, sceneEditable || usage.sample);
         }
         if (sceneEditable || needs_generics)
             ret += `
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
-            GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction);
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);`;
-        return ret + this.sdf_adapter.getShaderSourceDeclarations();
+        return ret + "\n\n" + this.sdf_adapter.getShaderSourceDeclarations();
     }
     getShaderSource(sceneEditable, needs_generics) {
         let ret = `
@@ -336,7 +343,7 @@ class WebGLGeometriesAdapter {
         for (let [type_index, shader_src_module] of this.ShaderSourceModules.entries()) {
             const usage = this.geometry_usage_map[type_index];
             if (sceneEditable || usage.intersect || usage.sample)
-            ret += "\n" + shader_src_module.getShaderSource(sceneEditable || usage.intersect, sceneEditable || usage.sample);
+            ret += "\n\n" + shader_src_module.getShaderSource(sceneEditable || usage.intersect, sceneEditable || usage.sample);
         }
         ret += `
         
@@ -354,6 +361,20 @@ class WebGLGeometriesAdapter {
         ret += `
                 }
                 return vec4(0);
+            }
+            GeometricMaterialData getSampleGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
+                GeometricMaterialData data;
+                data.baseColor = vec3(1.0);
+                switch(geometryID) {`;
+        for (let type_index of WebGLGeometriesAdapter.SWITCHABLE_TYPES) {
+            const shader_src_module = this.ShaderSourceModules[type_index];
+            if (this.geometry_usage_map[type_index].sample)
+                ret += `
+                    case ${shader_src_module.src_type_name}: ${shader_src_module.getMaterialDataShaderSource(type_index, "position", "direction", "data")}; break;`;
+            }
+        ret += `
+                }
+                return data;
             }`;
         if (sceneEditable || needs_generics) {
             ret += `
@@ -390,7 +411,7 @@ class WebGLGeometriesAdapter {
                 const shader_src_module = this.ShaderSourceModules[type_index];
                 if (this.geometry_usage_map[type_index].intersect || this.geometry_usage_map[type_index].sample)
                     ret += `
-                        case ${shader_src_module.src_type_name}: return ${shader_src_module.getMaterialDataShaderSource(type_index, "position", "direction", "data")}; break;`;
+                        case ${shader_src_module.src_type_name}: ${shader_src_module.getMaterialDataShaderSource(type_index, "position", "direction", "data")}; break;`;
             }
             ret += `
                     }
@@ -399,11 +420,23 @@ class WebGLGeometriesAdapter {
                     if (geometryID < GEOMETRY_TRIANGLE_MIN_INDEX)
                         sdfMaterialData(position, data, geometryID - GEOMETRY_SDF_MIN_INDEX);`
             if (this.geometry_usage_map[WebGLGeometriesAdapter.MIN_TRIANGLE_ID].intersect)
-                ret += `else
+                ret += `
+                    else
                         triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);`
             ret += `
                 }
                 return data;
+            }`;
+        }
+        else {
+            ret += `
+            GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
+                GeometricMaterialData data;
+                data.baseColor = vec3(1.0);
+                return data;
+            }
+            float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
+                return minDistance - 1.0;
             }`;
         }
         return ret + this.sdf_adapter.getShaderSource();
@@ -466,7 +499,7 @@ class WebGLStaticGeometryShaderSource extends WebGLAbstractGeometryShaderSource 
                 .filter(v => v).map(v => WebGLStaticGeometryShaderSource.indent + v).join("\n");
     }
     getShaderSource(include_intersect, include_sample) {
-        return WebGLStaticGeometryShaderSource.indent + `// ---------- ${this.type_name} ----------` + "\n"
+        return WebGLStaticGeometryShaderSource.indent + `// ---------- ${this.type_name} ----------`
             + (include_intersect ? this.intersect_src + "\n" : "")
             + (include_sample ? this.sample_src + "\n" : "")
             + ((include_intersect || include_sample) ? this.material_data_src : "");

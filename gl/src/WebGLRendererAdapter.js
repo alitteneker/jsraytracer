@@ -250,113 +250,113 @@ class WebGLRendererAdapter {
             
         if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
             ret += `
-                vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
-                    vec3 total_color = vec3(0.0);
-                    float ray_depth = 1E20;
+            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
+                vec3 total_color = vec3(0.0);
+                float ray_depth = 1E20;
+                
+                int q_len = 0;
+                Ray q_rays[MAX_BOUNCE_QUEUE_LENGTH];
+                vec3 q_attenuation_colors[MAX_BOUNCE_QUEUE_LENGTH];
+                int q_remaining_bounces[MAX_BOUNCE_QUEUE_LENGTH];
+                
+                if (MAX_BOUNCE_DEPTH > 0) {
+                    q_rays[0] = in_ray;
+                    q_attenuation_colors[0] = vec3(1.0);
+                    q_remaining_bounces[0] = MAX_BOUNCE_DEPTH-1;
+                    q_len = 1;
+                }
+                
+                for (int i = 0; i < q_len; ++i) {
+                    Ray r = q_rays[i];
+                    vec3 attenuation_color = q_attenuation_colors[i];
+                    int remaining_bounces = q_remaining_bounces[i];
                     
-                    int q_len = 0;
-                    Ray q_rays[MAX_BOUNCE_QUEUE_LENGTH];
-                    vec3 q_attenuation_colors[MAX_BOUNCE_QUEUE_LENGTH];
-                    int q_remaining_bounces[MAX_BOUNCE_QUEUE_LENGTH];
+                    vec4 intersect_position = vec4(0);
+                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
+                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
                     
-                    if (MAX_BOUNCE_DEPTH > 0) {
-                        q_rays[0] = in_ray;
-                        q_attenuation_colors[0] = vec3(1.0);
-                        q_remaining_bounces[0] = MAX_BOUNCE_DEPTH-1;
-                        q_len = 1;
-                    }
-                    
-                    for (int i = 0; i < q_len; ++i) {
-                        Ray r = q_rays[i];
-                        vec3 attenuation_color = q_attenuation_colors[i];
-                        int remaining_bounces = q_remaining_bounces[i];
-                        
-                        vec4 intersect_position = vec4(0);
-                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                        total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
-                        
-                        if (remaining_bounces > 0 && intersect_position.w != 0.0) {
-                            if (i == 0)
-                                ray_depth = length(r.o - intersect_position);
-                            
-                            if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
-                                && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
-                            {
-                                q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
-                                q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
-                                q_remaining_bounces[q_len] = remaining_bounces - 1;
-                                ++q_len;
-                            }
-                            
-                            if (dot(nextRays.transmissionDirection, nextRays.transmissionDirection) > EPSILON
-                                && dot(nextRays.transmissionColor, nextRays.transmissionColor) > EPSILON)
-                            {
-                                q_rays[q_len] = Ray(intersect_position, nextRays.transmissionDirection);
-                                q_attenuation_colors[q_len] = nextRays.transmissionProbability * attenuation_color * nextRays.transmissionColor;
-                                q_remaining_bounces[q_len] = remaining_bounces - 1;
-                                ++q_len;
-                            }
-                        }
-                    }
-                    
-                    if (q_len == MAX_BOUNCE_QUEUE_LENGTH)
-                        return vec4(1.0, 0.0, 0.5, ray_depth);
-                    
-                    return vec4(total_color, ray_depth);
-                }`;
-        else
-            ret += `
-                vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
-                    vec3 total_color = vec3(0.0);
-                    float ray_depth = 1E20;
-                    
-                    Ray r = in_ray;
-                    vec3 attenuation_color = vec3(1);
-                    for (int i = 0; i < uMaxBounceDepth; ++i) {
-                        vec4 intersect_position = vec4(0);
-                        RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                        total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
-                        
-                        if (intersect_position.w == 0.0)
-                            break;
-                        
+                    if (remaining_bounces > 0 && intersect_position.w != 0.0) {
                         if (i == 0)
                             ray_depth = length(r.o - intersect_position);
                         
-                        bool do_next_ray = false;
-                        
-                        float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.transmissionProbability;
-                        if (next_ray_probability_sum > 0.0) {
-                        
-                            float next_ray_probability_sample = randf(random_seed) * max(next_ray_probability_sum, 1.0);
-                            
-                            next_ray_probability_sample -= nextRays.reflectionProbability;
-                            if (next_ray_probability_sample <= 0.0
-                                && normSquared(nextRays.reflectionDirection) > EPSILON)
-                            {
-                                r = Ray(intersect_position, nextRays.reflectionDirection);
-                                attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
-                                do_next_ray = true;
-                            }
-                            
-                            else {
-                                next_ray_probability_sample -= nextRays.transmissionProbability;
-                                if (next_ray_probability_sample <= 0.0
-                                    && normSquared(nextRays.transmissionDirection) > EPSILON)
-                                {
-                                    r = Ray(intersect_position, nextRays.transmissionDirection);
-                                    attenuation_color *= nextRays.transmissionColor * max(next_ray_probability_sum, 1.0);
-                                    do_next_ray = true;
-                                }
-                            }
+                        if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
+                            && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
+                        {
+                            q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
+                            q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
+                            q_remaining_bounces[q_len] = remaining_bounces - 1;
+                            ++q_len;
                         }
                         
-                        if (!do_next_ray)
-                            break;
+                        if (dot(nextRays.transmissionDirection, nextRays.transmissionDirection) > EPSILON
+                            && dot(nextRays.transmissionColor, nextRays.transmissionColor) > EPSILON)
+                        {
+                            q_rays[q_len] = Ray(intersect_position, nextRays.transmissionDirection);
+                            q_attenuation_colors[q_len] = nextRays.transmissionProbability * attenuation_color * nextRays.transmissionColor;
+                            q_remaining_bounces[q_len] = remaining_bounces - 1;
+                            ++q_len;
+                        }
+                    }
+                }
+                
+                if (q_len == MAX_BOUNCE_QUEUE_LENGTH)
+                    return vec4(1.0, 0.0, 0.5, ray_depth);
+                
+                return vec4(total_color, ray_depth);
+            }`;
+        else
+            ret += `
+            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
+                vec3 total_color = vec3(0.0);
+                float ray_depth = 1E20;
+                
+                Ray r = in_ray;
+                vec3 attenuation_color = vec3(1);
+                for (int i = 0; i < uMaxBounceDepth; ++i) {
+                    vec4 intersect_position = vec4(0);
+                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
+                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
+                    
+                    if (intersect_position.w == 0.0)
+                        break;
+                    
+                    if (i == 0)
+                        ray_depth = length(r.o - intersect_position);
+                    
+                    bool do_next_ray = false;
+                    
+                    float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.transmissionProbability;
+                    if (next_ray_probability_sum > 0.0) {
+                    
+                        float next_ray_probability_sample = randf(random_seed) * max(next_ray_probability_sum, 1.0);
+                        
+                        next_ray_probability_sample -= nextRays.reflectionProbability;
+                        if (next_ray_probability_sample <= 0.0
+                            && normSquared(nextRays.reflectionDirection) > EPSILON)
+                        {
+                            r = Ray(intersect_position, nextRays.reflectionDirection);
+                            attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
+                            do_next_ray = true;
+                        }
+                        
+                        else {
+                            next_ray_probability_sample -= nextRays.transmissionProbability;
+                            if (next_ray_probability_sample <= 0.0
+                                && normSquared(nextRays.transmissionDirection) > EPSILON)
+                            {
+                                r = Ray(intersect_position, nextRays.transmissionDirection);
+                                attenuation_color *= nextRays.transmissionColor * max(next_ray_probability_sum, 1.0);
+                                do_next_ray = true;
+                            }
+                        }
                     }
                     
-                    return vec4(total_color, ray_depth);
-                }`;
+                    if (!do_next_ray)
+                        break;
+                }
+                
+                return vec4(total_color, ray_depth);
+            }`;
         return ret
             + this.webgl_helper.getShaderSource()
             + this.adapters.world.getShaderSource()

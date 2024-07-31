@@ -110,7 +110,7 @@ class WebGLLightsAdapter {
                     world_pos += surface_position;
                 
                 vec4 delta = world_pos - surface_position;
-                GeometricMaterialData material_data = getGeometricMaterialData(light.geometry_id, local_pos, light.inv_transform * delta);
+                GeometricMaterialData material_data = getSampleGeometricMaterialData(light.geometry_id, local_pos, light.inv_transform * delta);
                 return LightSample(delta,
                     getMaterialColor(light.color_mc, material_data.UV) * lightFalloff(delta)
                         * abs(dot(normalize(delta.xyz), normalize((transpose(light.inv_transform) * material_data.normal).xyz)))
