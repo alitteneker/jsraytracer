@@ -411,6 +411,15 @@ class WebGLWorldAdapter {
     }
     getShaderSource(sceneEditable) {
         let ret = `
+        
+        
+            // ========== WORLD ==========
+            #define WORLD_EDITABLE ${Number(!!sceneEditable)}
+            #define WORLD_HAS_BVH_NODES ${Number(this.bvh_node_count > 0)}
+            #define WORLD_BVH_LEAVES_SINGULAR ${Number(!!this.bvh_all_leaves_singular)}
+            #define WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES ${Number(!!this.bvh_only_uses_untransformed_triangles)}
+        
+        
             uniform vec3 uBackgroundColor;
 
             uniform mat4 uTransforms[${Math.max(16, this.transform_store.size())}]; // TODO: should safety check the size of this, for larger sizes need a texture
@@ -447,6 +456,10 @@ class WebGLWorldAdapter {
                 return false;
             }
             
+
+            
+#if (WORLD_EDITABLE || (WORLD_HAS_BVH_NODES && !WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES))
+            // ---- Generic Intersection with a particular object ----
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
                 int geometry_id = 0;
                 if (prim_id < uWorldNumUntransformedTriangles)
@@ -461,6 +474,7 @@ class WebGLWorldAdapter {
                 }
                 return geometryIntersect(geometry_id, r, minDistance);
             }
+            // ---- Generic RayCast with a particular object ----
             bool worldRayCastObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -471,17 +485,8 @@ class WebGLWorldAdapter {
                 }
                 return false;
             }
-            
-
-            
-            
-            // ---- Generic Intersection with entire world ----
-            #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
-            #define WORLD_NODE_BVH_TYPE          ${WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE}
-            
-            int getIndexFromList(in int index) {
-                return itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData)[index % 4];
-            }
+    #if (WORLD_EDITABLE || (WORLD_HAS_BVH_NODES && !WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES && !WORLD_BVH_LEAVES_SINGULAR))
+            // ---- Generic RayCast with a list of objects ----
             bool worldRayCastList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -498,13 +503,14 @@ class WebGLWorldAdapter {
                         found_min = true;
                 }
                 return found_min;
-            }`
+            }
+    #endif
+#endif
             
-        if (sceneEditable || this.bvh_node_count > 0) {
-            ret += `
-            // ========== BVH ==========`;
-            if (!sceneEditable && this.bvh_only_uses_untransformed_triangles)
-                ret += `
+            
+            // ========== World BVH ==========
+#if (WORLD_EDITABLE || WORLD_HAS_BVH_NODES)
+    #if (!WORLD_EDITABLE && WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES)
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -515,6 +521,7 @@ class WebGLWorldAdapter {
                 }
                 return false;
             }
+        #if (!WORLD_BVH_LEAVES_SINGULAR)
             bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -531,9 +538,9 @@ class WebGLWorldAdapter {
                         found_min = true;
                 }
                 return found_min;
-            }`;
-            else
-                ret += `
+            }
+        #endif
+    #else
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
@@ -543,9 +550,9 @@ class WebGLWorldAdapter {
                 inout float min_found_t, inout int min_prim_id)
             {
                 return worldRayCastList(listStartIndex, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
-            }`;
+            }
+    #endif
             
-            ret += `
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
@@ -566,13 +573,12 @@ class WebGLWorldAdapter {
                         // if this is a leaf node, check all objects in this node
                         if (hitIndex < 0) {
                             // there are two possibilities: either the id corresponds to a single primitive id, or to a list
-                            int id = -hitIndex - 1;`;
-            if (!sceneEditable && this.bvh_all_leaves_singular)
-                ret += `
+                            int id = -hitIndex - 1;
+    #if (!WORLD_EDITABLE && WORLD_BVH_LEAVES_SINGULAR)
                             if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                                found_min = true;`;
-            else
-                ret += `
+                                found_min = true;
+                            
+    #else
                             // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
                             if (id < uWorldNumPrimitives) {
                                 if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
@@ -586,8 +592,8 @@ class WebGLWorldAdapter {
                                 int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
                                 if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
-                            }`
-            ret += `
+                            }
+    #endif
                         }
                         
                         // if this node has children, visit this node's left child next
@@ -602,11 +608,10 @@ class WebGLWorldAdapter {
                 }
                 
                 return found_min;
-            }`;
-        }
-           
-        ret += `
-            // ---- World Color ----
+            }
+#endif
+
+            // ---- Generic World Color ----
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
                 int primID = -1;
                 mat4 ancestorInvTransform = mat4(1.0);
@@ -627,8 +632,14 @@ class WebGLWorldAdapter {
                 return worldRayCast(r, minT, maxT, shadowFlag, primID, ancestorInvTransform);
             }`;
             
+        
+        // There's a much larger divergence in source if the scene is editable. Instead of using the preprocessor, the code is much
+        // more readable with branching in the source assembly.
         if (sceneEditable) {
             ret += `
+            #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
+            #define WORLD_NODE_BVH_TYPE          ${WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE}
+            
             vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 Primitive ids = getPrimitive(primID);
                 mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
@@ -656,7 +667,7 @@ class WebGLWorldAdapter {
                 }
 
                 return min_found_t;
-            }`
+            }`;
         }
         else {
             ret += `
