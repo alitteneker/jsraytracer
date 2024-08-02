@@ -48,6 +48,7 @@ class WebGLWorldAdapter {
         this.primitive_id_index_map = {};
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
+        this.aggregate_instance_data_map = {};
         this.untransformed_triangles = [];
         this.untransformed_triangles_by_material = [];
         this.bvh_first_instances = {};
@@ -165,12 +166,18 @@ class WebGLWorldAdapter {
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
             
+            const data_key = "BVH_" + obj.kdtree.NODE_UID;
+            if (!(data_key in this.aggregate_instance_data_map))
+                this.aggregate_instance_data_map[data_key] = [];
+            this.aggregate_instance_data_map[data_key].push(agg);
+            
             if (obj.kdtree.NODE_UID in this.bvh_first_instances) {
                 agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
                 agg.bvh_nodes = agg.bvh_reuse_from.bvh_nodes;
                 agg.indicesList = agg.bvh_reuse_from.indicesList;
                 agg.bvh_object_list = agg.bvh_reuse_from.bvh_object_list;
                 agg.bvhStartIndex = agg.bvh_reuse_from.bvhStartIndex;
+                agg.immediatePrimitiveChildren = agg.bvh_reuse_from.immediatePrimitiveChildren;
             }
             else {
                 const bvh_nodes = [];
@@ -200,6 +207,7 @@ class WebGLWorldAdapter {
                         for (let p of primitives) {
                             p.notTransformable = true;
                             agg.indicesList.push(p.index);
+                            agg.immediatePrimitiveChildren.push(p);
                             p.parents.push(agg);
                             if (p.index >= me.untransformed_triangles.length)
                                 me.bvh_only_uses_untransformed_triangles = false;
@@ -243,6 +251,10 @@ class WebGLWorldAdapter {
             if (!(obj.OBJECT_UID in this.aggregate_instance_map))
                 this.aggregate_instance_map[obj.OBJECT_UID] = [];
             this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
+            
+            if (!(obj.OBJECT_UID in this.aggregate_instance_data_map))
+                this.aggregate_instance_data_map[obj.OBJECT_UID] = [];
+            this.aggregate_instance_data_map[obj.OBJECT_UID].push(agg);
             
             for (let o of obj.objects)
                 agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
@@ -485,7 +497,7 @@ class WebGLWorldAdapter {
                 }
                 return false;
             }
-    #if (WORLD_EDITABLE || (WORLD_HAS_BVH_NODES && !WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES && !WORLD_BVH_LEAVES_SINGULAR))
+    #if (WORLD_EDITABLE || (!WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES && !WORLD_BVH_LEAVES_SINGULAR))
             // ---- Generic RayCast with a list of objects ----
             bool worldRayCastList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
@@ -670,7 +682,44 @@ class WebGLWorldAdapter {
             }`;
         }
         else {
+            ret += Object.values(this.aggregate_instance_data_map).map(aggs => aggs[0].getStaticShaderSource()).filter(s => s && s.length).join("\n");
             ret += `
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
+                float min_found_t = minT - 1.0;
+                mat4 root_invTransform;
+                Ray root_r;`;
+                
+            for (let aggs of Object.values(this.aggregate_instance_data_map)) {
+                if (aggs.length == 0 || aggs[0].isEmpty())
+                    continue;
+                ret += `
+                
+                    // ---------- Aggregate ${aggs[0].object.OBJECT_UID} ----------`;
+                if (aggs.length == 1) {
+                    ret += `
+                    root_invTransform = getTransform(${aggs[0].transformIndex});
+                    root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
+                    if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t", "ancestorInvTransform")})
+                        ancestorInvTransform = root_invTransform;`;
+                }
+                else {
+                    ret += `
+                    const int agg_transforms_${aggs[0].object.OBJECT_UID}[${aggs.length}] = int[${aggs.length}](${aggs.map(agg => agg.transformIndex).join(", ")});
+                    for (int i = 0; i < ${aggs.length}; ++i) {
+                        root_invTransform = getTransform(agg_transforms_${aggs[0].object.OBJECT_UID}[i]);
+                        root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
+                        if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t")})
+                            ancestorInvTransform = root_invTransform;
+                    }`;
+                }
+            }
+                
+            ret += `
+                
+                return min_found_t;
+            }
+            
+            
             vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
                 int materialID = 0;
                 mat4 inverseTransform = mat4(1.0);
@@ -704,14 +753,7 @@ class WebGLWorldAdapter {
             ret += `
                 }
                 return colorForMaterial(materialID, rp, r, geomatdata, random_seed, nextRays);
-            }
-            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
-                float min_found_t = minT - 1.0;
-                
-                ${this.aggregates.map(agg => agg.getIntersectShaderSource("r", "minT", "maxT", "shadowFlag", "primID", "min_found_t", "ancestorInvTransform")).join("\n")}
-                
-                return min_found_t;
-            }`
+            }`;
         }
         return ret
             + this.adapters.lights.getShaderSource(sceneEditable)     + "\n"
@@ -797,31 +839,40 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
     getMaterialValues() {
         return {};
     }
-    getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
-        if (this.immediatePrimitiveChildren.length == 0)
+    isEmpty() {
+        return this.immediatePrimitiveChildren.length == 0;
+    }
+    getStaticShaderSource() {
+        if (this.isEmpty())
             return "";
         let ret = `
-                    {
-                        mat4 root_invTransform = getTransform(${this.transformIndex}), local_invTransform;
-                        Ray root_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d), local_r;
+            bool intersectAggregate_${this.object.OBJECT_UID}(in Ray root_r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout float min_found_t) {
+                bool found_min = false;
+                mat4 local_invTransform;
+                Ray local_r;
         `;
         
         for (const prim of this.immediatePrimitiveChildren) {
             if (prim.getInvTransform().is_identity())
                 ret += `
-                        local_r = root_r;`;
+                local_r = root_r;`;
             else
                 ret += `
-                        local_invTransform = getTransform(${prim.transformIndex});
-                        local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
+                local_invTransform = getTransform(${prim.transformIndex});
+                local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
             ret += `
-                        if (${!prim.shadowFlag ? ("!" + shadowFlag_src) + " && " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", minT_src)}, ${minT_src}, ${maxT_src}, ${min_found_t_src})) {
-                            ${primID_src} = ${prim.index};
-                            ${ancestorInvTransform_src} = root_invTransform;
-                        }`;
+                if (${!prim.shadowFlag ? "!shadowFlag && " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", "minT")}, minT, maxT, min_found_t)) {
+                    primID = ${prim.index};
+                    found_min = true;
+                }`;
         }
         return ret + `
-                    }`;
+                return found_min;
+            }`;
+    }
+    getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
+        return `intersectAggregate_${this.object.OBJECT_UID}(root_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${primID_src}, ${min_found_t_src})`;
+                
     }
 }
 
@@ -832,16 +883,14 @@ class WrappedBVHAggregate extends WrappedAggregate {
         this.type_code = WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE;
         this.all_leaves_singular = true;
     }
-    getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
+    getStaticShaderSource() {
+        if (this.isEmpty())
+            return "";
         return `
-                    { 
-                        mat4 root_invTransform = getTransform(${this.transformIndex});
-                        Ray root_r = Ray(root_invTransform * ${ray_src}.o, root_invTransform * ${ray_src}.d);
-                    
-                        if (worldRayCastBVH(${this.bvhStartIndex}, ${this.indicesStartIndex}, root_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${min_found_t_src}, ${primID_src}))
-                            ${ancestorInvTransform_src} = root_invTransform;
-                    }
-        `;
+            bool intersectAggregate_${this.object.OBJECT_UID}(in Ray root_r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout float min_found_t) {
+                return worldRayCastBVH(${this.bvhStartIndex}, ${this.indicesStartIndex}, root_r, minT, maxT, shadowFlag, min_found_t, primID);
+            }`;
+        
     }
 }
 

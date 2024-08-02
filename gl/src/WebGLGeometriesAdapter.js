@@ -145,7 +145,7 @@ class WebGLGeometriesAdapter {
                 float cylMinDistance = minDistance;
                 if (abs(r.o.z) > 1.0 && r.d.z != 0.0)
                     cylMinDistance = max(minDistance, -(r.o.z - sign(r.o.z)) / r.d.z);
-                float t = unitSphereIntersect(Ray(r.o * vec4(1,1,0,1), r.d * vec4(1,1,0,1)), cylMinDistance);
+                float t = sphereIntersect(Ray(r.o * vec4(1,1,0,1), r.d * vec4(1,1,0,1)), cylMinDistance);
                 return (abs(r.o.z + t * r.d.z) <= 1.0) ? t : minDistance - 1.0;
             }`,
             "", `
