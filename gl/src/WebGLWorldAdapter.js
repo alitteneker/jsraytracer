@@ -689,17 +689,17 @@ class WebGLWorldAdapter {
                 mat4 root_invTransform;
                 Ray root_r;`;
                 
-            for (let aggs of Object.values(this.aggregate_instance_data_map)) {
+            for (let [i, aggs] of Object.entries(Object.values(this.aggregate_instance_data_map))) {
                 if (aggs.length == 0 || aggs[0].isEmpty())
                     continue;
                 ret += `
                 
-                    // ---------- Aggregate ${aggs[0].object.OBJECT_UID} ----------`;
+                    // ---------- Aggregate ${i} ----------`;
                 if (aggs.length == 1) {
                     ret += `
                     root_invTransform = getTransform(${aggs[0].transformIndex});
                     root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
-                    if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t", "ancestorInvTransform")})
+                    if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t")})
                         ancestorInvTransform = root_invTransform;`;
                 }
                 else {
@@ -815,10 +815,6 @@ class WrappedLight extends AbstractWrappedWorldObject {
 }
 
 class WrappedAggregate extends AbstractWrappedWorldObject {
-    static TypeCodeMap = {
-        "aggregate": WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
-        "BVH": WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE
-    };
     constructor(index, object, ancestors, transformIndex, worldadapter) {
         super("aggregate", object, ancestors, worldadapter);
         this.type_code = WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE;

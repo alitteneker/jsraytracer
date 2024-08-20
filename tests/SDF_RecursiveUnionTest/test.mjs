@@ -39,7 +39,7 @@ export function configureTest(callback) {
                 2),
             600, 0.00001, 1000),
         new PhongMaterial(Vec.of(0.1, 0.1, 1), 0.2, 0.4, 0.6, 100, 0.15),
-        Mat4.translation([-1.5,-1,-13.5]).times(Mat4.rotationY(-0.45)).times(Mat4.scale(5))));
+        Mat4.translation([-1.5,-1,-13.5]).times(Mat4.rotationY(-0.45)).times(Mat4.rotationX(-Math.pi / 2)).times(Mat4.scale(5))));
         
     callback({
         renderer: new IncrementalMultisamplingRenderer(
