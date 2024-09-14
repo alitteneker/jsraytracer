@@ -48,10 +48,11 @@ class WebGLWorldAdapter {
         this.primitive_id_index_map = {};
         this.aggregate_id_index_map = {};
         this.aggregate_instance_map = {};
-        this.aggregate_instance_data_map = {};
         this.untransformed_triangles = [];
         this.untransformed_triangles_by_material = [];
-        this.bvh_first_instances = {};
+        
+        this.bvh_trees = {};
+        this.bvh_tree_order = [];
         this.bvh_node_count = 0;
         this.bvh_only_uses_untransformed_triangles = true;
         this.bvh_all_leaves_singular = true;
@@ -113,17 +114,23 @@ class WebGLWorldAdapter {
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
         
-        // finally, we need to determine an order for any list start positions, as traversal order may change
+        // finally, we need to determine an order for any list start positions, as traversal order may separate
+        // contiguous primitives under a single aggregate.
+        this.updateIndicesStart();
+    }
+    
+    updateIndicesStart() {
         let indices_count = 0;
+        for (const t of this.bvh_tree_order) {
+            t.indicesStartIndex = indices_count;
+            indices_count += t.node_count;
+        }
         for (const a of this.aggregates) {
-            if (a.bvh_reuse_from)
-                a.indicesStartIndex = a.bvh_reuse_from.indicesStartIndex;
+            if (a.type == "BVH")
+                a.indicesStartIndex = a.bvh_tree.indicesStartIndex;
             else {
                 a.indicesStartIndex = indices_count;
-                if (a.type == "BVH")
-                    indices_count += a.bvh_object_list.length;
-                else
-                    indices_count += a.indicesList.length;
+                indices_count += a.indicesList.length;
             }
         }
     }
@@ -156,105 +163,18 @@ class WebGLWorldAdapter {
             return prim;
         }
         else if (obj instanceof BVHAggregate) {
-            const agg = new WrappedBVHAggregate(this.aggregates.length, obj, ancestors,
+            // NB: construction of a wrapped bvh tree will automatically call visit primitive on all
+            // descendant objects, so there is no need to do it again as with regular aggregates.
+            const bvh_tree = (obj.kdtree.NODE_UID in this.bvh_trees)
+                ? this.bvh_trees[obj.kdtree.NODE_UID]
+                : new WrappedBVHTree(this.bvh_trees.length, obj.kdtree, this, webgl_helper);
+            
+            return new WrappedBVHAggregate(this.aggregates.length, obj, bvh_tree, ancestors,
                 this.registerObjectTransform(obj, ancestors), this);
-            
-            this.aggregate_id_index_map[agg.ID] = this.aggregates.length;
-            this.aggregates.push(agg);
-            
-            if (!(obj.OBJECT_UID in this.aggregate_instance_map))
-                this.aggregate_instance_map[obj.OBJECT_UID] = [];
-            this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
-            
-            const data_key = "BVH_" + obj.kdtree.NODE_UID;
-            if (!(data_key in this.aggregate_instance_data_map))
-                this.aggregate_instance_data_map[data_key] = [];
-            this.aggregate_instance_data_map[data_key].push(agg);
-            
-            if (obj.kdtree.NODE_UID in this.bvh_first_instances) {
-                agg.bvh_reuse_from = this.bvh_first_instances[obj.kdtree.NODE_UID];
-                agg.bvh_nodes = agg.bvh_reuse_from.bvh_nodes;
-                agg.indicesList = agg.bvh_reuse_from.indicesList;
-                agg.bvh_object_list = agg.bvh_reuse_from.bvh_object_list;
-                agg.bvhStartIndex = agg.bvh_reuse_from.bvhStartIndex;
-                agg.immediatePrimitiveChildren = agg.bvh_reuse_from.immediatePrimitiveChildren;
-            }
-            else {
-                const bvh_nodes = [];
-                const bvh_node_indices = {};
-                const bvh_object_list = [];
-                
-                const me = this;
-                function BVHVisitorFn(node, parent_node=null, isGreater=false) {
-                    const node_index = bvh_node_indices[node.NODE_UID] = bvh_nodes.length;
-                    const node_data = {
-                        raw_node:       node,
-                        parent_node:    parent_node,
-                        aabb:           node.aabb,
-                        isGreater:      isGreater,
-                        isLeaf:         node.isLeaf,
-                    };
-                    bvh_nodes.push(node_data);
-                    
-                    if (!node.isLeaf) {
-                        BVHVisitorFn(node.greater_node, node_data, true);
-                        BVHVisitorFn(node.lesser_node,  node_data, false);
-                        node_data.hitIndex = bvh_node_indices[node.greater_node.NODE_UID];
-                    }
-                    else {
-                        const primitives = node.objects.map(o => me.visitPrimitive(o, webgl_helper));
-                        node_data.isSingularLeaf = primitives.length == 1;
-                        for (let p of primitives) {
-                            p.notTransformable = true;
-                            agg.indicesList.push(p.index);
-                            agg.immediatePrimitiveChildren.push(p);
-                            p.parents.push(agg);
-                            if (p.index >= me.untransformed_triangles.length)
-                                me.bvh_only_uses_untransformed_triangles = false;
-                        }
-                        if (primitives.length == 1)
-                            node_data.hitIndex = -1 - primitives[0].index;
-                        else {
-                            me.bvh_all_leaves_singular = agg.all_leaves_singular = false;
-                            node_data.hitIndex = bvh_object_list.length;
-                            bvh_object_list.push(primitives.length);
-                            for (let p of primitives)
-                                bvh_object_list.push(p.index);
-                        }
-                    }
-                };
-                BVHVisitorFn(obj.kdtree);
-                
-                for (let node_data of bvh_nodes) {
-                    let next_node = node_data;
-                    while (next_node && !next_node.isGreater)
-                        next_node = next_node.parent_node;
-                    node_data.missIndex = next_node ? bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
-                }
-                
-                agg.bvh_nodes = bvh_nodes;
-                agg.bvh_object_list = bvh_object_list;
-                
-                agg.bvhStartIndex = this.bvh_node_count;
-                this.bvh_node_count += bvh_nodes.length;
-                this.bvh_first_instances[obj.kdtree.NODE_UID] = agg;
-            }
-            
-            return agg;
         }
         else if (obj instanceof Aggregate) {
             const agg = new WrappedAggregate(this.aggregates.length, obj, ancestors,
                 this.registerObjectTransform(obj, ancestors), this);
-            this.aggregate_id_index_map[agg.ID] = this.aggregates.length;
-            this.aggregates.push(agg);
-            
-            if (!(obj.OBJECT_UID in this.aggregate_instance_map))
-                this.aggregate_instance_map[obj.OBJECT_UID] = [];
-            this.aggregate_instance_map[obj.OBJECT_UID].push(agg);
-            
-            if (!(obj.OBJECT_UID in this.aggregate_instance_data_map))
-                this.aggregate_instance_data_map[obj.OBJECT_UID] = [];
-            this.aggregate_instance_data_map[obj.OBJECT_UID].push(agg);
             
             for (let o of obj.objects)
                 agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
@@ -377,21 +297,19 @@ class WebGLWorldAdapter {
         // process world node data for writing
         const primitive_list = this.primitives.map(o => [o.geometryIndex, o.materialIndex, o.transformIndex, Number(o.object.does_cast_shadow)]).flat();
         let aggregate_list = [], indices_list = [], aabb_data = [];
+        for (let a of this.bvh_tree_order) {
+            indices_list = indices_list.concat(a.bvh_object_list);
+            aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
+                ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
+                ...n.aabb.half_size.to3(), n.missIndex]).flat());
+        }
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex, a.indicesList.length);
                 indices_list = indices_list.concat(a.indicesList);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                if (a.bvh_reuse_from)
-                    aggregate_list.push(a.type_code, a.transformIndex, a.bvh_reuse_from.bvhStartIndex, a.bvh_reuse_from.indicesStartIndex);
-                else {
-                    aggregate_list.push(a.type_code, a.transformIndex, a.bvhStartIndex, a.indicesStartIndex);
-                    indices_list = indices_list.concat(a.bvh_object_list);
-                    aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
-                        ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
-                        ...n.aabb.half_size.to3(), n.missIndex]).flat());
-                }
+                aggregate_list.push(a.type_code, a.transformIndex, a.bvhStartIndex, a.indicesStartIndex);
             }
             else
                 throw "Unsupported aggregate type detected";
@@ -422,6 +340,8 @@ class WebGLWorldAdapter {
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
     getShaderSource(sceneEditable) {
+        this.shader_transform_size = Math.max(16, this.transform_store.size());
+        
         let ret = `
         
         
@@ -434,7 +354,8 @@ class WebGLWorldAdapter {
         
             uniform vec3 uBackgroundColor;
 
-            uniform mat4 uTransforms[${Math.max(16, this.transform_store.size())}]; // TODO: should safety check the size of this, for larger sizes need a texture
+            // TODO: should safety check the size of this, for larger sizes need a texture
+            uniform mat4 uTransforms[${this.shader_transform_size}];
             mat4 getTransform(in int index) {
                 if (index < 0)
                     return mat4(1.0);
@@ -682,15 +603,34 @@ class WebGLWorldAdapter {
             }`;
         }
         else {
-            ret += Object.values(this.aggregate_instance_data_map).map(aggs => aggs[0].getStaticShaderSource()).filter(s => s && s.length).join("\n");
+            ret += Object.values(this.aggregate_instance_map).map(aggs => aggs[0].getStaticShaderSource()).filter(s => s && s.length).join("\n");
             ret += `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
                 mat4 root_invTransform;
                 Ray root_r;`;
+            
+            if (this.bvh_tree_order.length > 0) {
+                const bvhs = [];
+                for (let b of this.bvh_tree_order) {
+                    if (b.instances.length == 0 || b.primitives.length == 0)
+                        continue;
+                    for (let i of b.instances)
+                        bvhs.push(i.transformIndex, i.bvhStartIndex, i.indicesStartIndex);
+                }
+                ret += `
                 
-            for (let [i, aggs] of Object.entries(Object.values(this.aggregate_instance_data_map))) {
-                if (aggs.length == 0 || aggs[0].isEmpty())
+                // ---------- BVHs ----------
+                const int bvhs[${bvhs.length}] = int[${bvhs.length}](${bvhs.join(", ")});
+                for (int i = 0; i < min(${bvhs.length / 3}, uWorldNumAggregates); ++i) {
+                    root_invTransform = getTransform(bvhs[i*3]);
+                    root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
+                    if (worldRayCastBVH(bvhs[3*i + 1], bvhs[3*i + 2], root_r, minT, maxT, shadowFlag, min_found_t, primID))
+                        ancestorInvTransform = root_invTransform;
+                }`;
+            }
+            for (let [i, aggs] of Object.entries(Object.values(this.aggregate_instance_map))) {
+                if (aggs.length == 0 || aggs[0].isEmpty() || aggs[0].type == "BVH")
                     continue;
                 ret += `
                 
@@ -704,7 +644,7 @@ class WebGLWorldAdapter {
                 }
                 else {
                     ret += `
-                    const int agg_transforms_${aggs[0].object.OBJECT_UID}[${aggs.length}] = int[${aggs.length}](${aggs.map(agg => agg.transformIndex).join(", ")});
+                    const int agg_transforms_${i}[${aggs.length}] = int[${aggs.length}](${aggs.map(a => a.transformIndex).join(", ")});
                     for (int i = 0; i < min(${aggs.length}, uWorldNumAggregates); ++i) {
                         root_invTransform = getTransform(agg_transforms_${aggs[0].object.OBJECT_UID}[i]);
                         root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
@@ -817,10 +757,18 @@ class WrappedLight extends AbstractWrappedWorldObject {
 class WrappedAggregate extends AbstractWrappedWorldObject {
     constructor(index, object, ancestors, transformIndex, worldadapter) {
         super("aggregate", object, ancestors, worldadapter);
+        this.index = index;
         this.type_code = WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE;
         this.ID = (ancestors && ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + object.OBJECT_UID;
         this.transformIndex = transformIndex;
         this.transform = { index: transformIndex, value: worldadapter.transform_store.get(this.transformIndex) };
+        
+        worldadapter.aggregate_id_index_map[this.ID] = worldadapter.aggregates.length;
+        worldadapter.aggregates.push(this);
+        
+        if (!(object.OBJECT_UID in worldadapter.aggregate_instance_map))
+            worldadapter.aggregate_instance_map[object.OBJECT_UID] = [];
+        worldadapter.aggregate_instance_map[object.OBJECT_UID].push(this);
         
         this.children = [];
         this.indicesList = [];
@@ -842,7 +790,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
         if (this.isEmpty())
             return "";
         let ret = `
-            bool intersectAggregate_${this.object.OBJECT_UID}(in Ray root_r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout float min_found_t) {
+            bool intersectAggregate_${this.index}(in Ray root_r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout float min_found_t) {
                 bool found_min = false;
                 mat4 local_invTransform;
                 Ray local_r;
@@ -867,26 +815,97 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
             }`;
     }
     getIntersectShaderSource(ray_src, minT_src, maxT_src, shadowFlag_src, primID_src, min_found_t_src, ancestorInvTransform_src) {
-        return `intersectAggregate_${this.object.OBJECT_UID}(root_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${primID_src}, ${min_found_t_src})`;
-                
+        return `intersectAggregate_${this.index}(root_r, ${minT_src}, ${maxT_src}, ${shadowFlag_src}, ${primID_src}, ${min_found_t_src})`;
     }
 }
 
+class WrappedBVHTree {
+    constructor(index, kdtree, worldadapter, webgl_helper) {
+        this.kdtree = kdtree;
+        this.worldadapter = worldadapter;
+        
+        this.index = worldadapter.bvh_tree_order.length;
+        worldadapter.bvh_tree_order.push(worldadapter.bvh_trees[kdtree.NODE_UID] = this);
+        
+        this.bvh_nodes = [];
+        this.bvh_node_indices = {};
+        this.bvh_object_list = [];
+        this.primitives = [];
+        
+        this.BVHVisitorFn(kdtree, webgl_helper);
+        this.node_count = this.bvh_nodes.length;
+        
+        for (let node_data of this.bvh_nodes) {
+            let next_node = node_data;
+            while (next_node && !next_node.isGreater)
+                next_node = next_node.parent_node;
+            node_data.missIndex = next_node ? this.bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
+        }
+        
+        this.bvhStartIndex = worldadapter.bvh_node_count;
+        worldadapter.bvh_node_count += this.bvh_nodes.length;
+        
+        this.instances = [];
+    }
+    
+    BVHVisitorFn(node, webgl_helper, parent_node=null, isGreater=false) {
+        const node_index = this.bvh_node_indices[node.NODE_UID] = this.bvh_nodes.length;
+        const node_data = {
+            raw_node:       node,
+            parent_node:    parent_node,
+            aabb:           node.aabb,
+            isGreater:      isGreater,
+            isLeaf:         node.isLeaf,
+        };
+        this.bvh_nodes.push(node_data);
+        
+        if (!node.isLeaf) {
+            this.BVHVisitorFn(node.greater_node, webgl_helper, node_data, true);
+            this.BVHVisitorFn(node.lesser_node,  webgl_helper, node_data, false);
+            node_data.hitIndex = this.bvh_node_indices[node.greater_node.NODE_UID];
+        }
+        else {
+            const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper));
+            node_data.isSingularLeaf = primitives.length == 1;
+            this.primitives = this.primitives.concat(primitives);
+            for (let p of primitives) {
+                p.notTransformable = true;
+                if (p.index >= this.worldadapter.untransformed_triangles.length)
+                    this.worldadapter.bvh_only_uses_untransformed_triangles = false;
+            }
+            if (primitives.length == 1)
+                node_data.hitIndex = -1 - primitives[0].index;
+            else {
+                this.worldadapter.bvh_all_leaves_singular = false;
+                node_data.hitIndex = this.bvh_object_list.length;
+                this.bvh_object_list.push(primitives.length);
+                for (let p of primitives)
+                    this.bvh_object_list.push(p.index);
+            }
+        }
+    };
+}
+
 class WrappedBVHAggregate extends WrappedAggregate {
-    constructor(index, object, ancestors, transformIndex, worldadapter) {
+    constructor(index, object, bvh_tree, ancestors, transformIndex, worldadapter) {
         super(index, object, ancestors, transformIndex, worldadapter);
         this.type = "BVH";
         this.type_code = WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE;
-        this.all_leaves_singular = true;
+        
+        this.bvhStartIndex = bvh_tree.bvhStartIndex;
+        this.bvh_tree = bvh_tree;
+        bvh_tree.instances.push(this);
+        
+        this.children = this.immediatePrimitiveChildren = bvh_tree.primitives;
+        this.indicesList = bvh_tree.primitives.map(p => p.index);
+        for (let p of bvh_tree.primitives)
+            p.parents.push(this);
     }
     getStaticShaderSource() {
-        if (this.isEmpty())
-            return "";
-        return `
-            bool intersectAggregate_${this.object.OBJECT_UID}(in Ray root_r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout float min_found_t) {
-                return worldRayCastBVH(${this.bvhStartIndex}, ${this.indicesStartIndex}, root_r, minT, maxT, shadowFlag, min_found_t, primID);
-            }`;
-        
+        return "";
+    }
+    getIntersectShaderSource() {
+        throw "This shouldn't be called for BVH Aggregates!";
     }
 }
 
