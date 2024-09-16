@@ -342,6 +342,9 @@ class WebGLWorldAdapter {
     getShaderSource(sceneEditable) {
         this.shader_transform_max_size = Math.max(16, this.transform_store.size());
         
+        // Below is most of the significant source for world ray cast and color functions, where the geometry and
+        // material functionality is directly invoked. The source below has a variety of preprocessor branches that
+        // can dramatically simplify the source if certain conditions are met, such as if the scene is not editable.
         let ret = `
         
         
@@ -486,40 +489,62 @@ class WebGLWorldAdapter {
             }
     #endif
             
+            // This function looks complicated, but it's actually pretty simple. It's basically
+            // emulating the standard recursive BVH traversal, but without recursion. How?
+            // The magic is that, at each step, which node to visit next, if the AABB has been
+            // hit or missed by the ray, was precomputed on the JS client side when the BVH data
+            // was encoded into uWorldAABBs. See WrappedBVHTree for details.
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
                 
                 int node_index = 0;
                 while (node_index >= 0) {
+                    // BVH node data is stored in the following format in a texture with 4 values per pixel:
+                    //    [ AABB center    (x,y,z), hitIndex,
+                    //      AABB half-size (x,y,z), missIndex ]
+                    
+                    // As a result, data for node i can be found at index 2*i. However, all node
+                    // indices are specified relative to the index of the root node, so an offset
+                    // of the root index must be included.
                     int aabb_index = 2 * (root_index + node_index);
+                    
                     vec4 node1 = texelFetchByIndex(aabb_index,     uWorldAABBs);
                     vec4 node2 = texelFetchByIndex(aabb_index + 1, uWorldAABBs);
                     
                     int hitIndex  = int(node1.w);
                     int missIndex = int(node2.w);
                     
+                    // Identify where the ray could intersect this node's AABB, and test whether the possible
+                    // range of intersections would be useful given the range desired. This is called a 'hit'.
                     vec2 aabb_ts = AABBIntersects(r, vec4(node1.xyz, 1.0), vec4(node2.xyz, 0.0), minT, maxT);
                     bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
                     
                     if (hit_node) {
                         
-                        // if this is a leaf node, check all objects in this node
+                        // If the hit node is a leaf node (encoded by an index less than zero), check all objects in this node.
                         if (hitIndex < 0) {
-                            // there are two possibilities: either the id corresponds to a single primitive id, or to a list
                             int id = -hitIndex - 1;
+                            // There are two possibilities: either the id corresponds to a single primitive
+                            // id (encoded as a number less than the number of primitives), or to a list
+                            // (encoded as a number greater than the number of primitives).
+                            
+                            // If the world is not editable, and every BVH is a leaf with a single primitive,
+                            // only the single primitive case need be compiled.
     #if (!WORLD_EDITABLE && WORLD_BVH_LEAVES_SINGULAR)
                             if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                 found_min = true;
                             
     #else
-                            // single primitive ids are easy (and should dominate most good BVH constructions), so we just do them directly
+                            // Single primitive ids are easy (and should dominate most good BVH constructions),
+                            // so we just do them directly.
                             if (id < uWorldNumPrimitives) {
                                 if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
                             }
                             
-                            // lists are a bit harder: we don't know how long the list is, so we have to first lookup the length before we can test.
-                            // Fortunately, these should be a small fraction of BVH nodes, so the cost should be much lower on average.
+                            // lists are a bit harder: we don't know how long the list is, so we have to first
+                            // lookup the length before we can test. Fortunately, these should be a small fraction
+                            // of BVH nodes, so the cost should be much lower on average.
                             else {
                                 int listStart = indices_offset + (id - uWorldNumPrimitives);
                                 int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
@@ -529,13 +554,16 @@ class WebGLWorldAdapter {
     #endif
                         }
                         
-                        // if this node has children, visit this node's left child next
+                        // If this node has children (i.e., is not a leaf, indicated by an index greater than zero),
+                        // visit this node's left child next, which is stored in hitIndex.
                         else if (hitIndex > 0)
                             node_index = hitIndex;
                     }
                     
-                    // if we missed this node or this node has NO child nodes (e.g. leaf node),
-                    // find the closest ancestor that is a left child, and visit its right sibling next
+                    // If we missed this node or this node has NO child nodes (e.g. leaf node),
+                    // find the closest ancestor that is a left child, and visit its right sibling next.
+                    // Note that the finding of the closest ancestor was done when the BVH was encoded
+                    // in the client side JS, so missIndex is exactly that next node.
                     if (!hit_node || hitIndex < 0)
                         node_index = missIndex;
                 }
@@ -558,7 +586,8 @@ class WebGLWorldAdapter {
             }
             
             
-            // -------- Generic Ray Cast ---------
+            // This is an overload for worldRayCast that skips over some of the inout parameters
+            // that are not relevant for some purposes like casting shadow rays.
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
                 int primID = -1;
                 mat4 ancestorInvTransform = mat4(1.0);
@@ -566,8 +595,14 @@ class WebGLWorldAdapter {
             }`;
             
         
-        // There's a much larger divergence in source if the scene is editable. Instead of using the preprocessor, the code is much
-        // more readable with branching in the source assembly.
+        // There's a much larger divergence in source if the scene is editable. Instead of using the preprocessor,
+        // the code is much more readable with branching in the source assembly.
+        
+        // The branch below is taken if the world is supposed to be editable at run time.
+        // In this case, all aggregate and primitive data is read from the uWorldData texture, allowing any scene
+        // to be rendered with the same shader. However, the downside is that the renderer will be significantly
+        // slower for some scene/device permutations, and shader compilation will be very slow (e.g., more than
+        // a minute) on some devices (e.g., Windows).
         if (sceneEditable) {
             ret += `
             #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
@@ -602,14 +637,26 @@ class WebGLWorldAdapter {
                 return min_found_t;
             }`;
         }
+        
+        // If this branch is taken, the scene is not editable. This is potentially good news: by only including
+        // features needed for this scene, we can do a lot more to make a shader that will compile and run faster.
+        // However, it also makes this source considerably more complicated, with JS and GLSL mixing together.
         else {
-            ret += Object.values(this.aggregate_instance_map).map(aggs => aggs[0].getStaticShaderSource()).filter(s => s && s.length).join("\n");
+            // First, let any aggregates specify any shader source declarations they may depend on later.
+            ret += Object.values(this.aggregate_instance_map)
+                .map(aggs => aggs[0].getStaticShaderSource())
+                .filter(s => s && s.length)
+                .join("\n");
+
+            // Specify a statically defined ray cast function for shadow or color casting.
             ret += `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
                 mat4 root_invTransform;
                 Ray root_r;`;
             
+            // To significantly reduce the inline source complexity (and therefore compile time), all BVHs
+            // are grouped together into a single invocation of the worldRayCastBVH function.
             if (this.bvh_tree_order.length > 0) {
                 const bvhs = [];
                 for (let b of this.bvh_tree_order)
@@ -626,12 +673,19 @@ class WebGLWorldAdapter {
                         ancestorInvTransform = root_invTransform;
                 }`;
             }
+            
+            // Each aggregate also gets to specify an intersect function, generally as specified in WrappedAggregate.
             for (let [i, aggs] of Object.entries(Object.values(this.aggregate_instance_map))) {
                 if (aggs.length == 0 || aggs[0].isEmpty() || aggs[0].type == "BVH")
                     continue;
                 ret += `
                 
                     // ---------- Aggregate ${i} ----------`;
+                
+                // The following two sections of code are functionally identical: both essentially get a
+                // transform for each aggregate instance, apply it to the ray, and call the aggregate
+                // intersect function. However, the code can be made simpler, and faster to compile, for
+                // the more common case of single instance aggregates.
                 if (aggs.length == 1) {
                     ret += `
                     root_invTransform = getTransform(${aggs[0].transformIndex});

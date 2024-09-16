@@ -6,7 +6,7 @@ export function configureTest(callback) {
     const lights = [];
     lights.push(new RandomSampleAreaLight(
         new Square(),
-        Mat4.translation([0,8.9,0])
+        Mat4.translation([0,10,0])
             .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0)))
             .times(Mat4.scale([1,1,1])),
         Vec.of(1,1,1), 2000, 4));
