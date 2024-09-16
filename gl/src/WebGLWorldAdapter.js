@@ -646,7 +646,7 @@ class WebGLWorldAdapter {
                     ret += `
                     const int agg_transforms_${i}[${aggs.length}] = int[${aggs.length}](${aggs.map(a => a.transformIndex).join(", ")});
                     for (int i = 0; i < min(${aggs.length}, uWorldNumAggregates); ++i) {
-                        root_invTransform = getTransform(agg_transforms_${aggs[0].object.OBJECT_UID}[i]);
+                        root_invTransform = getTransform(agg_transforms_${i}[i]);
                         root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
                         if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t")})
                             ancestorInvTransform = root_invTransform;
