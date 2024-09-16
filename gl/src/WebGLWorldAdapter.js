@@ -344,7 +344,9 @@ class WebGLWorldAdapter {
         
         // Below is most of the significant source for world ray cast and color functions, where the geometry and
         // material functionality is directly invoked. The source below has a variety of preprocessor branches that
-        // can dramatically simplify the source if certain conditions are met, such as if the scene is not editable.
+        // can dramatically simplify the source if certain conditions are met, such as if the scene is not editable,
+        // if the scene contains any BVHs, if all BVH leaf nodes contain only a single primitive, or if all primitives
+        // inside a BVH are triangles with simple identity transforms.
         let ret = `
         
         
@@ -491,7 +493,7 @@ class WebGLWorldAdapter {
             
             // This function looks complicated, but it's actually pretty simple. It's basically
             // emulating the standard recursive BVH traversal, but without recursion. How?
-            // The magic is that, at each step, which node to visit next, if the AABB has been
+            // The magic is that the node to visit next, whether this node's AABB has been
             // hit or missed by the ray, was precomputed on the JS client side when the BVH data
             // was encoded into uWorldAABBs. See WrappedBVHTree for details.
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
