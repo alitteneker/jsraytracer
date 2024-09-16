@@ -340,7 +340,7 @@ class WebGLWorldAdapter {
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
     getShaderSource(sceneEditable) {
-        this.shader_transform_size = Math.max(16, this.transform_store.size());
+        this.shader_transform_max_size = Math.max(16, this.transform_store.size());
         
         let ret = `
         
@@ -355,7 +355,7 @@ class WebGLWorldAdapter {
             uniform vec3 uBackgroundColor;
 
             // TODO: should safety check the size of this, for larger sizes need a texture
-            uniform mat4 uTransforms[${this.shader_transform_size}];
+            uniform mat4 uTransforms[${this.shader_transform_max_size}];
             mat4 getTransform(in int index) {
                 if (index < 0)
                     return mat4(1.0);
@@ -612,12 +612,9 @@ class WebGLWorldAdapter {
             
             if (this.bvh_tree_order.length > 0) {
                 const bvhs = [];
-                for (let b of this.bvh_tree_order) {
-                    if (b.instances.length == 0 || b.primitives.length == 0)
-                        continue;
+                for (let b of this.bvh_tree_order)
                     for (let i of b.instances)
                         bvhs.push(i.transformIndex, i.bvhStartIndex, i.indicesStartIndex);
-                }
                 ret += `
                 
                 // ---------- BVHs ----------
@@ -796,19 +793,50 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                 Ray local_r;
         `;
         
+        const prims_by_geometry_type = {};
         for (const prim of this.immediatePrimitiveChildren) {
-            if (prim.getInvTransform().is_identity())
-                ret += `
-                local_r = root_r;`;
+            if (!(prim.geometryIndex in prims_by_geometry_type))
+                prims_by_geometry_type[prim.geometryIndex] = [prim];
             else
+                prims_by_geometry_type[prim.geometryIndex].push(prim);
+        }
+        
+        for (const [geometry_type, prims] of Object.entries(prims_by_geometry_type)) {
+            if (prims.length == 1) {
+                const prim = prims[0];
+                if (prim.getInvTransform().is_identity())
+                    ret += `
+                    local_r = root_r;`;
+                else
+                    ret += `
+                    local_invTransform = getTransform(${prim.transformIndex});
+                    local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
                 ret += `
-                local_invTransform = getTransform(${prim.transformIndex});
-                local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
-            ret += `
-                if (${!prim.shadowFlag ? "!shadowFlag && " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", "minT")}, minT, maxT, min_found_t)) {
-                    primID = ${prim.index};
-                    found_min = true;
-                }`;
+                    if (${!prim.shadowFlag ? "!shadowFlag && " : ""}worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(prim.geometryIndex, "local_r", "minT")}, minT, maxT, min_found_t)) {
+                        primID = ${prim.index};
+                        found_min = true;
+                    }`;
+            }
+            else {
+                const all_untransformed = prims.all(p => p.getInvTransform().is_identity());
+                if (all_untransformed)
+                    ret += `
+                    local_r = root_r;`;
+                const prim_data = prims.map(p => [p.transformIndex, Number(!!p.shadowFlag), p.index]).flat();
+                ret += `
+                    const int prim_data_${geometry_type}[${prim_data.length}] = int[${prim_data.length}](${prim_data.join(', ')});
+                    for (int i = 0; i < min(${prims.length}, uWorldNumPrimitives); ++i) {`;
+                if (!all_untransformed)
+                    ret += `
+                        local_invTransform = getTransform(prim_data_${geometry_type}[3 * i]);
+                        local_r = Ray(local_invTransform * root_r.o, local_invTransform * root_r.d);`;
+                ret += `
+                        if ((bool(prim_data_${geometry_type}[3 * i + 1]) || !shadowFlag) && worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(geometry_type, "local_r", "minT")}, minT, maxT, min_found_t)) {
+                            primID = prim_data_${geometry_type}[3 * i + 2];
+                            found_min = true;
+                        }
+                    }`;
+            }
         }
         return ret + `
                 return found_min;

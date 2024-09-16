@@ -1,3 +1,16 @@
+Array.prototype.all = function(p = (x => x)) {
+    for (let x of this)
+        if (!p(x))
+            return false;
+    return true;
+};
+Array.prototype.any = function(p = (x => x)) {
+    for (let x of this)
+        if (p(x))
+            return true;
+    return false;
+};
+
 Math.fmod = function (a,b) { return Number((a - (Math.floor(a / b) * b)).toPrecision(8)); };
 Math.range = function(start, stop, step = 1) {
     if (start !== undefined && stop === undefined) {
@@ -5,24 +18,24 @@ Math.range = function(start, stop, step = 1) {
         start = 0;
     }
     return new Array(Math.ceil((stop - start) / step)).fill(start).map((x, y) => x + y * step);
-}
+};
 Math.sum = function(arr) {
     return arr.reduce((acc, x, i) => { return acc + x }, 0);
-}
+};
 Math.average = function(arr) {
     return (arr.length > 0) ? (Math.sum(arr) / arr.length) : 0;
-}
+};
 
 Math.isPowerOf2 = function(value) {
     return (value & (value - 1)) === 0;
-}
+};
 
 Math.normalize = function(c, min, max) {
     return (c - min) / (max - min);
-}
+};
 Math.clamp = function(a, min, max) {
     return Math.min(Math.max(a, min), max);
-}
+};
 
 Math.indexOfMin = function(...args) {
     let min = Infinity, minIndex = -1;
@@ -32,7 +45,7 @@ Math.indexOfMin = function(...args) {
             minIndex = i;
         }
     return minIndex;
-}
+};
 Math.indexOfMax = function(...args) {
     let max = -Infinity, maxIndex = -1;
     for (let i = 0; i < args.length; ++i)
@@ -41,7 +54,7 @@ Math.indexOfMax = function(...args) {
             maxIndex = i;
         }
     return maxIndex;
-}
+};
 
 function componentToHex(c) {
     const hex = Math.round(Math.clamp(c, 0, 1) * 255).toString(16);
