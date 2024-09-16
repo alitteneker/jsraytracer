@@ -290,24 +290,24 @@ class WebGLMaterialsAdapter {
                 float theta = 2.0 * PI * randf(random_seed);
                 float sin_theta = sin(theta), cos_theta = cos(theta);
                 
-                // phi is harder: many possibly options may point away from the normal (through the material) if we're not careful
-                // This can lead to light leaks/black spots in surfaces if we can't prevent it.
+                // Phi is harder: many angles may point away from the normal (through the material),
+                // potentially leading to bad light leaks/black spots if not prevented.
                 vec4 forward = space_transform * vec4(cos_theta, 0,  sin_theta, 0);
                 vec4 right   = space_transform * vec4(sin_theta, 0, -cos_theta, 0);
                 
-                // So, to combat this, we first compute the maximum value phi can have before something breaks
+                // So, to combat this, we first compute the maximum value phi can have before 
                 vec4 phiN = (1.0 - abs(dot(right, N)) > EPSILON) ? vec4(normalize(cross(N.xyz, right.xyz)), 0.0) : R;
                 if (dot(phiN, forward) < -EPSILON)
                     phiN = -1.0 * phiN;
                 float maxPhi = acos(max(dot(R, phiN), 0.0));
                 
-                // then we use that to compute the minimum usable random value allowable
+                // then we use that to compute the minimum usable random value allowable.
                 float minRand = pow(cos(maxPhi - EPSILON), matParams.specularFactor + 1.0);
                 
-                // finally generate a random number in the safe range
+                // Generate a random number in the safe range, following a rough Phong PDF.
                 float phi = acos(pow((1.0 - minRand) * randf(random_seed) + minRand, 1.0 / (matParams.specularFactor + 1.0)));
 
-                // convert spherical to local Cartesian, then to world space
+                // Finally, convert spherical to local Cartesian, then to world space
                 float sin_phi = sin(phi), cos_phi = cos(phi);
                 outDirection = space_transform * vec4(
                     cos_theta * sin_phi,
@@ -403,22 +403,28 @@ class WebGLMaterialsAdapter {
                     totalColor += lightSample.color * phongBRDF(N, R, lightSample.direction, kr, refractionDirection, matParams);
                 }
                 
-                // reflection/refraction/transmission
+                
+                // reflection
                 if (kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
                     nextRays.reflectionProbability = kr;
                     if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed))
                         nextRays.reflectionColor *= matParams.reflectivity;
                 }
-                if (kr < 1.0 && normSquared(refractionDirection) > 0.0) {
+                
+                // refraction
+                if (kr < 1.0 && normSquared(refractionDirection) > EPSILON) {
                     nextRays.transmissionProbability = 1.0 - kr;
                     if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
                 }
+                
+                // transmission (no refraction)
                 else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
                     nextRays.transmissionProbability = 1.0;
                     if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
                 }
+                
                 
                 return totalColor;
             }
