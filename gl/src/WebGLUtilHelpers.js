@@ -117,6 +117,9 @@ class WebGLHelper {
             precision highp float;
             precision highp isampler2D;
             precision highp sampler2D;
+			
+			#define PI 3.14159265359
+            #define EPSILON 0.0001
             
             float normSquared(in vec2 v);
             float normSquared(in vec3 v);

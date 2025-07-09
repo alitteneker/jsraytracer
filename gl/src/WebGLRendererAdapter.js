@@ -26,7 +26,8 @@ class WebGLRendererAdapter {
         
         // Create textures for intermediary rendering/blending
         this.renderTextureUnit = this.webgl_helper.allocateTextureUnit();
-        this.textures = [0, 1].map(() => this.webgl_helper.createTexture(4, "FLOAT", canvas.width, canvas.height));
+        this.errorTextureUnit = this.webgl_helper.allocateTextureUnit();
+        this.textures = [0, 1, 2, 3].map(() => this.webgl_helper.createTexture(4, "FLOAT", canvas.width, canvas.height));
         gl.bindTexture(gl.TEXTURE_2D, null);
         
         // Create the adapters for the world, which will also validate the data for the world
@@ -77,8 +78,10 @@ class WebGLRendererAdapter {
         
         for (let t of this.textures)
             t.destroy();
-        if (this.framebuffer)
-            this.gl.deleteFramebuffer(this.framebuffer);
+        if (this.samplebuffer)
+            this.gl.deleteFramebuffer(this.samplebuffer);
+        if (this.errorbuffer)
+            this.gl.deleteFramebuffer(this.errorbuffer);
         
         this.webgl_helper.destroy(   this.gl);
         this.adapters.world.destroy( this.gl);
@@ -88,7 +91,8 @@ class WebGLRendererAdapter {
     buildShaders(gl, canvas, callback) {
         
         // Create a framebuffer to finally render from
-        this.framebuffer = gl.createFramebuffer();
+        this.samplebuffer = gl.createFramebuffer();
+        this.errorbuffer  = gl.createFramebuffer();
 
         // Create the position buffer data for a polygon covering the image.
         this.positionBuffer = gl.createBuffer();
@@ -123,7 +127,7 @@ class WebGLRendererAdapter {
             // Because we're rendering to a texture, we also need a simple pass-through shader
             {
                 vertex: `#version 300 es
-                    precision mediump float;
+                    precision highp float;
                     in vec4 vertexPosition;
                     out vec2 textureCoord;
                     void main() {
@@ -135,7 +139,8 @@ class WebGLRendererAdapter {
                     precision mediump float;
                     #define EPSILON 0.0001
                     
-                    uniform sampler2D uPreviousSamplesTexture;
+                    uniform sampler2D uSampleSumTexture;
+					uniform int uSampleCount;
                     in vec2 textureCoord;
                     
                     uniform float uMaxDepth;
@@ -143,7 +148,7 @@ class WebGLRendererAdapter {
                     
                     out vec4 outTexelColor;
                     void main() {
-                        vec4 sampleColor = texture(uPreviousSamplesTexture, textureCoord);
+                        vec4 sampleColor = texture(uSampleSumTexture, textureCoord) / float(max(uSampleCount + 1, 1));
                         
                         if (any(isnan(sampleColor)))
                             sampleColor = vec4(1.0, 0.0, 0.5, sampleColor.a);
@@ -172,14 +177,16 @@ class WebGLRendererAdapter {
                         
                         // Store the addresses of uniforms that will be repeatedly modified
                         this.uniforms = {
-                            randomSeed:                        gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
-                            doRandomSample:                    gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
-                            sampleCount:                       gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
-                            maxBounceDepth:                    gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
-                            tracerPreviousSamplesTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uPreviousSamplesTexture"),
-                            passthroughPreviousSamplesTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uPreviousSamplesTexture"),
-                            colorLogScale:                     gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
-                            maxDepth:                          gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth")
+                            randomSeed:                  gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
+                            doRandomSample:              gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
+                            maxBounceDepth:              gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
+                            tracerSampleCount:           gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
+                            tracerSampleSumTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleSumTexture"),
+							tracerSampleErrorTexture:    gl.getUniformLocation(this.tracerShaderProgram,      "uSampleErrorTexture"),
+                            passthroughSampleSumTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uSampleSumTexture"),
+							passthroughSampleCount:      gl.getUniformLocation(this.passthroughShaderProgram, "uSampleCount"),
+                            colorLogScale:               gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
+                            maxDepth:                    gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth")
                         };
                         
                         if (callback)
@@ -191,9 +198,6 @@ class WebGLRendererAdapter {
     getShaderSourceDeclarations() {
         let ret = this.webgl_helper.getShaderSourceDeclarations() + "\n"
         +  `
-            #define PI 3.14159265359
-            #define EPSILON 0.0001
-            
             struct Ray { vec4 o; vec4 d; };
             struct RecursiveNextRays {
                 float reflectionProbability;
@@ -218,14 +222,17 @@ class WebGLRendererAdapter {
     }
     getShaderSource() {
         let ret = `
-            uniform sampler2D uPreviousSamplesTexture;
-            uniform int uSampleCount;
+            uniform sampler2D uSampleSumTexture;
+            uniform sampler2D uSampleErrorTexture;
     
             uniform bool uRendererRandomMultisample;
+            uniform int uSampleCount;
             uniform float uRandomSeed;
             
             uniform vec2 uCanvasSize;
-            out vec4 outTexelColor;
+            
+            layout(location=0) out vec4 outSampleSum;
+            layout(location=1) out vec4 outSampleError;
 
             void main() {
                 vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
@@ -240,12 +247,24 @@ class WebGLRendererAdapter {
                 Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 
                 vec4 sampleColor = rendererRayColor(r, random_seed);
-                
-                if (uSampleCount == 0)
-                    outTexelColor = sampleColor;
+
+                if (uSampleCount == 0) {
+                    outSampleSum = sampleColor;
+                    outSampleError = vec4(0.0);
+                }
                 else {
-                    vec4 previousSampleColor = texture(uPreviousSamplesTexture, gl_FragCoord.xy / uCanvasSize);
-                    outTexelColor = previousSampleColor + (sampleColor - previousSampleColor) / float(uSampleCount + 1);
+                    vec4 sumSampleColor = texture(uSampleSumTexture, gl_FragCoord.xy / uCanvasSize);
+                    vec4 sumSampleError = texture(uSampleErrorTexture, gl_FragCoord.xy / uCanvasSize);
+
+                    // The commented out line below would be simple summation, which can lead to precision issues with many samples
+                    // outSampleSum = sumSampleColor + sampleColor;
+                    
+                    // Instead, let's use Kahan summation, which will adjust for the accumulated precision error in the sampleError buffer
+                    vec4 y = sampleColor - sumSampleError;
+                    vec4 t = sumSampleColor + y;
+        
+                    outSampleSum = t;
+                    outSampleError = (t - sumSampleColor) - y;
                 }
             }`;
             
@@ -473,17 +492,27 @@ class WebGLRendererAdapter {
         // Write the uniforms that vary between frames
         this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
-        this.gl.uniform1i(this.uniforms.sampleCount, this.doRandomSample ? this.drawCount : 0);
+        this.gl.uniform1i(this.uniforms.tracerSampleCount, this.doRandomSample ? this.drawCount : 0);
         if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
             this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
         
-        // Give the shader access to textures[0] to mix with new samples
+        // Give the shader access to textures[0] to sum with new samples
         this.textures[0].bind(this.renderTextureUnit);
-        this.gl.uniform1i(this.uniforms.tracerPreviousSamplesTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
+        this.gl.uniform1i(this.uniforms.tracerSampleSumTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
         
-        // Set the framebuffer to render to textures[1]
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.framebuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures[1].id(), 0);
+        // Give the shader access to textures[1] to sum with new samples
+        this.textures[1].bind(this.errorTextureUnit);
+        this.gl.uniform1i(this.uniforms.tracerSampleErrorTexture, WebGLHelper.textureUnitIndex(this.errorTextureUnit));
+        
+        // Set the errorbuffer to render to textures[2]
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.errorbuffer);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT1, this.gl.TEXTURE_2D, this.textures[2].id(), 0);
+        if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
+            throw "Bad framebuffer texture linking";
+        
+        // Set the framebuffer to render to textures[3]
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.samplebuffer);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures[3].id(), 0);
         if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
             throw "Bad framebuffer texture linking";
         
@@ -493,21 +522,22 @@ class WebGLRendererAdapter {
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         
-        // Render textures[1] to the screen with the passthrough shader
+        // Render textures[3] to the screen with the passthrough shader
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.useProgram(this.passthroughShaderProgram);
-        this.textures[1].bind(this.renderTextureUnit);
-        this.gl.uniform1i(this.uniforms.passthroughPreviousSamplesTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
+        this.textures[3].bind(this.renderTextureUnit);
+        this.gl.uniform1i(this.uniforms.passthroughSampleSumTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
         
-        // Set a few needed passthrough uniforms
+        // Set passthrough uniforms
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
         this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
+        this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? this.drawCount : 0);
         
         // draw with the passthrough shader
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         
-        // Ping-pong the textures, so the next texture read from is the last texture rendered.
+        // Ping-pong the textures, so the next texture reads will be the last textures rendered.
         this.textures.reverse();
         
         
