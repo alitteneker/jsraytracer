@@ -234,7 +234,8 @@ class WebGLRendererAdapter {
                 vec2 random_seed = gl_FragCoord.xy + vec2(uRandomSeed);
                 
                 if (uRendererRandomMultisample)
-                    canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5));
+                    // canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5)); // box filter
+                    canvasCoord += 0.5 * pixelSize * randomGaussian(random_seed); // gaussian filter
                 
                 Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 

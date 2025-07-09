@@ -116,6 +116,7 @@ class WebGLHelper {
             precision highp int;
             precision highp float;
             precision highp isampler2D;
+            precision highp sampler2D;
             
             float normSquared(in vec2 v);
             float normSquared(in vec3 v);
@@ -132,6 +133,7 @@ class WebGLHelper {
             
             float randf(inout vec2 seed);
             vec2 rand2f(inout vec2 seed);
+            vec2 randomGaussian(inout vec2 seed);
             vec2 randomCirclePoint(inout vec2 seed);
             vec3 randomSpherePoint(inout vec2 seed);
             
@@ -224,6 +226,24 @@ class WebGLHelper {
             vec2 rand2f(inout vec2 seed) {
                 return vec2(randf(seed), randf(seed));
             }
+            
+            vec2 randomGaussian(inout vec2 seed) {
+                //create two random numbers, make sure u1 is greater than zero
+                float u1 = 0.0, u2, u2p;
+                do {
+                    u1 = randf(seed);
+                } while (u1 == 0.0);
+                u2 = randf(seed);
+                u2p = 2.0 * PI * u2;
+
+                //compute z0 and z1
+                float mag = sqrt(-2.0 * log(u1));
+                float z0  = mag * cos(u2p);
+                float z1  = mag * sin(u2p);
+
+                return vec2(z0, z1);
+            }
+            
             vec2 randomCirclePoint(inout vec2 seed) {
                 float a = 2.0 * PI * randf(seed), r = sqrt(randf(seed));
                 return vec2(r * cos(a), r * sin(a));
