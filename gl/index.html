@@ -75,12 +75,16 @@
         <div id="control-panel">
             <h3>Renderer</h3>
             <div id="renderer-controlgroup" class="control-group">
-                <label class="ui-controlgroup-label" for="renderer-random-sample">Random Sample</label><input type="checkbox" name="renderer-random-sample" id="renderer-random-sample"/>
-                <label class="ui-controlgroup-label" for="renderer-depth">Maximum Bounces:</label><input class="ui-spinner-input" id="renderer-depth" min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="renderer-log-color">Color Log Space:</label><input class="ui-spinner-input" id="renderer-log-color" min="0" value="0" step="0.1"/>
-                <label class="ui-controlgroup-label" for="samples-per-draw">Samples Per Draw:</label><input class="ui-spinner-input" id="samples-per-draw" min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="canvas-width">Width:</label><input class="ui-spinner-input" id="canvas-width" min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="canvas-height">Height:</label><input class="ui-spinner-input" id="canvas-height" min="1" value="1"/>
+                <label class="ui-controlgroup-label" for="renderer-random-sample">Random Sample      </label><input type="checkbox" name="renderer-random-sample" id="renderer-random-sample" checked/>
+                <label class="ui-controlgroup-label" for="renderer-depth"        >Maximum Bounces:   </label><input class="ui-spinner-input" id="renderer-depth"     min="1" value="1"/>
+                <label class="ui-controlgroup-label" for="renderer-log-color"    >Color Log Space:   </label><input class="ui-spinner-input" id="renderer-log-color" min="0" value="0" step="0.1"/>
+                <label class="ui-controlgroup-label" for="samples-per-draw"      >Samples Per Draw:  </label><input class="ui-spinner-input" id="samples-per-draw"   min="1" value="1"/>
+                <label class="ui-controlgroup-label" for="canvas-width"          >Width:             </label><input class="ui-spinner-input" id="canvas-width"       min="1" value="1"/>
+                <label class="ui-controlgroup-label" for="canvas-height"         >Height:            </label><input class="ui-spinner-input" id="canvas-height"      min="1" value="1"/>
+                <label class="ui-controlgroup-label" for="renderer-do-denoise"   >Denoise            </label><input type="checkbox" name="renderer-do-denoise" id="renderer-do-denoise" checked/>
+                <label class="ui-controlgroup-label" for="denoise-sigma"         >Denoise Sigma:     </label><input class="ui-spinner-input" id="denoise-sigma"      min="0" value="5"   step="0.1"/>
+                <label class="ui-controlgroup-label" for="denoise-ksigma"        >Denoise K-Sigma:   </label><input class="ui-spinner-input" id="denoise-ksigma"     min="0" value="2"   step="0.1"/>
+                <label class="ui-controlgroup-label" for="denoise-threshold"     >Denoise Threshold: </label><input class="ui-spinner-input" id="denoise-threshold"  min="0" value="0.1" step="0.01"/>
             </div>
             <h3>Camera</h3>
             <div class="control-group">

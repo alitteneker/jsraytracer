@@ -14,6 +14,12 @@ class WebGLRendererAdapter {
         this.colorLogScale = 0.0;
         this.maxDepth = 1000.0;
         
+        // We also include a denoiser with the passthrough shader. Let's specify some default parameters here.
+        this.doDenoise = true;
+        this.denoiseSigma = 5;
+        this.denoiseKSigma = 2;
+        this.denoiseThreshold = 0.1;
+        
         // store the canvas and renderer for future usage
         this.canvas = canvas;
         this.renderer = renderer;
@@ -139,6 +145,9 @@ class WebGLRendererAdapter {
                     precision mediump float;
                     #define EPSILON 0.0001
                     
+                    #define INV_SQRT_OF_2PI 0.39894228040143267793994605993439  // 1.0/SQRT_OF_2PI
+                    #define INV_PI          0.31830988618379067153776752674503
+                    
                     uniform sampler2D uSampleSumTexture;
 					uniform int uSampleCount;
                     in vec2 textureCoord;
@@ -146,9 +155,62 @@ class WebGLRendererAdapter {
                     uniform float uMaxDepth;
                     uniform float uColorLogScale;
                     
+                    uniform bool uDoDenoise;
+                    uniform float uDenoiseThreshold;
+                    uniform float uDenoiseSigma;
+                    uniform float uDenoiseKSigma;
+
+                    // The following function is from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
+                    // Parameters:
+                    //      sampler2D tex     - sampler image / texture
+                    //      vec2 uv           - actual fragment coord
+                    //      float uDenoiseSigma  >  0 - sigma Standard Deviation
+                    //      float uDenoiseKSigma >= 0 - sigma coefficient
+                    //          uDenoiseKSigma * uDenoiseSigma  -->  radius of the circular kernel
+                    //      float uDenoiseThreshold   - edge sharpening threshold
+                    vec4 smartDeNoise(in sampler2D tex, in vec2 uv, in float texture_factor) {
+                        float radius = round(uDenoiseKSigma * uDenoiseSigma);
+                        float radQ = radius * radius;
+
+                        float invSigmaQx2 = .5 / (uDenoiseSigma * uDenoiseSigma);      // 1.0 / (uDenoiseSigma^2 * 2.0)
+                        float invSigmaQx2PI = INV_PI * invSigmaQx2;                    // // 1/(2 * PI * uDenoiseSigma^2)
+
+                        float invThresholdSqx2 = .5 / (uDenoiseThreshold * uDenoiseThreshold);     // 1.0 / (uDenoiseSigma^2 * 2.0)
+                        float invThresholdSqrt2PI = INV_SQRT_OF_2PI / uDenoiseThreshold;           // 1.0 / (sqrt(2*PI) * uDenoiseSigma)
+
+                        vec4 centrPx = texture(tex, uv) * texture_factor;
+
+                        float zBuff = 0.0;
+                        vec4 aBuff = vec4(0.0);
+                        vec2 size = vec2(textureSize(tex, 0));
+
+                        vec2 d;
+                        for (d.x=-radius; d.x <= radius; d.x++) {
+                            float pt = sqrt(radQ-d.x*d.x);       // pt = yRadius: have circular trend
+                            for (d.y=-pt; d.y <= pt; d.y++) {
+                                float blurFactor = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
+
+                                vec4 walkPx =  texture(tex, uv + d / size) * texture_factor;
+                                
+                                vec4 dC = walkPx-centrPx;
+                                float deltaFactor = exp( -dot(dC.rgb, dC.rgb) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
+
+                                zBuff += deltaFactor;
+                                aBuff += deltaFactor*walkPx;
+                            }
+                        }
+                        return aBuff/zBuff;
+                    }
+                    
                     out vec4 outTexelColor;
                     void main() {
-                        vec4 sampleColor = texture(uSampleSumTexture, textureCoord) / float(max(uSampleCount + 1, 1));
+                        float texture_factor = 1.0 / float(max(uSampleCount + 1, 1));
+                        
+                        vec4 sampleColor;
+                        if (uDoDenoise)
+                            sampleColor = smartDeNoise(uSampleSumTexture, textureCoord, texture_factor);
+                        else
+                            sampleColor = texture(uSampleSumTexture, textureCoord) * texture_factor;
                         
                         if (any(isnan(sampleColor)))
                             sampleColor = vec4(1.0, 0.0, 0.5, sampleColor.a);
@@ -183,10 +245,15 @@ class WebGLRendererAdapter {
                             tracerSampleCount:           gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
                             tracerSampleSumTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleSumTexture"),
 							tracerSampleErrorTexture:    gl.getUniformLocation(this.tracerShaderProgram,      "uSampleErrorTexture"),
+                            
                             passthroughSampleSumTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uSampleSumTexture"),
 							passthroughSampleCount:      gl.getUniformLocation(this.passthroughShaderProgram, "uSampleCount"),
                             colorLogScale:               gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
-                            maxDepth:                    gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth")
+                            maxDepth:                    gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth"),
+                            doDenoise:                   gl.getUniformLocation(this.passthroughShaderProgram, "uDoDenoise"),
+                            denoiseThreshold:            gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseThreshold"),
+                            denoiseSigma:                gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseSigma"),
+                            denoiseKSigma:               gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseKSigma")
                         };
                         
                         if (callback)
@@ -532,6 +599,12 @@ class WebGLRendererAdapter {
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
         this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
         this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? this.drawCount : 0);
+        
+        this.gl.uniform1i(this.uniforms.doDenoise, this.doDenoise);
+        this.gl.uniform1f(this.uniforms.denoiseSigma, this.denoiseSigma);
+        this.gl.uniform1f(this.uniforms.denoiseKSigma, this.denoiseKSigma);
+        this.gl.uniform1f(this.uniforms.denoiseThreshold, this.denoiseThreshold);
+
         
         // draw with the passthrough shader
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);

@@ -26,21 +26,26 @@ class WebGLInterface {
         
         this.samplesPerDraw = 1;
         $("#samples-per-draw").on('spin', (e, ui) => {
-            this.samplesPerDraw = Number.parseInt(ui.value);
+            const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+            this.samplesPerDraw = Number.parseInt(v);
         });
         
         if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
             $("#renderer-depth").spinner("disable");
         else {
-            $("#renderer-depth").on('spin', (e, ui) => {
-                if (this.renderer_adapter)
-                    this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(ui.value));
+            $("#renderer-depth").on('spin spinstop', (e, ui) => {
+                if (this.renderer_adapter) {
+                    const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                    this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(v));
+                }
             });
         }
         
-        $("#renderer-log-color").on('spin', (e, ui) => {
-            if (this.renderer_adapter)
-                this.renderer_adapter.colorLogScale = Number.parseFloat(ui.value);
+        $("#renderer-log-color").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.colorLogScale = Number.parseFloat(v);
+            }
         });
         $("#renderer-random-sample").on('input', (e) => {
             if (this.renderer_adapter) {
@@ -59,6 +64,29 @@ class WebGLInterface {
             if (this.renderer_adapter) {
                 const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
                 this.renderer_adapter.resizeCanvas(this.canvas.attr('width'), Number.parseInt(v));
+            }
+        });
+        
+        $("#renderer-do-denoise").on('input', (e) => {
+            if (this.renderer_adapter)
+                this.renderer_adapter.doDenoise = e.target.checked;
+        });
+        $("#denoise-sigma").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.denoiseSigma = Number.parseFloat(v);
+            }
+        });
+        $("#denoise-ksigma").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.denoiseKSigma = Number.parseFloat(v);
+            }
+        });
+        $("#denoise-threshold").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.denoiseThreshold = Number.parseFloat(v);
             }
         });
         
