@@ -82,6 +82,7 @@ class WebGLHelper {
         
         this.texture_units = [];
     }
+    
     destroy() {}
     
     allocateTextureUnit() {
@@ -109,6 +110,10 @@ class WebGLHelper {
         const texture_unit = this.allocateTextureUnit();
         const texture = this.createDataTexture(channels, type, data);
         return [texture_unit, texture];
+    }
+    
+    color_attachment(i) {
+        return this.gl["COLOR_ATTACHMENT"+i];
     }
     
     getShaderSourceDeclarations() {

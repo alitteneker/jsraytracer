@@ -1,5 +1,6 @@
 class WebGLRendererAdapter {
-    static DOUBLE_RECURSIVE = false;
+    static BUFFER_COUNT = 2;
+    static BUFFER_TYPES = ["render", "error", "normal"];
     
     constructor(gl, canvas, renderer) {
         
@@ -15,7 +16,7 @@ class WebGLRendererAdapter {
         this.maxDepth = 1000.0;
         
         // We also include a denoiser with the passthrough shader. Let's specify some default parameters here.
-        this.doDenoise = true;
+        this.doDenoise = false;
         this.denoiseSigma = 5;
         this.denoiseKSigma = 2;
         this.denoiseThreshold = 0.1;
@@ -30,10 +31,19 @@ class WebGLRendererAdapter {
         this.gl = gl;
         this.webgl_helper = new WebGLHelper(gl);
         
-        // Create textures for intermediary rendering/blending
-        this.renderTextureUnit = this.webgl_helper.allocateTextureUnit();
-        this.errorTextureUnit = this.webgl_helper.allocateTextureUnit();
-        this.textures = [0, 1, 2, 3].map(() => this.webgl_helper.createTexture(4, "FLOAT", canvas.width, canvas.height));
+        // Create texture units for intermediary rendering/filtering
+        this.textureUnits = {};
+        for (let k of WebGLRendererAdapter.BUFFER_TYPES)
+            this.textureUnits[k] = this.webgl_helper.allocateTextureUnit();
+        
+        // Allocate texture memory for the necessary buffer types
+        this.textures = [];
+        for (let i of Math.range(WebGLRendererAdapter.BUFFER_COUNT)) {
+            const t = {};
+            for (let k of WebGLRendererAdapter.BUFFER_TYPES)
+                t[k] = this.webgl_helper.createTexture(4, "FLOAT", canvas.width, canvas.height);
+            this.textures.push(t);
+        }
         gl.bindTexture(gl.TEXTURE_2D, null);
         
         // Create the adapters for the world, which will also validate the data for the world
@@ -70,7 +80,8 @@ class WebGLRendererAdapter {
         this.canvas.height = new_height;
         
         for (let t of this.textures)
-            t.setPixels(null, 4, "FLOAT", new_width, new_height);
+            for (let t of a)
+                t.setPixels(null, 4, "FLOAT", new_width, new_height);
         this.gl.viewport(0, 0, new_width, new_height);
         
         this.gl.useProgram(this.tracerShaderProgram);
@@ -82,12 +93,12 @@ class WebGLRendererAdapter {
         if (this.tracerShaderProgram)
             this.gl.deleteProgram(this.tracerShaderProgram);
         
-        for (let t of this.textures)
-            t.destroy();
-        if (this.samplebuffer)
-            this.gl.deleteFramebuffer(this.samplebuffer);
-        if (this.errorbuffer)
-            this.gl.deleteFramebuffer(this.errorbuffer);
+        for (let s of this.textures)
+            for (let t of Object.values(s))
+                t.destroy();
+        
+        for (let b of Object.values(this.buffers))
+            this.gl.deleteFramebuffer(b);
         
         this.webgl_helper.destroy(   this.gl);
         this.adapters.world.destroy( this.gl);
@@ -96,9 +107,10 @@ class WebGLRendererAdapter {
     
     buildShaders(gl, canvas, callback) {
         
-        // Create a framebuffer to finally render from
-        this.samplebuffer = gl.createFramebuffer();
-        this.errorbuffer  = gl.createFramebuffer();
+        // Create framebuffers into which we can render intermediary results
+        this.buffers = {};
+        for (let k of WebGLRendererAdapter.BUFFER_TYPES)
+            this.buffers[k] = gl.createFramebuffer();
 
         // Create the position buffer data for a polygon covering the image.
         this.positionBuffer = gl.createBuffer();
@@ -149,6 +161,7 @@ class WebGLRendererAdapter {
                     #define INV_PI          0.31830988618379067153776752674503
                     
                     uniform sampler2D uSampleSumTexture;
+                    uniform sampler2D uNormalSumTexture;
 					uniform int uSampleCount;
                     in vec2 textureCoord;
                     
@@ -162,8 +175,9 @@ class WebGLRendererAdapter {
 
                     // The following function is from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
                     // Parameters:
-                    //      sampler2D tex     - sampler image / texture
-                    //      vec2 uv           - actual fragment coord
+                    //      sampler2D tex             - sampler image / texture
+                    //      vec2 uv                   - actual fragment coord
+                    //      float texture_factor      - multiplier for values from render texture
                     //      float uDenoiseSigma  >  0 - sigma Standard Deviation
                     //      float uDenoiseKSigma >= 0 - sigma coefficient
                     //          uDenoiseKSigma * uDenoiseSigma  -->  radius of the circular kernel
@@ -239,21 +253,25 @@ class WebGLRendererAdapter {
                         
                         // Store the addresses of uniforms that will be repeatedly modified
                         this.uniforms = {
-                            randomSeed:                  gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
-                            doRandomSample:              gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
-                            maxBounceDepth:              gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
-                            tracerSampleCount:           gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
-                            tracerSampleSumTexture:      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleSumTexture"),
-							tracerSampleErrorTexture:    gl.getUniformLocation(this.tracerShaderProgram,      "uSampleErrorTexture"),
+                            randomSeed:                gl.getUniformLocation(this.tracerShaderProgram,      "uRandomSeed"),
+                            doRandomSample:            gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
+                            maxBounceDepth:            gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
+                            tracerSampleCount:         gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
                             
-                            passthroughSampleSumTexture: gl.getUniformLocation(this.passthroughShaderProgram, "uSampleSumTexture"),
-							passthroughSampleCount:      gl.getUniformLocation(this.passthroughShaderProgram, "uSampleCount"),
-                            colorLogScale:               gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
-                            maxDepth:                    gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth"),
-                            doDenoise:                   gl.getUniformLocation(this.passthroughShaderProgram, "uDoDenoise"),
-                            denoiseThreshold:            gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseThreshold"),
-                            denoiseSigma:                gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseSigma"),
-                            denoiseKSigma:               gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseKSigma")
+                            tracerTexture_render:      gl.getUniformLocation(this.tracerShaderProgram,      "uSampleSumTexture"),
+							tracerTexture_error:       gl.getUniformLocation(this.tracerShaderProgram,      "uSampleErrorTexture"),
+                            tracerTexture_normal:      gl.getUniformLocation(this.tracerShaderProgram,      "uNormalSumTexture"),
+                            
+                            passthroughTexture_render: gl.getUniformLocation(this.passthroughShaderProgram, "uSampleSumTexture"),
+                            passthroughTexture_normal: gl.getUniformLocation(this.passthroughShaderProgram, "uNormalSumTexture"),
+							
+                            passthroughSampleCount:    gl.getUniformLocation(this.passthroughShaderProgram, "uSampleCount"),
+                            colorLogScale:             gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
+                            maxDepth:                  gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth"),
+                            doDenoise:                 gl.getUniformLocation(this.passthroughShaderProgram, "uDoDenoise"),
+                            denoiseThreshold:          gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseThreshold"),
+                            denoiseSigma:              gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseSigma"),
+                            denoiseKSigma:             gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseKSigma")
                         };
                         
                         if (callback)
@@ -275,14 +293,8 @@ class WebGLRendererAdapter {
                 vec4  transmissionDirection;
                 vec3  transmissionColor;
             };
-            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed);` + "\n";
-        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
-            ret += `
-                #define MAX_BOUNCE_DEPTH ${this.renderer.maxRecursionDepth}
-                #define MAX_BOUNCE_QUEUE_LENGTH (1 << (MAX_BOUNCE_DEPTH+1))` + "\n";
-        else
-            ret += `
-                uniform int uMaxBounceDepth;` + "\n";
+            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal);
+            uniform int uMaxBounceDepth;` + "\n";
         return ret
             + this.adapters.world.getShaderSourceDeclarations()  + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
@@ -291,6 +303,7 @@ class WebGLRendererAdapter {
         let ret = `
             uniform sampler2D uSampleSumTexture;
             uniform sampler2D uSampleErrorTexture;
+            uniform sampler2D uNormalSumTexture;
     
             uniform bool uRendererRandomMultisample;
             uniform int uSampleCount;
@@ -300,8 +313,14 @@ class WebGLRendererAdapter {
             
             layout(location=0) out vec4 outSampleSum;
             layout(location=1) out vec4 outSampleError;
+            layout(location=2) out vec4 outNormalSum;
 
             void main() {
+                outSampleSum = vec4(1.0,0.0,0.0,10.0);
+                outSampleError = vec4(0.0);
+                outNormalSum = vec4(0.0);
+                return;
+            
                 vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
                 vec2 pixelSize = 2.0 / uCanvasSize;
                 
@@ -313,15 +332,18 @@ class WebGLRendererAdapter {
                 
                 Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
                 
-                vec4 sampleColor = rendererRayColor(r, random_seed);
+                vec4 firstHitNormal = vec4(0.0);
+                vec4 sampleColor = rendererRayColor(r, random_seed, firstHitNormal);
 
                 if (uSampleCount == 0) {
                     outSampleSum = sampleColor;
                     outSampleError = vec4(0.0);
+                    outNormalSum = firstHitNormal;
                 }
                 else {
-                    vec4 sumSampleColor = texture(uSampleSumTexture, gl_FragCoord.xy / uCanvasSize);
-                    vec4 sumSampleError = texture(uSampleErrorTexture, gl_FragCoord.xy / uCanvasSize);
+                    vec4 sumSampleColor  = texture(uSampleSumTexture,   gl_FragCoord.xy / uCanvasSize);
+                    vec4 sumSampleError  = texture(uSampleErrorTexture, gl_FragCoord.xy / uCanvasSize);
+                    vec4 sumSampleNormal = texture(uNormalSumTexture,   gl_FragCoord.xy / uCanvasSize);
 
                     // The commented out line below would be simple summation, which can lead to precision issues with many samples
                     // outSampleSum = sumSampleColor + sampleColor;
@@ -332,83 +354,33 @@ class WebGLRendererAdapter {
         
                     outSampleSum = t;
                     outSampleError = (t - sumSampleColor) - y;
-                }
-            }`;
-            
-        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
-            ret += `
-            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
-                vec3 total_color = vec3(0.0);
-                float ray_depth = 1E20;
-                
-                int q_len = 0;
-                Ray q_rays[MAX_BOUNCE_QUEUE_LENGTH];
-                vec3 q_attenuation_colors[MAX_BOUNCE_QUEUE_LENGTH];
-                int q_remaining_bounces[MAX_BOUNCE_QUEUE_LENGTH];
-                
-                if (MAX_BOUNCE_DEPTH > 0) {
-                    q_rays[0] = in_ray;
-                    q_attenuation_colors[0] = vec3(1.0);
-                    q_remaining_bounces[0] = MAX_BOUNCE_DEPTH-1;
-                    q_len = 1;
-                }
-                
-                for (int i = 0; i < q_len; ++i) {
-                    Ray r = q_rays[i];
-                    vec3 attenuation_color = q_attenuation_colors[i];
-                    int remaining_bounces = q_remaining_bounces[i];
                     
-                    vec4 intersect_position = vec4(0);
-                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
-                    
-                    if (remaining_bounces > 0 && intersect_position.w != 0.0) {
-                        if (i == 0)
-                            ray_depth = length(r.o - intersect_position);
-                        
-                        if (dot(nextRays.reflectionDirection, nextRays.reflectionDirection) > EPSILON
-                            && dot(nextRays.reflectionColor, nextRays.reflectionColor) > EPSILON)
-                        {
-                            q_rays[q_len] = Ray(intersect_position, nextRays.reflectionDirection);
-                            q_attenuation_colors[q_len] = nextRays.reflectionProbability * attenuation_color * nextRays.reflectionColor;
-                            q_remaining_bounces[q_len] = remaining_bounces - 1;
-                            ++q_len;
-                        }
-                        
-                        if (dot(nextRays.transmissionDirection, nextRays.transmissionDirection) > EPSILON
-                            && dot(nextRays.transmissionColor, nextRays.transmissionColor) > EPSILON)
-                        {
-                            q_rays[q_len] = Ray(intersect_position, nextRays.transmissionDirection);
-                            q_attenuation_colors[q_len] = nextRays.transmissionProbability * attenuation_color * nextRays.transmissionColor;
-                            q_remaining_bounces[q_len] = remaining_bounces - 1;
-                            ++q_len;
-                        }
-                    }
+                    // Finally, add the computed normal to a buffer for possible first hit geometric edge detection.
+                    // Note that the forth channel of this currently captures the number of bounces computed.
+                    outNormalSum = sumSampleNormal + firstHitNormal;
                 }
-                
-                if (q_len == MAX_BOUNCE_QUEUE_LENGTH)
-                    return vec4(1.0, 0.0, 0.5, ray_depth);
-                
-                return vec4(total_color, ray_depth);
-            }`;
-        else
-            ret += `
-            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed) {
+            }
+            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal) {
                 vec3 total_color = vec3(0.0);
-                float ray_depth = 1E20;
+                float initial_intersection_distance = 1E20;
                 
                 Ray r = in_ray;
                 vec3 attenuation_color = vec3(1);
-                for (int i = 0; i < uMaxBounceDepth; ++i) {
+                
+                int i = 0;
+                for (;i < uMaxBounceDepth; ++i) {
                     vec4 intersect_position = vec4(0);
+                    vec3 intersect_normal = vec3(0);
                     RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays);
+                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal);
                     
                     if (intersect_position.w == 0.0)
                         break;
                     
-                    if (i == 0)
-                        ray_depth = length(r.o - intersect_position);
+                    if (i == 0) {
+                        initial_intersection_distance = length(r.o - intersect_position);
+                        first_hit_normal.xyz = intersect_normal;
+                    }
                     
                     bool do_next_ray = false;
                     
@@ -442,7 +414,8 @@ class WebGLRendererAdapter {
                         break;
                 }
                 
-                return vec4(total_color, ray_depth);
+                first_hit_normal.w = float(i);
+                return vec4(total_color, initial_intersection_distance);
             }`;
         return ret
             + this.webgl_helper.getShaderSource()
@@ -523,10 +496,8 @@ class WebGLRendererAdapter {
     }
     
     changeMaxBounceDepth(newBounceDepth) {
-        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE && newBounceDepth != this.maxBounceDepth) {
-            this.maxBounceDepth = newBounceDepth;
-            this.resetDrawCount();
-        }
+        this.maxBounceDepth = newBounceDepth;
+        this.resetDrawCount();
     }
     
     getRayForPixel(raster_x, raster_y) {
@@ -551,37 +522,40 @@ class WebGLRendererAdapter {
     }
 
     drawWorld(timestamp) {
+        // Clear the screen, on all 4 standard channels.
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
-        // Tell WebGL to use our program when drawing
+        // Tell WebGL to use our tracer program when drawing
         this.gl.useProgram(this.tracerShaderProgram);
         
-        // Write the uniforms that vary between frames
+        // Write the uniforms that vary between frames, 
         this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
         this.gl.uniform1i(this.uniforms.tracerSampleCount, this.doRandomSample ? this.drawCount : 0);
-        if (!WebGLRendererAdapter.DOUBLE_RECURSIVE)
-            this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
+        this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
         
-        // Give the shader access to textures[0] to sum with new samples
-        this.textures[0].bind(this.renderTextureUnit);
-        this.gl.uniform1i(this.uniforms.tracerSampleSumTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
         
-        // Give the shader access to textures[1] to sum with new samples
-        this.textures[1].bind(this.errorTextureUnit);
-        this.gl.uniform1i(this.uniforms.tracerSampleErrorTexture, WebGLHelper.textureUnitIndex(this.errorTextureUnit));
-        
-        // Set the errorbuffer to render to textures[2]
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.errorbuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT1, this.gl.TEXTURE_2D, this.textures[2].id(), 0);
-        if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
-            throw "Bad framebuffer texture linking";
-        
-        // Set the framebuffer to render to textures[3]
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.samplebuffer);
-        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures[3].id(), 0);
-        if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
-            throw "Bad framebuffer texture linking";
+        // Okay, this next part is simple, but looks complicated.
+        // Basically, we have several different types of buffers (e.g., render, normal, error), each of which
+        // has an array of associated textures we use to pass data between iterations. As we cannot write and read from
+        // the same texture/buffer at the same time, we read from textures[1], and write to textures[0]. That way, at
+        // the end of each iteration, we can just rotate the array of textures by one, and the previously written texture
+        // will automatically be in the read slot.
+        for (let k of WebGLRendererAdapter.BUFFER_TYPES) {
+            // Give the shader access to textures[1] to read from and add to new sample(s)
+            this.textures[1][k].bind(this.textureUnits[k]);
+            this.gl.uniform1i(this.uniforms["tracerTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
+        }
+        for (let [i,k] of WebGLRendererAdapter.BUFFER_TYPES.entries()) {
+            // Set the buffers to render to textures[0]
+            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.buffers[k]);
+            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl["COLOR_ATTACHMENT"+i],
+                this.gl.TEXTURE_2D, this.textures[0][k].id(), 0);
+            if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
+                throw "Bad framebuffer texture linking";
+        }
+
+        this.gl.drawBuffers(WebGLRendererAdapter.BUFFER_TYPES.map((x,i) => this.gl["COLOR_ATTACHMENT"+i]));
         
         // Do ray-tracing shader magic, by rendering a simple square.
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
@@ -589,13 +563,18 @@ class WebGLRendererAdapter {
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         
-        // Render textures[3] to the screen with the passthrough shader
+        // Alright, time to use the passthrough shader to clean up all our weird intermediary results
+        // First, unset the framebuffer, so that webgl will output directly to the canvas, then switch to the passthrough shader.
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.useProgram(this.passthroughShaderProgram);
-        this.textures[3].bind(this.renderTextureUnit);
-        this.gl.uniform1i(this.uniforms.passthroughSampleSumTexture, WebGLHelper.textureUnitIndex(this.renderTextureUnit));
         
-        // Set passthrough uniforms
+        // Set textures[0] (the textures that were just rendered/written to) to be readable in the passthrough/filter shader
+        for (let k of ["render", "normal"]) {
+            this.textures[0][k].bind(this.textureUnits[k]);
+            this.gl.uniform1i(this.uniforms["passthroughTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
+        }
+        
+        // Set passthrough uniforms. These are (almost) entirely modifiable within the UI.
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
         this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
         this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? this.drawCount : 0);
@@ -606,12 +585,13 @@ class WebGLRendererAdapter {
         this.gl.uniform1f(this.uniforms.denoiseThreshold, this.denoiseThreshold);
 
         
-        // draw with the passthrough shader
+        // Finally, draw with the passthrough shader. Note that this uses the same geometry array buffer that was used
+        //      for the tracer shader, as nothing else has been bound to the relevant buffer since.
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         
-        // Ping-pong the textures, so the next texture reads will be the last textures rendered.
-        this.textures.reverse();
+        // Rotate each list of textures, so the next textures read from will be the last textures rendered.
+        this.textures.rotate();
         
         
         // Update the draw count, which is used for multisample blending.

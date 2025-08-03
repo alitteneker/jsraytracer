@@ -333,8 +333,8 @@ class WebGLWorldAdapter {
         return `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
-            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays);
-            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays);` + "\n"
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal);
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
@@ -575,7 +575,7 @@ class WebGLWorldAdapter {
 #endif
 
             // ---- Generic World Color ----
-            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays) {
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal) {
                 int primID = -1;
                 mat4 ancestorInvTransform = mat4(1.0);
                 
@@ -584,7 +584,7 @@ class WebGLWorldAdapter {
                     return uBackgroundColor;
                 
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
-                return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays);
+                return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays, normal);
             }
             
             
@@ -610,11 +610,12 @@ class WebGLWorldAdapter {
             #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
             #define WORLD_NODE_BVH_TYPE          ${WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE}
             
-            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal) {
                 Primitive ids = getPrimitive(primID);
                 mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
                 GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
                 geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
+                normal = geomatdata.normal.xyz;
                 return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
             }
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
@@ -713,7 +714,7 @@ class WebGLWorldAdapter {
             }
             
             
-            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal) {
                 int materialID = 0;
                 mat4 inverseTransform = mat4(1.0);
                 GeometricMaterialData geomatdata;
@@ -745,6 +746,7 @@ class WebGLWorldAdapter {
             }
             ret += `
                 }
+                normal = geomatdata.normal.xyz;
                 return colorForMaterial(materialID, rp, r, geomatdata, random_seed, nextRays);
             }`;
         }

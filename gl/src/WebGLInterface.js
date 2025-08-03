@@ -30,16 +30,12 @@ class WebGLInterface {
             this.samplesPerDraw = Number.parseInt(v);
         });
         
-        if (WebGLRendererAdapter.DOUBLE_RECURSIVE)
-            $("#renderer-depth").spinner("disable");
-        else {
-            $("#renderer-depth").on('spin spinstop', (e, ui) => {
-                if (this.renderer_adapter) {
-                    const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                    this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(v));
-                }
-            });
-        }
+        $("#renderer-depth").on('spin spinstop', (e, ui) => {
+            if (this.renderer_adapter) {
+                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(v));
+            }
+        });
         
         $("#renderer-log-color").on('spin spinstop', (e, ui) => {
             if (this.renderer_adapter) {

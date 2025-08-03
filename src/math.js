@@ -11,6 +11,19 @@ Array.prototype.any = function(p = (x => x)) {
     return false;
 };
 
+// This method rotates the array by a given number of elements, sort of like rotating the elements around a clock face.
+// If count is greater than 0, count elements are moved from the end of the list to the beginning, effectively moving the elements clockwise.
+// If count is less than 0, count elements are moved from the beginning of the list to the end, effectively moving the elements counter-clockwise.
+Array.prototype.rotate = function(count=1) {
+    if (count && this.length)
+        count = count % this.length;
+    if (!count)
+        return this;
+    if (count > 0) this.unshift(...this.splice(-count))
+    else           this.push(   ...this.splice(0, -count));
+    return this;
+}
+
 Math.fmod = function (a,b) { return Number((a - (Math.floor(a / b) * b)).toPrecision(8)); };
 Math.range = function(start, stop, step = 1) {
     if (start !== undefined && stop === undefined) {
