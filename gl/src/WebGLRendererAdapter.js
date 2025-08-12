@@ -97,9 +97,8 @@ class WebGLRendererAdapter {
             for (let t of Object.values(s))
                 t.destroy();
         
-        for (let b of Object.values(this.buffers))
-            this.gl.deleteFramebuffer(b);
-        
+        this.gl.deleteFramebuffer(this.tracerBuffer);
+
         this.webgl_helper.destroy(   this.gl);
         this.adapters.world.destroy( this.gl);
         this.adapters.camera.destroy(this.gl);
@@ -108,9 +107,7 @@ class WebGLRendererAdapter {
     buildShaders(gl, canvas, callback) {
         
         // Create framebuffers into which we can render intermediary results
-        this.buffers = {};
-        for (let k of WebGLRendererAdapter.BUFFER_TYPES)
-            this.buffers[k] = gl.createFramebuffer();
+        this.tracerBuffer = gl.createFramebuffer();
 
         // Create the position buffer data for a polygon covering the image.
         this.positionBuffer = gl.createBuffer();
@@ -316,11 +313,6 @@ class WebGLRendererAdapter {
             layout(location=2) out vec4 outNormalSum;
 
             void main() {
-                outSampleSum   = vec4(1.0, 0.0, 0.0, 1000.0);
-                outSampleError = vec4(0.0, 1.0, 0.0, 1000.0);
-                outNormalSum   = vec4(0.0, 0.0, 1.0, 1000.0);
-                return;
-            
                 vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
                 vec2 pixelSize = 2.0 / uCanvasSize;
                 
@@ -527,6 +519,7 @@ class WebGLRendererAdapter {
         
         // Tell WebGL to use our tracer program when drawing
         this.gl.useProgram(this.tracerShaderProgram);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.tracerBuffer);
         
         // Write the uniforms that vary between frames, 
         this.gl.uniform1f(this.uniforms.randomSeed, Math.random());
@@ -536,7 +529,7 @@ class WebGLRendererAdapter {
         
         
         // Okay, this next part is simple, but looks complicated.
-        // Basically, we have several different types of buffers (e.g., render, normal, error), each of which
+        // Basically, we have several different types of outputs (e.g., render, normal, error), each of which
         // has an array of associated textures we use to pass data between iterations. As we cannot write and read from
         // the same texture/buffer at the same time, we read from textures[1], and write to textures[0]. That way, at
         // the end of each iteration, we can just rotate the array of textures by one, and the previously written texture
@@ -546,27 +539,20 @@ class WebGLRendererAdapter {
             this.textures[1][k].bind(this.textureUnits[k]);
             this.gl.uniform1i(this.uniforms["tracerTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
         }
-        for (let [i,k] of ["render", "error", "normal"].entries()) {
-            // Set the buffers to render to textures[0]
-            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.buffers[k]);
+        
+        // Set the buffers to render to textures[0]
+        for (let [i,k] of ["render", "error", "normal"].entries())
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl["COLOR_ATTACHMENT"+i],
                 this.gl.TEXTURE_2D, this.textures[0][k].id(), 0);
-            if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
-                throw "Bad framebuffer texture linking";
-        }
 
         this.gl.drawBuffers(WebGLRendererAdapter.BUFFER_TYPES.map((x,i) => this.gl["COLOR_ATTACHMENT"+i]));
+        if (this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER) === this.gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
+            throw "Bad framebuffer texture linking";
         
         // Do ray-tracing shader magic, by rendering a simple square.
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.vertexAttribPointer(this.tracerVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-
-
-        const pixels = new Float32Array(4);
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.buffers.render);
-        this.gl.readPixels(300,300,1,1, this.gl.RGBA, this.gl.FLOAT, pixels);
-        console.log(pixels);
         
         
         // Alright, time to use the passthrough shader to clean up all our weird intermediary results
