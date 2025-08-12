@@ -227,11 +227,11 @@ class WebGLRendererAdapter {
                             sampleColor = texture(uSampleSumTexture, textureCoord) * texture_factor;
                         
                         if (any(isnan(sampleColor)))
-                            sampleColor = vec4(1.0, 0.0, 0.5, sampleColor.a);
+                            sampleColor = vec4(1.0, 0.0, 0.5, 1.0);
                         if (any(isinf(sampleColor)))
-                            sampleColor = vec4(0.0, 1.0, 0.5, sampleColor.a);
+                            sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
                         if (any(lessThan(sampleColor.rgb, vec3(0.0))))
-                            sampleColor = vec4(0.5, 0.0, 1.0, sampleColor.a);
+                            sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
                         
                         if (uColorLogScale > 0.0)
                             sampleColor = vec4(log(sampleColor.rgb + 1.0) / uColorLogScale, sampleColor.a);
@@ -316,9 +316,9 @@ class WebGLRendererAdapter {
             layout(location=2) out vec4 outNormalSum;
 
             void main() {
-                outSampleSum = vec4(1.0,0.0,0.0,10.0);
-                outSampleError = vec4(0.0);
-                outNormalSum = vec4(0.0);
+                outSampleSum   = vec4(1.0, 0.0, 0.0, 1000.0);
+                outSampleError = vec4(0.0, 1.0, 0.0, 1000.0);
+                outNormalSum   = vec4(0.0, 0.0, 1.0, 1000.0);
                 return;
             
                 vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
@@ -546,7 +546,7 @@ class WebGLRendererAdapter {
             this.textures[1][k].bind(this.textureUnits[k]);
             this.gl.uniform1i(this.uniforms["tracerTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
         }
-        for (let [i,k] of WebGLRendererAdapter.BUFFER_TYPES.entries()) {
+        for (let [i,k] of ["render", "error", "normal"].entries()) {
             // Set the buffers to render to textures[0]
             this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.buffers[k]);
             this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl["COLOR_ATTACHMENT"+i],
@@ -561,6 +561,12 @@ class WebGLRendererAdapter {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.vertexAttribPointer(this.tracerVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+
+
+        const pixels = new Float32Array(4);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.buffers.render);
+        this.gl.readPixels(300,300,1,1, this.gl.RGBA, this.gl.FLOAT, pixels);
+        console.log(pixels);
         
         
         // Alright, time to use the passthrough shader to clean up all our weird intermediary results
