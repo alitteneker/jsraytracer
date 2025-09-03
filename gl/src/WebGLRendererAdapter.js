@@ -15,6 +15,8 @@ class WebGLRendererAdapter {
         this.colorLogScale = 0.0;
         this.maxDepth = 1000.0;
         
+        this.maxBounceDepth = renderer.maxRecursionDepth;
+        
         // We also include a denoiser with the passthrough shader. Let's specify some default parameters here.
         this.doDenoise = true;
         this.denoiseSigma = 1;
@@ -24,8 +26,6 @@ class WebGLRendererAdapter {
         // store the canvas and renderer for future usage
         this.canvas = canvas;
         this.renderer = renderer;
-        
-        this.maxBounceDepth = renderer.maxRecursionDepth;
         
         // create and store utility variables for managing the WebGL context
         this.gl = gl;
@@ -87,6 +87,31 @@ class WebGLRendererAdapter {
         this.gl.useProgram(this.tracerShaderProgram);
         this.gl.uniform2fv(this.gl.getUniformLocation(this.tracerShaderProgram, "uCanvasSize"), Vec.of(new_width, new_height));
         this.resetDrawCount();
+    }
+    
+    getEditableParameters() {
+        return {
+            canvasWidth     : { value: this.canvas.width,   type: "scalar", step: 1, min: 0 },
+            canvasHeight    : { value: this.canvas.height,  type: "scalar", step: 1, min: 0 },
+            
+            doRandomSample   : { value: this.doRandomSample, type: "bool" },
+            colorLogScale    : { value: this.colorLogScale,  type: "scalar", step: 0.1, min: 0 },
+            maxBounceDepth   : { value: this.maxBounceDepth, type: "scalar", step: 1,   min: 0 },
+            
+            doDenoise        : { value: this.doDenoise, type: "bool" },
+            denoiseSigma     : { value: this.denoiseSigma,     type: "scalar", step: 0.01, min: 0 },
+            denoiseKSigma    : { value: this.denoiseKSigma,    type: "scalar", step: 0.01, min: 0 },
+            denoiseThreshold : { value: this.denoiseThreshold, type: "scalar", step: 0.01, min: 0 },
+            
+        };
+    }
+    
+    parameterModified(name, value) {
+        if (name == "canvasWidth" || name == "canvasHeight") {
+        }
+        else {
+            
+        }
     }
 
     destroy() {
@@ -171,6 +196,12 @@ class WebGLRendererAdapter {
                     uniform float uDenoiseSigma;
                     uniform float uDenoiseKSigma;
 
+                    vec4 safeDiv(vec4 num, vec4 den) {
+                        // Replace any zero denominator with 1.0 to avoid NaN/Inf
+                        vec4 ret = num / mix(den, vec4(1.0), equal(den, vec4(0.0)));
+                        return mix(ret, vec4(0.0), isnan(ret));
+                    }
+
                     // The following function is modified from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
                     // Parameters:
                     //      sampler2D tex             - sampler image / texture
@@ -191,9 +222,9 @@ class WebGLRendererAdapter {
                         float invThresholdSqrt2PI = INV_SQRT_OF_2PI / uDenoiseThreshold;           // 1.0 / (sqrt(2*PI) * uDenoiseSigma)
 
                         vec4 centerPx = texture(tex, uv) * texture_factor;
-                        vec4 centerStd = sqrt(texture(var, uv) * texture_factor);
+                        vec4 centerStd = sqrt(max(texture(var, uv), 0.0) * texture_factor);
 
-                        float zBuff = 0.0;
+                        vec4 zBuff = vec4(0.0);
                         vec4 aBuff = vec4(0.0);
                         vec2 size = vec2(textureSize(tex, 0));
 
@@ -204,20 +235,17 @@ class WebGLRendererAdapter {
                                 float blurFactor = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
 
                                 vec2 coord = max(min(uv + d / size, 1.0), 0.0);
-                                vec4 walkPx =  texture(tex, coord) * texture_factor;
-                                vec4 stdPx = sqrt(texture(var, coord) * texture_factor);
+                                vec4 walkPx =      texture(tex, coord) * texture_factor;
+                                vec4 stdPx  = sqrt(max(texture(var, coord), 0.0) * texture_factor);
 
-                                vec4 diffStd = centerStd - stdPx;
-                                //float deltaFactor = exp( -dot(diffStd.rgb, diffStd.rgb) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
-                                float deltaFactor = exp( -dot(stdPx.rgb, stdPx.rgb) * invThresholdSqx2) * invThresholdSqrt2PI * blurFactor;
+                                vec4 diffStd = stdPx - centerStd;
+                                vec4 deltaFactor = invThresholdSqrt2PI * blurFactor / (1.0 + exp( -diffStd * invThresholdSqx2));
 
                                 zBuff += deltaFactor;
-                                aBuff += deltaFactor*walkPx;
+                                aBuff += deltaFactor * walkPx;
                             }
                         }
-                        if (zBuff == 0.0)
-                            return aBuff;
-                        return aBuff / zBuff;
+                        return vec4((aBuff / zBuff).xyz, centerPx.w);
                     }
                     
                     out vec4 outTexelColor;

@@ -219,17 +219,21 @@ class WebGLInterface {
                 
                 this.initializeWorldControls(adapter);
                 
-                // reset the mouseDelta, to prevent any previous mouse input from making the camera jump on the first frame
-                this.mouseMoveDelta = [0,0];
-                
-                myconsole.log("Starting draw world loop...");
-                this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
+                this.startDrawLoop();
 
                 $(".loading").css('visibility', 'hidden');
             }.bind(this));
         } catch(error) {
             myconsole.error(error);
             $(".loading").css('visibility', 'hidden');
+        }
+    }
+    startDrawLoop() {
+        if (this.renderer_adapter) {
+                this.mouseMoveDelta = [0,0];
+                
+                myconsole.log("Starting draw world loop...");
+                this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
         }
     }
     stopDrawLoop() {
