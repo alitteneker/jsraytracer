@@ -74,20 +74,14 @@
         <hr>
         <div id="control-panel">
             <h3>Renderer</h3>
-            <div id="renderer-controlgroup" class="control-group">
-                <label class="ui-controlgroup-label" for="renderer-random-sample">Random Sample      </label><input type="checkbox" name="renderer-random-sample" id="renderer-random-sample" checked/>
-                <label class="ui-controlgroup-label" for="renderer-depth"        >Maximum Bounces:   </label><input class="ui-spinner-input" id="renderer-depth"     min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="renderer-log-color"    >Color Log Space:   </label><input class="ui-spinner-input" id="renderer-log-color" min="0" value="0" step="0.1"/>
-                <label class="ui-controlgroup-label" for="samples-per-draw"      >Samples Per Draw:  </label><input class="ui-spinner-input" id="samples-per-draw"   min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="canvas-width"          >Width:             </label><input class="ui-spinner-input" id="canvas-width"       min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="canvas-height"         >Height:            </label><input class="ui-spinner-input" id="canvas-height"      min="1" value="1"/>
-                <label class="ui-controlgroup-label" for="renderer-do-denoise"   >Denoise            </label><input type="checkbox" name="renderer-do-denoise" id="renderer-do-denoise" checked/>
-                <label class="ui-controlgroup-label" for="denoise-sigma"         >Denoise Sigma:     </label><input class="ui-spinner-input" id="denoise-sigma"      min="0" value="5"   step="0.1"/>
-                <label class="ui-controlgroup-label" for="denoise-ksigma"        >Denoise K-Sigma:   </label><input class="ui-spinner-input" id="denoise-ksigma"     min="0" value="2"   step="0.1"/>
-                <label class="ui-controlgroup-label" for="denoise-threshold"     >Denoise Threshold: </label><input class="ui-spinner-input" id="denoise-threshold"  min="0" value="0.1" step="0.01"/>
-                <div id="template_holder" style="display:none">
-                    <div>
-                        
+            <div id="renderer-controls">
+                <div id="renderer-controlgroup" class="control-group"></div>
+                <div id="template-holder" style="display:none">
+                    <div data-template-type="bool">
+                        <label class="ui-controlgroup-label" for="$name">$label</label><input type="checkbox" name="$name" id="$name" checked/>
+                    </div>
+                    <div data-template-type="scalar">
+                        <label class="ui-controlgroup-label" for="$name">$label</label><input class="ui-spinner-input" id="$name" min="$min" value="$value" step="$step"/>
                     </div>
                 </div>
             </div>
@@ -119,7 +113,12 @@
             <h3>Log</h3>
             <div id="console_output"></div>
         </div>
-        <div id="selected-object-controls"></div>
+        <div id="selected-object-controls">
+            <div id="template-holder" style="display:none">
+                <div data-template-type="bool">
+                </div>
+            </div>
+        </div>
         <div id="help-dialog">
             <p>This is an interactive ray/path tracer that runs in your browser. To try it out, select a scene from the top dropdown, wait for the shader to finish compiling, then enjoy!</p>
             <p>The camera can be moved with WASD/LMB-click-drag, and scene geometry can be selected by clicking on the viewport. Further geometry and material properties of selected objects can be viewed/modified by opening the Edit menu. Geometry can be simply transformed by first clicking to select, then dragging, with the type of transformation selectable in the drop down.</p>

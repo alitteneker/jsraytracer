@@ -91,18 +91,17 @@ class WebGLRendererAdapter {
     
     getEditableParameters() {
         return {
-            canvasWidth     : { value: this.canvas.width,   type: "scalar", step: 1, min: 0 },
-            canvasHeight    : { value: this.canvas.height,  type: "scalar", step: 1, min: 0 },
+            canvasWidth      : { label: "Canvas Width",       value: this.canvas.width,     type: "number", step: 1, min: 0 },
+            canvasHeight     : { label: "Canvas Height",      value: this.canvas.height,    type: "number", step: 1, min: 0 },
             
-            doRandomSample   : { value: this.doRandomSample, type: "bool" },
-            colorLogScale    : { value: this.colorLogScale,  type: "scalar", step: 0.1, min: 0 },
-            maxBounceDepth   : { value: this.maxBounceDepth, type: "scalar", step: 1,   min: 0 },
+            doRandomSample   : { label: "Do Random Sample",   value: this.doRandomSample,   type: "bool"  },
+            colorLogScale    : { label: "Color Log Scale",    value: this.colorLogScale,    type: "number", step: 0.1, min: 0 },
+            maxBounceDepth   : { label: "Max Bounce Depth",   value: this.maxBounceDepth,   type: "number", step: 1,   min: 0 },
             
-            doDenoise        : { value: this.doDenoise,        type: "bool" },
-            denoiseSigma     : { value: this.denoiseSigma,     type: "scalar", step: 0.01, min: 0 },
-            denoiseKSigma    : { value: this.denoiseKSigma,    type: "scalar", step: 0.01, min: 0 },
-            denoiseThreshold : { value: this.denoiseThreshold, type: "scalar", step: 0.01, min: 0 },
-            
+            doDenoise        : { label: "Do Denoise",         value: this.doDenoise,        type: "bool"  },
+            denoiseSigma     : { label: "Denoise Sigma",      value: this.denoiseSigma,     type: "number", step: 0.01, min: 0 },
+            denoiseKSigma    : { label: "Denoise K Sigma",    value: this.denoiseKSigma,    type: "number", step: 0.01, min: 0 },
+            denoiseThreshold : { label: "Denoise Threshold",  value: this.denoiseThreshold, type: "number", step: 0.01, min: 0 },
         };
     }
     
@@ -514,11 +513,6 @@ class WebGLRendererAdapter {
     }
     modifyMaterialScalar(material_index, new_scalar) {
         this.adapters.world.modifyMaterialScalar(material_index, new_scalar);
-        this.resetDrawCount();
-    }
-    
-    changeMaxBounceDepth(newBounceDepth) {
-        this.maxBounceDepth = newBounceDepth;
         this.resetDrawCount();
     }
     

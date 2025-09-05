@@ -1,3 +1,14 @@
+function fillTemplate(src, props) {
+    const props_filled = {};
+    for (const prop_to_fill of [...src.matchAll(/\$(\w+)\b/g)]) {
+        if (!props_filled[props_to_fill[1]]) {
+            src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]);
+            props_filled[props_to_fill[1]] = true;
+        }
+    }
+    return src;
+}
+
 class WebGLInterface {
     constructor() {
         const canvas = this.canvas = $('#glcanvas');
@@ -19,12 +30,13 @@ class WebGLInterface {
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
         
+        
+        this.samplesPerDraw = 1;
+
         $("#renderer-controlgroup").controlgroup({ /* direction: "vertical" */ });
         
         $(".control-group").controlgroup();
         
-        
-        this.samplesPerDraw = 1;
         $("#samples-per-draw").on('spin', (e, ui) => {
             const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
             this.samplesPerDraw = Number.parseInt(v);
@@ -207,12 +219,31 @@ class WebGLInterface {
         try {
             this.canvas.attr("width", test.width);
             this.canvas.attr("height", test.height);
-            
-            $("#canvas-width").val(test.width);
-            $("#canvas-height").val(test.height);
 
             WebGLRendererAdapter.build(this.gl, this.canvas.get(0), test.renderer, function(adapter) {
                 this.renderer_adapter = adapter;
+                
+                $("#renderer-controlgroup").empty();
+                for (const [raw_name, prop] of Object.entries(this.renderer_adapter.getEditableProperties())) {
+                    const name = "renderer-control-" + name;
+                    $("#renderer-controlgroup").append(fillTemplate($(`#renderer-controls #template-holder div[data-template-type="${prop.type}"]`).html(), prop));
+                    
+                    if (prop.type == "bool") {
+                        $("#" + name).on('input', (e) => {
+                            if (this.renderer_adapter) {
+                                this.renderer_adapter.parameterModified(raw_name, e.target.checked);
+                            }
+                        });
+                    }
+                    else if (prop.type == "number") {
+                        $("#" + name).on('spin spinstop', (e, ui) => {
+                            if (this.renderer_adapter) {
+                                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                                this.renderer_adapter.parameterModified(raw_name, prop.step == 1 ? Number.parseInt(v) : Number.parseFloat(v));
+                            }
+                        });
+                    }
+                }
                 
                 // Set the initial values for the controls
                 this.getDefaultControlValues(adapter);
