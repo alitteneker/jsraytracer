@@ -85,6 +85,11 @@
                 <label class="ui-controlgroup-label" for="denoise-sigma"         >Denoise Sigma:     </label><input class="ui-spinner-input" id="denoise-sigma"      min="0" value="5"   step="0.1"/>
                 <label class="ui-controlgroup-label" for="denoise-ksigma"        >Denoise K-Sigma:   </label><input class="ui-spinner-input" id="denoise-ksigma"     min="0" value="2"   step="0.1"/>
                 <label class="ui-controlgroup-label" for="denoise-threshold"     >Denoise Threshold: </label><input class="ui-spinner-input" id="denoise-threshold"  min="0" value="0.1" step="0.01"/>
+                <div id="template_holder" style="display:none">
+                    <div>
+                        
+                    </div>
+                </div>
             </div>
             <h3>Camera</h3>
             <div class="control-group">
@@ -119,11 +124,6 @@
             <p>This is an interactive ray/path tracer that runs in your browser. To try it out, select a scene from the top dropdown, wait for the shader to finish compiling, then enjoy!</p>
             <p>The camera can be moved with WASD/LMB-click-drag, and scene geometry can be selected by clicking on the viewport. Further geometry and material properties of selected objects can be viewed/modified by opening the Edit menu. Geometry can be simply transformed by first clicking to select, then dragging, with the type of transformation selectable in the drop down.</p>
             <p>For more information on the technical details behind this project, see the <a href="https://github.com/alitteneker/jsraytracer">github project page</a>.</p>
-        </div>
-        <div id="template_holder" style="display:none">
-            <div>
-                
-            </div>
         </div>
     </body>
 </html>

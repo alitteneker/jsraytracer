@@ -98,7 +98,7 @@ class WebGLRendererAdapter {
             colorLogScale    : { value: this.colorLogScale,  type: "scalar", step: 0.1, min: 0 },
             maxBounceDepth   : { value: this.maxBounceDepth, type: "scalar", step: 1,   min: 0 },
             
-            doDenoise        : { value: this.doDenoise, type: "bool" },
+            doDenoise        : { value: this.doDenoise,        type: "bool" },
             denoiseSigma     : { value: this.denoiseSigma,     type: "scalar", step: 0.01, min: 0 },
             denoiseKSigma    : { value: this.denoiseKSigma,    type: "scalar", step: 0.01, min: 0 },
             denoiseThreshold : { value: this.denoiseThreshold, type: "scalar", step: 0.01, min: 0 },
@@ -107,10 +107,14 @@ class WebGLRendererAdapter {
     }
     
     parameterModified(name, value) {
-        if (name == "canvasWidth" || name == "canvasHeight") {
-        }
+        if (name == "canvasWidth" || name == "canvasHeight")
+            this.resizeCanvas(name == "canvasWidth"  ? value : this.canvas.width,
+                              name == "canvasHeight" ? value : this.canvas.height);
         else {
-            
+            const requires_reset = { doRandomSample: true, maxBounceDepth: true };
+            this.name = value;
+            if (requires_reset[this.name])
+                this.resetDrawCount();
         }
     }
 
@@ -196,12 +200,6 @@ class WebGLRendererAdapter {
                     uniform float uDenoiseSigma;
                     uniform float uDenoiseKSigma;
 
-                    vec4 safeDiv(vec4 num, vec4 den) {
-                        // Replace any zero denominator with 1.0 to avoid NaN/Inf
-                        vec4 ret = num / mix(den, vec4(1.0), equal(den, vec4(0.0)));
-                        return mix(ret, vec4(0.0), isnan(ret));
-                    }
-
                     // The following function is modified from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
                     // Parameters:
                     //      sampler2D tex             - sampler image / texture
@@ -235,7 +233,7 @@ class WebGLRendererAdapter {
                                 float blurFactor = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
 
                                 vec2 coord = max(min(uv + d / size, 1.0), 0.0);
-                                vec4 walkPx =      texture(tex, coord) * texture_factor;
+                                vec4 walkPx =          texture(tex, coord)       * texture_factor;
                                 vec4 stdPx  = sqrt(max(texture(var, coord), 0.0) * texture_factor);
 
                                 vec4 diffStd = stdPx - centerStd;
