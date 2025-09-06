@@ -1,9 +1,14 @@
 function fillTemplate(src, props) {
     const props_filled = {};
-    for (const prop_to_fill of [...src.matchAll(/\$(\w+)\b/g)]) {
-        if (!props_filled[props_to_fill[1]]) {
-            src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]);
-            props_filled[props_to_fill[1]] = true;
+    if (!src)
+        return src;
+    const matches = src.matchAll(/\$(\w+)\b/g);
+    if (matches) {
+        for (const prop_to_fill of [...matches]) {
+            if (!props_filled[prop_to_fill[1]]) {
+                src = src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]]);
+                props_filled[prop_to_fill[1]] = true;
+            }
         }
     }
     return src;
@@ -33,7 +38,7 @@ class WebGLInterface {
         
         this.samplesPerDraw = 1;
 
-        $("#renderer-controlgroup").controlgroup({ /* direction: "vertical" */ });
+        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
         
         $(".control-group").controlgroup();
         
@@ -223,31 +228,9 @@ class WebGLInterface {
             WebGLRendererAdapter.build(this.gl, this.canvas.get(0), test.renderer, function(adapter) {
                 this.renderer_adapter = adapter;
                 
-                $("#renderer-controlgroup").empty();
-                for (const [raw_name, prop] of Object.entries(this.renderer_adapter.getEditableProperties())) {
-                    const name = "renderer-control-" + name;
-                    $("#renderer-controlgroup").append(fillTemplate($(`#renderer-controls #template-holder div[data-template-type="${prop.type}"]`).html(), prop));
-                    
-                    if (prop.type == "bool") {
-                        $("#" + name).on('input', (e) => {
-                            if (this.renderer_adapter) {
-                                this.renderer_adapter.parameterModified(raw_name, e.target.checked);
-                            }
-                        });
-                    }
-                    else if (prop.type == "number") {
-                        $("#" + name).on('spin spinstop', (e, ui) => {
-                            if (this.renderer_adapter) {
-                                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                                this.renderer_adapter.parameterModified(raw_name, prop.step == 1 ? Number.parseInt(v) : Number.parseFloat(v));
-                            }
-                        });
-                    }
-                }
-                
                 // Set the initial values for the controls
-                this.getDefaultControlValues(adapter);
-                
+                this.initializeRendererControls(adapter);
+                this.initializeCameraControls(adapter);
                 this.initializeWorldControls(adapter);
                 
                 this.startDrawLoop();
@@ -293,10 +276,33 @@ class WebGLInterface {
         $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
     }
     
-    getDefaultControlValues(renderer_adapter) {
-        $("#renderer-depth").val(renderer_adapter.maxBounceDepth);
-        $("#renderer-random-sample").prop("checked", renderer_adapter.doRandomSample).checkboxradio("refresh");
-        
+    initializeRendererControls(renderer_adapter) {
+        $("#renderer-controlgroup").empty();
+        for (const [name, prop] of Object.entries(renderer_adapter.getEditableParameters())) {
+            const html_name = "renderer-control-" + name;
+            $("#renderer-controlgroup").append(
+                fillTemplate($(`#renderer-controls #template-holder div[data-template-type="${prop.type}"]`).html(),
+                    Object.assign({}, prop, { name: html_name })));
+                    
+            $("#renderer-controlgroup").controlgroup("refresh");
+            
+            if (prop.type == "bool") {
+                $("#" + html_name).on('input', (e) => {
+                    if (this.renderer_adapter)
+                        this.renderer_adapter.parameterModified(name, e.target.checked);
+                });
+            }
+            else if (prop.type == "number") {
+                $("#" + html_name).on('spin spinstop', (e, ui) => {
+                    if (this.renderer_adapter) {
+                        const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+                        this.renderer_adapter.parameterModified(name, prop.step == 1 ? Number.parseInt(v) : Number.parseFloat(v));
+                    }
+                });
+            }
+        }
+    }
+    initializeCameraControls(renderer_adapter) {    
         const focus_distance = renderer_adapter.getCameraFocusDistance();
         if (renderer_adapter.getCameraFocusDistance() != 1.0)
             $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());

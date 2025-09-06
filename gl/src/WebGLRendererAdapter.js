@@ -79,8 +79,8 @@ class WebGLRendererAdapter {
         this.canvas.width = new_width;
         this.canvas.height = new_height;
         
-        for (let t of this.textures)
-            for (let t of a)
+        for (let ta of this.textures)
+            for (let t of Object.values(ta))
                 t.setPixels(null, 4, "FLOAT", new_width, new_height);
         this.gl.viewport(0, 0, new_width, new_height);
         
@@ -111,8 +111,8 @@ class WebGLRendererAdapter {
                               name == "canvasHeight" ? value : this.canvas.height);
         else {
             const requires_reset = { doRandomSample: true, maxBounceDepth: true };
-            this.name = value;
-            if (requires_reset[this.name])
+            this[name] = value;
+            if (requires_reset[name])
                 this.resetDrawCount();
         }
     }
