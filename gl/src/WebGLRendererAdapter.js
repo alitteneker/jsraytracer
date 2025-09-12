@@ -89,7 +89,7 @@ class WebGLRendererAdapter {
         this.resetDrawCount();
     }
     
-    getEditableParameters() {
+    getMutableRendererParameters() {
         return {
             canvasWidth      : { label: "Canvas Width",       value: this.canvas.width,     type: "number", step: 1, min: 0 },
             canvasHeight     : { label: "Canvas Height",      value: this.canvas.height,    type: "number", step: 1, min: 0 },
@@ -105,7 +105,7 @@ class WebGLRendererAdapter {
         };
     }
     
-    parameterModified(name, value) {
+    rendererParameterModified(name, prop, value) {
         if (name == "canvasWidth" || name == "canvasHeight")
             this.resizeCanvas(name == "canvasWidth"  ? value : this.canvas.width,
                               name == "canvasHeight" ? value : this.canvas.height);
@@ -475,15 +475,6 @@ class WebGLRendererAdapter {
         if (this.adapters.camera.moveCamera(rotateDelta, translateDelta, this.gl, this.tracerShaderProgram))
             this.resetDrawCount();
     }
-    getCameraPosition() {
-        return this.adapters.camera.getPosition();
-    }
-    getCameraTransform() {
-        return this.adapters.camera.getTransform();
-    }
-    getCameraInverseTransform() {
-        return this.adapters.camera.getInverseTransform();
-    }
     setCameraTransform(transform, inv_transform) {
         this.gl.useProgram(this.tracerShaderProgram);
         this.adapters.camera.setTransform(transform, inv_transform, this.gl, this.tracerShaderProgram);
@@ -492,18 +483,21 @@ class WebGLRendererAdapter {
     getCameraViewMatrix() {
         return this.adapters.camera.getViewMatrix();
     }
-    getCameraFOV() {
-        return this.adapters.camera.getFOV();
+    getCameraTransform() {
+        return this.adapters.camera.getTransform();
     }
-    getCameraFocusDistance() {
-        return this.adapters.camera.getFocusDistance();
+    getCameraInverseTransform() {
+        return this.adapters.camera.getInverseTransform();
     }
-    getCameraSensorSize() {
-        return this.adapters.camera.getSensorSize();
+    getCameraPosition() {
+        return this.adapters.camera.getPosition();
     }
-    changeLensSettings(focusDistance, apertureSize, FOV) {
-        this.gl.useProgram(this.tracerShaderProgram);
-        if (this.adapters.camera.changeLensSettings(focusDistance, apertureSize, FOV, this.gl, this.tracerShaderProgram))
+    
+    getMutableCameraParameters() {
+        return this.adapters.camera.getMutableParameters();
+    }
+    cameraParameterModified(name, prop, ...values) {
+        if (this.adapters.camera.parameterModified(name, prop, ...values))
             this.resetDrawCount();
     }
     

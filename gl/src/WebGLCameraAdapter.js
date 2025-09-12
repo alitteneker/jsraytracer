@@ -47,6 +47,22 @@ class WebGLCameraAdapter {
         this.writeCameraTransform(gl, program);
         return true;
     }
+    getMutableParameters() {
+        return {
+            FOV            : { label: "FOV",             value: this.FOV,              type: "number", step: 0.001, min: -3, max: -0.1 },
+            focus_distance : { label: "Focus Distance",  value: this.focus_distance,   type: "number", step: 0.01,  min:  1, max:  100 },
+            sensor_size    : { label: "Sensor Size",     value: this.sensor_size,      type: "number", step: 0.01,  min:  0, max:  1 },
+            transform      : { label: "Transform",       value: this.camera.transform, type: "mat" },
+        };
+    }
+    parameterModified(name, prop, val, inv_val) {
+        this[name] = this.camera[name] = val;
+        if (name == "FOV")
+            this.tan_fov = this.camera.tan_fov = Math.tan(val / 2);
+        else if (name == "transform")
+            this.setCameraTransform(val, inv_val);
+        return true;
+    }
     changeLensSettings(focusDistance, sensorSize, FOV, gl, program) {
         if (this.FOV == FOV && this.focus_distance == focusDistance && this.sensor_size == sensorSize)
             return false;
@@ -79,15 +95,6 @@ class WebGLCameraAdapter {
         this.writeCameraTransform(gl, program);
         
         return true;
-    }
-    getFOV() {
-        return this.FOV;
-    }
-    getFocusDistance() {
-        return this.focus_distance;
-    }
-    getSensorSize() {
-        return this.sensor_size;
     }
     writeCameraTransform(gl, program) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, this.camera.transform.flat());

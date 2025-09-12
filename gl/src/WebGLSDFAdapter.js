@@ -81,10 +81,10 @@ class WebGLSDFAdapter {
     getMutableObjectProperties(index, renderer_adapter) {
         const g = this.geometries[index], modifyFn = this.modifyGeometryProperty.bind(this, renderer_adapter, index);
         return [
-            { title: "max_samples",        key: "max_samples",        value: g.max_samples,        type: "num", step: 1, modifyFn: modifyFn },
-            { title: "distance_epsilon",   key: "distance_epsilon",   value: g.distance_epsilon,   type: "num", modifyFn: modifyFn },
-            { title: "max_trace_distance", key: "max_trace_distance", value: g.max_trace_distance, type: "num", modifyFn: modifyFn },
-            { title: "normal_step_size",   key: "normal_step_size",   value: g.normal_step_size,   type: "num", modifyFn: modifyFn }
+            { title: "max_samples",        key: "max_samples",        value: g.max_samples,        type: "number", step: 1, modifyFn: modifyFn },
+            { title: "distance_epsilon",   key: "distance_epsilon",   value: g.distance_epsilon,   type: "number", modifyFn: modifyFn },
+            { title: "max_trace_distance", key: "max_trace_distance", value: g.max_trace_distance, type: "number", modifyFn: modifyFn },
+            { title: "normal_step_size",   key: "normal_step_size",   value: g.normal_step_size,   type: "number", modifyFn: modifyFn }
         ].concat(this.sdfs[g.root_sdf.UID].getMutableObjectProperties(renderer_adapter));
     }
     modifyGeometryProperty(renderer_adapter, index, key, newvalue) {
@@ -219,7 +219,7 @@ class WebGLSDFDecorator {
         const ret = [], titlebase = `${this.raw.constructor.name} ${this.ID}: `;
         for (const [k,v] of Object.entries(this.raw)) {
             if (typeof v === 'number' && k != "UID")
-                ret.push({ title: titlebase + k, key: k, value: v, type: "num", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
+                ret.push({ title: titlebase + k, key: k, value: v, type: "number", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
             else if (v instanceof Vec)
                 ret.push({ title: titlebase + k, key: k, value: v, type: "vec", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
             else if (v instanceof Mat)

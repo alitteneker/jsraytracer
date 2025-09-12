@@ -39,7 +39,9 @@ body {
     /* align-items: center; */
     margin: auto;
 }
-
+#camera-controls .ui-spinner-input {
+    width: 40px;
+}
 #selected-object-controls {
     max-height: 80%;
     overflow-y: scroll;
@@ -119,4 +121,12 @@ div#controls {
     border-style: solid;
     min-height: 30px;
     font-family: monospace;
+}
+
+.template-holder {
+    display: none;
+}
+table.transform-table {
+    margin-right: auto;
+    margin-left:  auto;
 }

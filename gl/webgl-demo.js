@@ -22,7 +22,7 @@ $(document).ready(function() {
     }
     
     
-    const i = new WebGLInterface();
+    const i = new WebGLEditorInterface();
     
     
     // Populate the list of worlds with the default test list

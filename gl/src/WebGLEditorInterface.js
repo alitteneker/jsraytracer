@@ -2,10 +2,19 @@ function fillTemplate(src, props) {
     const props_filled = {};
     if (!src)
         return src;
-    const matches = src.matchAll(/\$(\w+)\b/g);
-    if (matches) {
-        for (const prop_to_fill of [...matches]) {
+    
+    const block_matches = src.matchAll(/\$\{([^\}]*)\}/g);
+    if (block_matches)
+        for (const block_match of [...block_matches])
+            src = src.replace(block_match[0], Function(Object.entries(props).map(
+                ([name, prop]) => `const ${name} = ${JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
+
+    const var_matches = src.matchAll(/\$(\w+)\b/g);
+    if (var_matches) {
+        for (const prop_to_fill of [...var_matches]) {
             if (!props_filled[prop_to_fill[1]]) {
+                if (!(prop_to_fill[1] in props))
+                    throw "Attempt to use unavailable property from template: " + prop_to_fill[1];
                 src = src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]]);
                 props_filled[prop_to_fill[1]] = true;
             }
@@ -14,7 +23,80 @@ function fillTemplate(src, props) {
     return src;
 }
 
-class WebGLInterface {
+function fillPropertyControls(root, props, callback) {
+    const insertion_point = root.find(".template-insertion-point");
+    if (!insertion_point || insertion_point.length == 0)
+        throw "No valid insertion point found to fill property controls";
+    insertion_point.empty();
+    for (const [name, raw_prop] of Object.entries(props)) {
+        const template = root.find(`.template-holder script[data-template-type="${raw_prop.type}"]`);
+        if (!template || template.length==0)
+            throw "Unable to find appropriate template for property type " + raw_prop.type;
+        
+        const prop = Object.assign({}, raw_prop, {name: name});
+        if (prop.type == "mat")
+            [prop.pos, prop.rot, prop.scale] = Mat4.breakdownTransform(prop.value);
+        insertion_point.append(fillTemplate(template.html(), prop));
+    }
+    
+    insertion_point.controlgroup("refresh");
+    
+    const listeners = {
+        bool:   { e: 'input',               c: boolPropertyChanged },
+        number: { e: 'spin spinstop input', c: numberPropertyChanged },
+        vec:    { e: 'spin spinstop input', c: vecPropertyChanged },
+        mat:    { e: 'spin spinstop input', c: matPropertyChanged },
+        color:  { e: 'spin spinstop input', c: colorPropertyChanged },
+    };
+    for (const [name, prop] of Object.entries(props)) {
+        if (prop.type in listeners) {
+            const l = listeners[prop.type];
+            root.find(`[data-field-name="${name}"]`).on(l.e, l.c.bind(null, name, prop, callback));
+        }
+        else
+            throw "Unable to automatically handle controls for property type " + prop.type;
+    }
+}
+
+function boolPropertyChanged(name, prop, callback, e, ui) {
+    callback(name, prop, e.target.checked);
+}
+function numberPropertyChanged(name, prop, callback, e, ui) {
+    const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+    callback(name, prop, Number.parseFloat(v));
+}
+function vecPropertyChanged(name, prop, callback, e, ui) {
+    const dim = prop.value.length, tc = $(e.target).attr("data-comp");
+    const v = Vec.from(Array(dim).fill(0));
+    for (let j = 0; j < dim; ++j)
+        v[j] = (tc == j && ui && ui.value !== undefined)
+            ? ui.value
+            : Number.parseFloat($(`[data-obj-pkey="${prop.key}"] .ui-spinner-input[data-obj-pindex="${i}"][data-comp="${j}"]`).val()) || 0;
+    callback(name, prop, v);
+}
+function matPropertyChanged(name, prop, callback, e, ui) {
+    const target = $(e.target);
+    const tt = target.attr("data-transform-type"), tc = target.attr("data-transform-comp");
+    const vals = {pos: Vec.of(0,0,0), scale: Vec.of(0,0,0), rot: Vec.of(0,0,0)};
+    for (let i of [0,1,2]) {
+        for (let k of ["pos", "scale", "rot"]) {
+            vals[k] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
+                : Number.parseFloat($(`input[data-field-name="${prop.name}"][data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
+        }
+    }
+    callback(name, prop, ...Mat4.transformAndInverseFromParts(pos, vals.rot.times(Math.PI / 180), scale));
+}
+function colorPropertyChanged(name, prop, callback, e, ui) {
+    const target = $(e.target);
+    const id = target.attr("data-mc-id");
+
+    const intensity = Number.parseFloat($(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || "1");
+    const color = hexToRgb(target.val());
+    callback(name, prop, color.times(intensity));
+}
+
+
+class WebGLEditorInterface {
     constructor() {
         const canvas = this.canvas = $('#glcanvas');
         
@@ -37,77 +119,12 @@ class WebGLInterface {
         
         
         this.samplesPerDraw = 1;
-
-        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
         
         $(".control-group").controlgroup();
-        
-        $("#samples-per-draw").on('spin', (e, ui) => {
-            const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-            this.samplesPerDraw = Number.parseInt(v);
-        });
-        
-        $("#renderer-depth").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.changeMaxBounceDepth(Number.parseInt(v));
-            }
-        });
-        
-        $("#renderer-log-color").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.colorLogScale = Number.parseFloat(v);
-            }
-        });
-        $("#renderer-random-sample").on('input', (e) => {
-            if (this.renderer_adapter) {
-                this.renderer_adapter.doRandomSample = e.target.checked;
-                this.renderer_adapter.resetDrawCount();
-            }
-        });
-        
-        $("#canvas-width").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.resizeCanvas(Number.parseInt(v), this.canvas.attr('height'));
-            }
-        });
-        $("#canvas-height").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.resizeCanvas(this.canvas.attr('width'), Number.parseInt(v));
-            }
-        });
-        
-        $("#renderer-do-denoise").on('input', (e) => {
-            if (this.renderer_adapter)
-                this.renderer_adapter.doDenoise = e.target.checked;
-        });
-        $("#denoise-sigma").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.denoiseSigma = Number.parseFloat(v);
-            }
-        });
-        $("#denoise-ksigma").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.denoiseKSigma = Number.parseFloat(v);
-            }
-        });
-        $("#denoise-threshold").on('spin spinstop', (e, ui) => {
-            if (this.renderer_adapter) {
-                const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                this.renderer_adapter.denoiseThreshold = Number.parseFloat(v);
-            }
-        });
-        
+        $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
         
         // setup standard listeners for changing lens settings
-        $("#fov-range,#focus-distance,#sensor-size").on('input', this.changeLensSettings.bind(this));
-        $(".camera-transform").on('spinstop', this.modifyCameraTransformValues.bind(this));
-        $(".camera-transform").spinner({ step: 0.01, numberFormat: "N3" });
+        //$(".camera-transform").spinner({ step: 0.01, numberFormat: "N3" });
         
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
@@ -277,44 +294,15 @@ class WebGLInterface {
     }
     
     initializeRendererControls(renderer_adapter) {
-        $("#renderer-controlgroup").empty();
-        for (const [name, prop] of Object.entries(renderer_adapter.getEditableParameters())) {
-            const html_name = "renderer-control-" + name;
-            $("#renderer-controlgroup").append(
-                fillTemplate($(`#renderer-controls #template-holder div[data-template-type="${prop.type}"]`).html(),
-                    Object.assign({}, prop, { name: html_name })));
-                    
-            $("#renderer-controlgroup").controlgroup("refresh");
-            
-            if (prop.type == "bool") {
-                $("#" + html_name).on('input', (e) => {
-                    if (this.renderer_adapter)
-                        this.renderer_adapter.parameterModified(name, e.target.checked);
-                });
-            }
-            else if (prop.type == "number") {
-                $("#" + html_name).on('spin spinstop', (e, ui) => {
-                    if (this.renderer_adapter) {
-                        const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-                        this.renderer_adapter.parameterModified(name, prop.step == 1 ? Number.parseInt(v) : Number.parseFloat(v));
-                    }
-                });
-            }
-        }
+        fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(), renderer_adapter.rendererParameterModified.bind(renderer_adapter));
     }
-    initializeCameraControls(renderer_adapter) {    
-        const focus_distance = renderer_adapter.getCameraFocusDistance();
-        if (renderer_adapter.getCameraFocusDistance() != 1.0)
-            $('#focus-distance').val(renderer_adapter.getCameraFocusDistance());
-        else
-            $('#focus-distance').val(renderer_adapter.getCameraPosition().minus(
-                renderer_adapter.adapters.world.world.getFiniteBoundingBox().center).norm());
-        
-        $('#sensor-size').val(renderer_adapter.getCameraSensorSize());
-        $('#fov-range').val(-renderer_adapter.getCameraFOV());
-        
-        this.changeLensSettings();
-        this.updateCameraTransformValues();
+    initializeCameraControls(renderer_adapter) {
+        const params = Object.assign({}, renderer_adapter.getMutableCameraParameters());
+        params.FOV.value != -1;
+        if (params.focus_distance.value == 1)
+            params.focus_distance.value = renderer_adapter.getCameraPosition().minus(
+                renderer_adapter.adapters.world.world.getFiniteBoundingBox().center).norm();
+        fillPropertyControls($("#camera-controls"), params, renderer_adapter.cameraParameterModified.bind(renderer_adapter));
     }
     
 
@@ -454,9 +442,9 @@ class WebGLInterface {
             oc += `<div class="object-material-controls"><table>`;
             for (let mk of Object.keys(material)) {
                 const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
-                if (material[mk].type == "scalar") {
+                if (material[mk].type == "number") {
                     oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td>
-                            <td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="scalar" value="${material[mk].value}"></td></tr>`;
+                            <td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="number" value="${material[mk].value}"></td></tr>`;
                 }
                 if (material[mk].type == "solid") {
                     oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td><td>
@@ -508,7 +496,7 @@ class WebGLInterface {
         
         $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
         $('.object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
-        $('.object-material-controls input.ui-spinner-input[data-mc-type="scalar"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
+        $('.object-material-controls input.ui-spinner-input[data-mc-type="number"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
         
         $('#geometry-type-select').on('change', (function() {
             o.changeGeometryType(Number.parseInt($('#geometry-type-select').val()));
