@@ -698,7 +698,7 @@ class Mat4 extends Mat {
     }
     static breakdownTransform(m) {
         const scale = Vec.of(m.column(0).norm(), m.column(1).norm(), m.column(2).norm());
-        const rotation = Mat4.getEulerAngles(Mat4.scale([1/scale[0], 1/scale[1], 1/scale[2]]).times(m));
+        const rotation = Vec.from(Mat4.getEulerAngles(Mat4.scale([1/scale[0], 1/scale[1], 1/scale[2]]).times(m)));
         const position = m.column(3);
         return [position, rotation, scale];
     }

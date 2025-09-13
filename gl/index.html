@@ -91,7 +91,7 @@
                 <div class="template-holder">
                     <script type="text/x-template" data-template-type="number">
                         <div class="control-slider-div">
-                            <output id="${name}-output" for="$name"></output>
+                            <output id="${name}-output" for="$name">${value.toFixed(2)}</output>
                             <input type="range" id="$name" data-field-type="number" data-field-name="$name" min= "$min" max="$max" step="$step" value="$value"/>
                             <label for="$name">$label</label>
                         </div>

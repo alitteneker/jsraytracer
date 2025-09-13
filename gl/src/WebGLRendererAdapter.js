@@ -497,7 +497,8 @@ class WebGLRendererAdapter {
         return this.adapters.camera.getMutableParameters();
     }
     cameraParameterModified(name, prop, ...values) {
-        if (this.adapters.camera.parameterModified(name, prop, ...values))
+        this.gl.useProgram(this.tracerShaderProgram);
+        if (this.adapters.camera.parameterModified(this.gl, this.tracerShaderProgram, name, prop, ...values))
             this.resetDrawCount();
     }
     

@@ -34,8 +34,10 @@ function fillPropertyControls(root, props, callback) {
             throw "Unable to find appropriate template for property type " + raw_prop.type;
         
         const prop = Object.assign({}, raw_prop, {name: name});
-        if (prop.type == "mat")
+        if (prop.type == "mat") {
             [prop.pos, prop.rot, prop.scale] = Mat4.breakdownTransform(prop.value);
+            prop.rot = prop.rot.times(180 / Math.PI);
+        }
         insertion_point.append(fillTemplate(template.html(), prop));
     }
     
@@ -51,7 +53,12 @@ function fillPropertyControls(root, props, callback) {
     for (const [name, prop] of Object.entries(props)) {
         if (prop.type in listeners) {
             const l = listeners[prop.type];
-            root.find(`[data-field-name="${name}"]`).on(l.e, l.c.bind(null, name, prop, callback));
+            const input = root.find(`[data-field-name="${name}"]`);
+            input.on(l.e, l.c.bind(null, name, prop, callback));
+            
+            const output = root.find(`output[for="${name}"]`);
+            if (output && output.length)
+                input.on(l.e, l.c.bind(null, name, prop, function(_, _, value) { output.text(value.toFixed(2)); }));
         }
         else
             throw "Unable to automatically handle controls for property type " + prop.type;
@@ -80,11 +87,17 @@ function matPropertyChanged(name, prop, callback, e, ui) {
     const vals = {pos: Vec.of(0,0,0), scale: Vec.of(0,0,0), rot: Vec.of(0,0,0)};
     for (let i of [0,1,2]) {
         for (let k of ["pos", "scale", "rot"]) {
-            vals[k] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
+            vals[k][i] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
                 : Number.parseFloat($(`input[data-field-name="${prop.name}"][data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
         }
     }
-    callback(name, prop, ...Mat4.transformAndInverseFromParts(pos, vals.rot.times(Math.PI / 180), scale));
+    callback(name, prop, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
+}
+function updateMatDisplay(root, transform) {
+    const [pos, rot, scale] = Mat4.breakdownTransform(transform);
+    for (const [type, val] of Object.entries({ pos: pos, rot: rot.times(180 / Math.PI), scale: scale }))
+        for (let i of [0,1,2])
+            root.find(`input[data-comp="${i}"][data-transform-type="${type}"]`).val(val[i].toFixed(2));
 }
 function colorPropertyChanged(name, prop, callback, e, ui) {
     const target = $(e.target);
@@ -725,17 +738,6 @@ class WebGLEditorInterface {
             $(`input.camera-transform[data-transform-type="scale${i}"]`).val(scale[i].toFixed(2));
             $(`input.camera-transform[data-transform-type="rot${i}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
         }
-    }
-    modifyCameraTransformValues() {
-        if (!this.renderer_adapter)
-            return;
-        const [pos, rot, scale] = [Vec.of(0,0,0), Vec.of(0,0,0), Vec.of(0,0,0)];
-        for (let i of [0,1,2]) {
-            pos[i]   = Number.parseFloat($(`input.camera-transform[data-transform-type="pos${i}"]`  ).val());
-            scale[i] = Number.parseFloat($(`input.camera-transform[data-transform-type="scale${i}"]`).val());
-            rot[i]   = Number.parseFloat($(`input.camera-transform[data-transform-type="rot${i}"]`  ).val()) * Math.PI / 180;
-        }
-        this.renderer_adapter.setCameraTransform(...Mat4.transformAndInverseFromParts(pos, rot, scale));
     }
 
     

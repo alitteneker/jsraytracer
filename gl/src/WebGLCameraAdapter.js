@@ -24,10 +24,7 @@ class WebGLCameraAdapter {
     destroy() {}
     reset() {}
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov);
-        gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
-        gl.uniform1f(gl.getUniformLocation(program, "uSensorSize"),    this.sensor_size);
-        
+        this.writeLensSettings(gl, program);
         this.writeCameraTransform(gl, program, this.camera.transform);
     }
     moveCamera(rotateDelta, translateDelta, gl, program) {
@@ -49,26 +46,21 @@ class WebGLCameraAdapter {
     }
     getMutableParameters() {
         return {
-            FOV            : { label: "FOV",             value: this.FOV,              type: "number", step: 0.001, min: -3, max: -0.1 },
-            focus_distance : { label: "Focus Distance",  value: this.focus_distance,   type: "number", step: 0.01,  min:  1, max:  100 },
-            sensor_size    : { label: "Sensor Size",     value: this.sensor_size,      type: "number", step: 0.01,  min:  0, max:  1 },
-            transform      : { label: "Transform",       value: this.camera.transform, type: "mat" },
+            FOV            : { label: "FOV",            value: this.FOV * 180/Math.PI, type: "number", step: 0.1, min: 1, max: 179 },
+            focus_distance : { label: "Focus Distance", value: this.focus_distance,    type: "number", step: 0.01,  min:  1, max:  100 },
+            sensor_size    : { label: "Sensor Size",    value: this.sensor_size,       type: "number", step: 0.01,  min:  0, max:  1 },
+            transform      : { label: "Transform",      value: this.camera.transform,  type: "mat" },
         };
     }
-    parameterModified(name, prop, val, inv_val) {
+    parameterModified(gl, program, name, prop, val, inv_val) {
         this[name] = this.camera[name] = val;
         if (name == "FOV")
-            this.tan_fov = this.camera.tan_fov = Math.tan(val / 2);
-        else if (name == "transform")
-            this.setCameraTransform(val, inv_val);
-        return true;
-    }
-    changeLensSettings(focusDistance, sensorSize, FOV, gl, program) {
-        if (this.FOV == FOV && this.focus_distance == focusDistance && this.sensor_size == sensorSize)
-            return false;
-        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov = this.camera.tan_fov = Math.tan((this.FOV = this.camera.FOV = FOV) / 2));
-        gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance = this.camera.focus_distance = focusDistance);
-        gl.uniform1f(gl.getUniformLocation(program, "uSensorSize"),    this.sensor_size = this.camera.sensor_size = sensorSize);
+            this.tan_fov = this.camera.tan_fov = Math.tan((this.FOV = val * Math.PI/180) / 2);
+        
+        if (name == "transform")
+            this.setTransform(val, inv_val, gl, program);
+        else
+            this.writeLensSettings(gl, program);
         return true;
     }
     getPosition() {
@@ -95,6 +87,11 @@ class WebGLCameraAdapter {
         this.writeCameraTransform(gl, program);
         
         return true;
+    }
+    writeLensSettings(gl, program) {
+        gl.uniform1f(gl.getUniformLocation(program, "uTanFOV"),        this.tan_fov);
+        gl.uniform1f(gl.getUniformLocation(program, "uFocusDistance"), this.focus_distance);
+        gl.uniform1f(gl.getUniformLocation(program, "uSensorSize"),    this.sensor_size);
     }
     writeCameraTransform(gl, program) {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uCameraTransform"), true, this.camera.transform.flat());
