@@ -41,7 +41,7 @@ function fillPropertyControls(root, props, callback) {
         insertion_point.append(fillTemplate(template.html(), prop));
     }
     
-    insertion_point.controlgroup("refresh");
+    insertion_point.parents(".control-group").controlgroup("refresh");
     
     const listeners = {
         bool:   { e: 'input',               c: boolPropertyChanged },
@@ -73,38 +73,38 @@ function numberPropertyChanged(name, prop, callback, e, ui) {
     callback(name, prop, Number.parseFloat(v));
 }
 function vecPropertyChanged(name, prop, callback, e, ui) {
-    const dim = prop.value.length, tc = $(e.target).attr("data-comp");
+    const target = $(e.target);
+    const dim = prop.value.length, tc = target.attr("data-comp");
     const v = Vec.from(Array(dim).fill(0));
     for (let j = 0; j < dim; ++j)
         v[j] = (tc == j && ui && ui.value !== undefined)
             ? ui.value
-            : Number.parseFloat($(`[data-obj-pkey="${prop.key}"] .ui-spinner-input[data-obj-pindex="${i}"][data-comp="${j}"]`).val()) || 0;
+            : Number.parseFloat(target.parent().find(`input[data-comp="${j}"]`).val()) || 0;
     callback(name, prop, v);
 }
 function matPropertyChanged(name, prop, callback, e, ui) {
     const target = $(e.target);
-    const tt = target.attr("data-transform-type"), tc = target.attr("data-transform-comp");
+    const tt = target.attr("data-transform-type"), tc = target.attr("data-transform-comp"), root = target.parents(".transform-table");
     const vals = {pos: Vec.of(0,0,0), scale: Vec.of(0,0,0), rot: Vec.of(0,0,0)};
     for (let i of [0,1,2]) {
         for (let k of ["pos", "scale", "rot"]) {
             vals[k][i] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
-                : Number.parseFloat($(`input[data-field-name="${prop.name}"][data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
+                : Number.parseFloat(root.find(`input[data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
         }
     }
     callback(name, prop, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
 }
-function updateMatDisplay(root, transform) {
+function updateTransformInputs(root, transform) {
     const [pos, rot, scale] = Mat4.breakdownTransform(transform);
     for (const [type, val] of Object.entries({ pos: pos, rot: rot.times(180 / Math.PI), scale: scale }))
         for (let i of [0,1,2])
-            root.find(`input[data-comp="${i}"][data-transform-type="${type}"]`).val(val[i].toFixed(2));
+            root.find(`input[data-transform-comp="${i}"][data-transform-type="${type}"]`).val(val[i].toFixed(2));
 }
 function colorPropertyChanged(name, prop, callback, e, ui) {
     const target = $(e.target);
-    const id = target.attr("data-mc-id");
-
-    const intensity = Number.parseFloat($(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || "1");
-    const color = hexToRgb(target.val());
+    const type = target.attr("data-mc-type");
+    const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parent.find(`input[data-mc-type="intensity"]`).val());
+    const color = hexToRgb(type == "color" ? target.val() : target.parent.find(`input[data-mc-type="color"]`).val());
     callback(name, prop, color.times(intensity));
 }
 
@@ -721,23 +721,13 @@ class WebGLEditorInterface {
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
             
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
-            this.updateCameraTransformValues();
+            updateTransformInputs($("#camera-controls .transform-table"), this.renderer_adapter.getCameraTransform());
         }
         
         if ((this.transformObject && this.transformObject.isBeingTransformed))
             this.transformSelectedObjectWithMouse(beforeCameraTransform, beforeCameraInvTransform);
         
         this.lastMousePos = this.nextMousePos;
-    }
-    updateCameraTransformValues() {
-        if (!this.renderer_adapter)
-            return;
-        const [pos, rot, scale] = Mat4.breakdownTransform(this.renderer_adapter.getCameraTransform());
-        for (let i of [0,1,2]) {
-            $(`input.camera-transform[data-transform-type="pos${i}"]`  ).val(pos[i].toFixed(2));
-            $(`input.camera-transform[data-transform-type="scale${i}"]`).val(scale[i].toFixed(2));
-            $(`input.camera-transform[data-transform-type="rot${i}"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
-        }
     }
 
     
