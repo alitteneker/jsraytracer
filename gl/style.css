@@ -68,6 +68,9 @@ div.object-material-controls > table {
 div.object-material-controls {
     flex-grow: 1;
 }
+div#renderer-controlgroup table {
+    margin: auto;
+}
 
 output {
     width: 50px;

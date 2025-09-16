@@ -1,111 +1,113 @@
-function fillTemplate(src, props) {
-    const props_filled = {};
-    if (!src)
-        return src;
+class UIProperties {
+    static fillTemplate(src, props) {
+        const props_filled = {};
+        if (!src)
+            return src;
+        
+        const block_matches = src.matchAll(/\$\{([^\}]*)\}/g);
+        if (block_matches)
+            for (const block_match of [...block_matches])
+                src = src.replace(block_match[0], Function(Object.entries(props).map(
+                    ([name, prop]) => `const ${name} = ${JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
     
-    const block_matches = src.matchAll(/\$\{([^\}]*)\}/g);
-    if (block_matches)
-        for (const block_match of [...block_matches])
-            src = src.replace(block_match[0], Function(Object.entries(props).map(
-                ([name, prop]) => `const ${name} = ${JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
-
-    const var_matches = src.matchAll(/\$(\w+)\b/g);
-    if (var_matches) {
-        for (const prop_to_fill of [...var_matches]) {
-            if (!props_filled[prop_to_fill[1]]) {
-                if (!(prop_to_fill[1] in props))
-                    throw "Attempt to use unavailable property from template: " + prop_to_fill[1];
-                src = src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]]);
-                props_filled[prop_to_fill[1]] = true;
+        const var_matches = src.matchAll(/\$(\w+)\b/g);
+        if (var_matches) {
+            for (const prop_to_fill of [...var_matches]) {
+                if (!props_filled[prop_to_fill[1]]) {
+                    if (!(prop_to_fill[1] in props))
+                        throw "Attempt to use unavailable property from template: " + prop_to_fill[1];
+                    src = src.replaceAll(prop_to_fill[0], props[prop_to_fill[1]]);
+                    props_filled[prop_to_fill[1]] = true;
+                }
             }
         }
-    }
-    return src;
-}
-
-function fillPropertyControls(root, props, callback) {
-    const insertion_point = root.find(".template-insertion-point");
-    if (!insertion_point || insertion_point.length == 0)
-        throw "No valid insertion point found to fill property controls";
-    insertion_point.empty();
-    for (const [name, raw_prop] of Object.entries(props)) {
-        const template = root.find(`.template-holder script[data-template-type="${raw_prop.type}"]`);
-        if (!template || template.length==0)
-            throw "Unable to find appropriate template for property type " + raw_prop.type;
-        
-        const prop = Object.assign({}, raw_prop, {name: name});
-        if (prop.type == "mat") {
-            [prop.pos, prop.rot, prop.scale] = Mat4.breakdownTransform(prop.value);
-            prop.rot = prop.rot.times(180 / Math.PI);
-        }
-        insertion_point.append(fillTemplate(template.html(), prop));
+        return src;
     }
     
-    insertion_point.parents(".control-group").controlgroup("refresh");
-    
-    const listeners = {
-        bool:   { e: 'input',               c: boolPropertyChanged },
-        number: { e: 'spin spinstop input', c: numberPropertyChanged },
-        vec:    { e: 'spin spinstop input', c: vecPropertyChanged },
-        mat:    { e: 'spin spinstop input', c: matPropertyChanged },
-        color:  { e: 'spin spinstop input', c: colorPropertyChanged },
-    };
-    for (const [name, prop] of Object.entries(props)) {
-        if (prop.type in listeners) {
-            const l = listeners[prop.type];
-            const input = root.find(`[data-field-name="${name}"]`);
-            input.on(l.e, l.c.bind(null, name, prop, callback));
+    static fillPropertyControls(root, props, callback) {
+        const insertion_point = root.find(".template-insertion-point");
+        if (!insertion_point || insertion_point.length == 0)
+            throw "No valid insertion point found to fill property controls";
+        insertion_point.empty();
+        for (const [name, raw_prop] of Object.entries(props)) {
+            const template = root.find(`.template-holder script[data-template-type="${raw_prop.type}"]`);
+            if (!template || template.length==0)
+                throw "Unable to find appropriate template for property type " + raw_prop.type;
             
-            const output = root.find(`output[for="${name}"]`);
-            if (output && output.length)
-                input.on(l.e, l.c.bind(null, name, prop, function(_, _, value) { output.text(value.toFixed(2)); }));
+            const prop = Object.assign({}, raw_prop, {name: name});
+            if (prop.type == "mat") {
+                [prop.pos, prop.rot, prop.scale] = Mat4.breakdownTransform(prop.value);
+                prop.rot = prop.rot.times(180 / Math.PI);
+            }
+            insertion_point.append(UIProperties.fillTemplate(template.html(), prop));
         }
-        else
-            throw "Unable to automatically handle controls for property type " + prop.type;
-    }
-}
 
-function boolPropertyChanged(name, prop, callback, e, ui) {
-    callback(name, prop, e.target.checked);
-}
-function numberPropertyChanged(name, prop, callback, e, ui) {
-    const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-    callback(name, prop, Number.parseFloat(v));
-}
-function vecPropertyChanged(name, prop, callback, e, ui) {
-    const target = $(e.target);
-    const dim = prop.value.length, tc = target.attr("data-comp");
-    const v = Vec.from(Array(dim).fill(0));
-    for (let j = 0; j < dim; ++j)
-        v[j] = (tc == j && ui && ui.value !== undefined)
-            ? ui.value
-            : Number.parseFloat(target.parent().find(`input[data-comp="${j}"]`).val()) || 0;
-    callback(name, prop, v);
-}
-function matPropertyChanged(name, prop, callback, e, ui) {
-    const target = $(e.target);
-    const tt = target.attr("data-transform-type"), tc = target.attr("data-transform-comp"), root = target.parents(".transform-table");
-    const vals = {pos: Vec.of(0,0,0), scale: Vec.of(0,0,0), rot: Vec.of(0,0,0)};
-    for (let i of [0,1,2]) {
-        for (let k of ["pos", "scale", "rot"]) {
-            vals[k][i] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
-                : Number.parseFloat(root.find(`input[data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
+        (insertion_point.hasClass("control-group") ? insertion_point : insertion_point.parents(".control-group")).controlgroup("refresh");
+        
+        const listeners = {
+            bool:   { e: 'input',               c: UIProperties.boolPropertyChanged },
+            number: { e: 'spin spinstop input', c: UIProperties.numberPropertyChanged },
+            vec:    { e: 'spin spinstop input', c: UIProperties.vecPropertyChanged },
+            mat:    { e: 'spin spinstop input', c: UIProperties.matPropertyChanged },
+            color:  { e: 'spin spinstop input', c: UIProperties.colorPropertyChanged },
+        };
+        for (const [name, prop] of Object.entries(props)) {
+            if (prop.type in listeners) {
+                const l = listeners[prop.type];
+                const input = root.find(`[data-field-name="${name}"]`);
+                input.on(l.e, l.c.bind(null, name, prop, callback));
+                
+                const output = root.find(`output[for="${name}"]`);
+                if (output && output.length)
+                    input.on(l.e, l.c.bind(null, name, prop, function(n, p, value) { output.text(value.toFixed(2)); }));
+            }
+            else
+                throw "Unable to automatically handle controls for property type " + prop.type;
         }
     }
-    callback(name, prop, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
-}
-function updateTransformInputs(root, transform) {
-    const [pos, rot, scale] = Mat4.breakdownTransform(transform);
-    for (const [type, val] of Object.entries({ pos: pos, rot: rot.times(180 / Math.PI), scale: scale }))
-        for (let i of [0,1,2])
-            root.find(`input[data-transform-comp="${i}"][data-transform-type="${type}"]`).val(val[i].toFixed(2));
-}
-function colorPropertyChanged(name, prop, callback, e, ui) {
-    const target = $(e.target);
-    const type = target.attr("data-mc-type");
-    const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parent.find(`input[data-mc-type="intensity"]`).val());
-    const color = hexToRgb(type == "color" ? target.val() : target.parent.find(`input[data-mc-type="color"]`).val());
-    callback(name, prop, color.times(intensity));
+    
+    static boolPropertyChanged(name, prop, callback, e, ui) {
+        callback(name, prop, e.target.checked);
+    }
+    static numberPropertyChanged(name, prop, callback, e, ui) {
+        const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
+        callback(name, prop, Number.parseFloat(v));
+    }
+    static vecPropertyChanged(name, prop, callback, e, ui) {
+        const target = $(e.target);
+        const dim = prop.value.length, tc = target.attr("data-comp");
+        const v = Vec.from(Array(dim).fill(0));
+        for (let j = 0; j < dim; ++j)
+            v[j] = (tc == j && ui && ui.value !== undefined)
+                ? ui.value
+                : Number.parseFloat(target.parent().find(`input[data-comp="${j}"]`).val()) || 0;
+        callback(name, prop, v);
+    }
+    static matPropertyChanged(name, prop, callback, e, ui) {
+        const target = $(e.target);
+        const tt = target.attr("data-transform-type"), tc = target.attr("data-transform-comp"), root = target.parents(".transform-table");
+        const vals = {pos: Vec.of(0,0,0), scale: Vec.of(0,0,0), rot: Vec.of(0,0,0)};
+        for (let i of [0,1,2]) {
+            for (let k of ["pos", "scale", "rot"]) {
+                vals[k][i] = (tt == k && tc == i && ui && ui.value !== undefined) ? ui.value
+                    : Number.parseFloat(root.find(`input[data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
+            }
+        }
+        callback(name, prop, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
+    }
+    static updateTransformInputs(root, transform) {
+        const [pos, rot, scale] = Mat4.breakdownTransform(transform);
+        for (const [type, val] of Object.entries({ pos: pos, rot: rot.times(180 / Math.PI), scale: scale }))
+            for (let i of [0,1,2])
+                root.find(`input[data-transform-comp="${i}"][data-transform-type="${type}"]`).val(val[i].toFixed(2));
+    }
+    static colorPropertyChanged(name, prop, callback, e, ui) {
+        const target = $(e.target);
+        const type = target.attr("data-mc-type");
+        const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parent.find(`input[data-mc-type="intensity"]`).val());
+        const color = hexToRgb(type == "color" ? target.val() : target.parent.find(`input[data-mc-type="color"]`).val());
+        callback(name, prop, color.times(intensity));
+    }
 }
 
 
@@ -307,7 +309,7 @@ class WebGLEditorInterface {
     }
     
     initializeRendererControls(renderer_adapter) {
-        fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(), renderer_adapter.rendererParameterModified.bind(renderer_adapter));
+        UIProperties.fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(), renderer_adapter.rendererParameterModified.bind(renderer_adapter));
     }
     initializeCameraControls(renderer_adapter) {
         const params = Object.assign({}, renderer_adapter.getMutableCameraParameters());
@@ -315,7 +317,7 @@ class WebGLEditorInterface {
         if (params.focus_distance.value == 1)
             params.focus_distance.value = renderer_adapter.getCameraPosition().minus(
                 renderer_adapter.adapters.world.world.getFiniteBoundingBox().center).norm();
-        fillPropertyControls($("#camera-controls"), params, renderer_adapter.cameraParameterModified.bind(renderer_adapter));
+        UIProperties.fillPropertyControls($("#camera-controls"), params, renderer_adapter.cameraParameterModified.bind(renderer_adapter));
     }
     
 
@@ -721,7 +723,7 @@ class WebGLEditorInterface {
             const normalizedKeyDelta   = Vec.from(this.keyMoveDelta.map(  v => this.keySpeed   * v * timeDelta / 1000));
             
             this.renderer_adapter.moveCamera(normalizedMouseDelta, normalizedKeyDelta);
-            updateTransformInputs($("#camera-controls .transform-table"), this.renderer_adapter.getCameraTransform());
+            UIProperties.updateTransformInputs($("#camera-controls .transform-table"), this.renderer_adapter.getCameraTransform());
         }
         
         if ((this.transformObject && this.transformObject.isBeingTransformed))
