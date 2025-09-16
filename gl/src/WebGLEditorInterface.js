@@ -8,7 +8,7 @@ class UIProperties {
         if (block_matches)
             for (const block_match of [...block_matches])
                 src = src.replace(block_match[0], Function(Object.entries(props).map(
-                    ([name, prop]) => `const ${name} = ${JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
+                    ([name, prop]) => `const ${name} = ${prop instanceof Vec ? "Vec.from(" + JSON.stringify(Array.from(prop)) + ")" : JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
     
         const var_matches = src.matchAll(/\$(\w+)\b/g);
         if (var_matches) {
@@ -49,12 +49,14 @@ class UIProperties {
             number: { e: 'spin spinstop input', c: UIProperties.numberPropertyChanged },
             vec:    { e: 'spin spinstop input', c: UIProperties.vecPropertyChanged },
             mat:    { e: 'spin spinstop input', c: UIProperties.matPropertyChanged },
-            color:  { e: 'spin spinstop input', c: UIProperties.colorPropertyChanged },
+            color:  { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
         };
         for (const [name, prop] of Object.entries(props)) {
             if (prop.type in listeners) {
                 const l = listeners[prop.type];
                 const input = root.find(`[data-field-name="${name}"]`);
+                if (!input || input.length == 0)
+                    throw `No valid inputs found to listen to for property ${name}`;
                 input.on(l.e, l.c.bind(null, name, prop, callback));
                 
                 const output = root.find(`output[for="${name}"]`);
@@ -104,8 +106,8 @@ class UIProperties {
     static colorPropertyChanged(name, prop, callback, e, ui) {
         const target = $(e.target);
         const type = target.attr("data-mc-type");
-        const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parent.find(`input[data-mc-type="intensity"]`).val());
-        const color = hexToRgb(type == "color" ? target.val() : target.parent.find(`input[data-mc-type="color"]`).val());
+        const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parents("tr").find(`input[data-mc-type="intensity"]`).val());
+        const color = hexToRgb(type == "color" ? target.val() : target.parents("tr").find(`input[data-mc-type="color"]`).val());
         callback(name, prop, color.times(intensity));
     }
 }
@@ -440,9 +442,7 @@ class WebGLEditorInterface {
     buildSelectedObjectControls() {
         const o = this.selectedObject;
         let oc = "";
-        
-        $("#selected-object-controls").empty();
-        
+                
         if (!o.notTransformable && WebGLGeometriesAdapter.SWITCHABLE_TYPES.indexOf(o.geometryIndex) >= 0) {
             oc += `<label for="geometry-type-select">Geometry Type:</label><select id="geometry-type-select">`;
             for (let t of WebGLGeometriesAdapter.SWITCHABLE_TYPES)
@@ -450,10 +450,22 @@ class WebGLEditorInterface {
             oc += "</select>";
         }
         oc += `<div class="object-geometry-controls">${this.getSourceForTransformControls(o.getWorldTransform(), o.index)}</div>`;
-        
+
+        const rawMaterialValues = o.getMaterialValues(), materialValues = {};
+        for (const [name, raw_prop] of Object.entries(rawMaterialValues)) {
+            if (raw_prop.type == "checkerboard") {
+                materialValues[name + "1"] = { type: 'color', name: name + "1", material_id: raw_prop.color1._id, color: raw_prop.color1.color };
+                materialValues[name + "2"] = { type: 'color', name: name + "2", material_id: raw_prop.color2._id, color: raw_prop.color2.color };
+            }
+            else
+                materialValues[name] = Object.assign({ material_id: raw_prop._id }, raw_prop);
+        }
+        UIProperties.fillPropertyControls($("#object-material-properties"), materialValues, (function(name, prop, value) {
+            this.renderer_adapter.modifyMaterialSolidColor(prop._id, value);
+        }).bind(this));
         
         const material = o.getMaterialValues();
-        if (material) {
+        if (material && false) {
             oc += `<div class="object-material-controls"><table>`;
             for (let mk of Object.keys(material)) {
                 const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
@@ -461,7 +473,7 @@ class WebGLEditorInterface {
                     oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td>
                             <td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="number" value="${material[mk].value}"></td></tr>`;
                 }
-                if (material[mk].type == "solid") {
+                if (material[mk].type == "color") {
                     oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td><td>
                                    <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
                                    <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">

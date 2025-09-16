@@ -38,11 +38,11 @@ class WebGLMaterialsAdapter {
     }
     collapseMaterialColor(mc, webgl_helper, scale=Vec.of(1,1,1)) {
         if (mc instanceof Vec)
-            return Object.assign(this.storeSolidColor(mc.times(scale)), { type: "solid" });
+            return Object.assign(this.storeSolidColor(mc.times(scale)), { type: "color" });
         if (mc instanceof SolidMaterialColor) {
             return Object.assign(this.storeSolidColor(mc._color.times(scale)), {
                 mc: mc,
-                type: "solid"
+                type: "color"
             });
         }
         else if (mc instanceof CheckerboardMaterialColor) {
@@ -89,7 +89,7 @@ class WebGLMaterialsAdapter {
     visitMaterialScalar(s) {
         return Object.assign(this.storeSolidColor(Vec.of(s, 0, 0)), {
             value: s,
-            type: "scalar"
+            type: "number"
         });
     }
     visit(material, webgl_helper) {
