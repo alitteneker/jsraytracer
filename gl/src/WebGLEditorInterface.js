@@ -167,6 +167,9 @@ class WebGLEditorInterface {
 
         $("#geometry-type-select").append(
             WebGLGeometriesAdapter.SWITCHABLE_TYPES.map(t => `<option value="${t}" data-type="normal">${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`).join("\n"));
+        UIProperties.listenToControls($("#object-transform"), "object-transform", { type: "mat" }, (function(name, prop, target, trans, inv_trans) {
+            this.setSelectedObjectTransform(trans, inv_trans);
+        }).bind(this));
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
@@ -482,11 +485,13 @@ class WebGLEditorInterface {
         UIProperties.updateTransformInputs($("#object-transform"), o.getTransform());
         $("#object-transform").find("input").spinner(o.notTransformable ? "disable" : "enable");
 
+        
         // Third, fill in the material property controls.
         UIProperties.fillPropertyControls($("#object-material-properties"), o.getMaterialValues(), (function(name, prop, target, value) {
             if (this.renderer_adapter)
                 this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), value);
         }).bind(this));
+
         
         // Finally, fill in the object property controls (usually only used for SDFs).
         const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
@@ -641,12 +646,7 @@ class WebGLEditorInterface {
     updateSelectedObjectTransformValues() {
         if (!this.selectedObject)
             return;
-        const [pos, rot, scale] = Mat4.breakdownTransform(this.selectedObject.getWorldTransform());
-        for (let i of [0,1,2]) {
-            $(`input[data-object-id="${this.selectedObject.index}"][data-comp="${i}"][data-transform-type="pos"]`  ).val(pos[i].toFixed(2));
-            $(`input[data-object-id="${this.selectedObject.index}"][data-comp="${i}"][data-transform-type="scale"]`).val(scale[i].toFixed(2));
-            $(`input[data-object-id="${this.selectedObject.index}"][data-comp="${i}"][data-transform-type="rot"]`  ).val((rot[i] * 180 / Math.PI).toFixed(2));
-        }
+        UIProperties.updateTransformInputs($("#object-transform"), this.selectedObject.getWorldTransform());
     }
     
     setSelectedObjectTransform(transform, inv_transform) {
