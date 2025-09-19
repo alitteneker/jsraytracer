@@ -16,6 +16,12 @@ class WebGLGeometriesAdapter {
     
     static SWITCHABLE_TYPES = Math.range(1, 9);
 
+    static isTypeSDF(type) {
+        return type >= WebGLGeometriesAdapter.MIN_SDF_ID && type - WebGLGeometriesAdapter.MIN_SDF_ID < WebGLGeometriesAdapter.SDF_BLOCK_COUNT;
+    }
+    static isTypeTriangle(type) {
+        return type >= WebGLGeometriesAdapter.MIN_TRIANGLE_ID;
+    }
     static TypeStringLabel(type) {
         if (type == WebGLGeometriesAdapter.NULL_ID)        return "Null";
         if (type == WebGLGeometriesAdapter.PLANE_ID)       return "Plane";
@@ -26,9 +32,9 @@ class WebGLGeometriesAdapter {
         if (type == WebGLGeometriesAdapter.CYLINDER_ID)    return "Cylinder";
         if (type == WebGLGeometriesAdapter.ORIGINPOINT_ID) return "OriginPoint";
         if (type == WebGLGeometriesAdapter.UNITLINE_ID)    return "UnitLine";
-        if (type >= WebGLGeometriesAdapter.MIN_SDF_ID && type - WebGLGeometriesAdapter.MIN_SDF_ID < WebGLGeometriesAdapter.SDF_BLOCK_COUNT)
+        if (WebGLGeometriesAdapter.isTypeSDF(type))
             return "SDF: " + (type - WebGLGeometriesAdapter.MIN_SDF_ID + 1);
-        if (type >= WebGLGeometriesAdapter.MIN_TRIANGLE_ID)
+        if (WebGLGeometriesAdapter.isTypeTriangle(type))
             return "Triangle";
         return "Unknown";
     }

@@ -164,6 +164,9 @@ class WebGLEditorInterface {
             ],
             activate: this.selectObjectTree.bind(this)
         });
+
+        $("#geometry-type-select").append(
+            WebGLGeometriesAdapter.SWITCHABLE_TYPES.map(t => `<option value="${t}" data-type="normal">${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`).join("\n"));
         
         // Setup the UI to pretty things up...
         $("#control-panel").accordion({ animate: false, collapsible:true, active: false, heightStyle: "content" });
@@ -452,48 +455,40 @@ class WebGLEditorInterface {
     buildSelectedObjectControls() {
         const o = this.selectedObject;
         let oc = "";
-                
-        if (!o.notTransformable && WebGLGeometriesAdapter.SWITCHABLE_TYPES.indexOf(o.geometryIndex) >= 0) {
-            oc += `<label for="geometry-type-select">Geometry Type:</label><select id="geometry-type-select">`;
-            for (let t of WebGLGeometriesAdapter.SWITCHABLE_TYPES)
-                oc += `<option value="${t}" ${t == o.geometryIndex ? "selected" : ""}>${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`;
-            oc += "</select>";
-        }
 
+        // First, deal with the geometry type selection control.
+        const gid = o.geometryIndex;
+        const geometry_select = $("#geometry-type-select");
+        if (WebGLGeometriesAdapter.SWITCHABLE_TYPES.indexOf(gid) >= 0) {
+            geometry_select.find('option[data-type="unusual"]').hide();
+            geometry_select.val(gid);
+            geometry_select.prop('disabled', false);
+        }
+        else {
+            geometry_select.find('option[data-type="unusual"]').show();
+            if (WebGLGeometriesAdapter.isTypeSDF(gid))      geometry_select.val("SDF");
+            if (WebGLGeometriesAdapter.isTypeTriangle(gid)) geometry_select.val("triangle");
+            geometry_select.prop('disabled', true);
+        }
+        $('#geometry-type-select').on('change', (function() {
+            o.changeGeometryType(Number.parseInt(geometry_select.val()));
+            const selecttreenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey("o" + o.ID);
+            if (selecttreenode)
+                selecttreenode.setTitle(WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex) + " : " + o.object.OBJECT_UID);
+        }).bind(this));
+
+        
+        // Second, fill in the transform values, and disable if the object is not transformable.
+        UIProperties.updateTransformInputs($("#object-transform"), o.getTransform());
+        $("#object-transform").find("input").spinner(o.notTransformable ? "disable" : "enable");
+
+        // Third, fill in the material property controls.
         UIProperties.fillPropertyControls($("#object-material-properties"), o.getMaterialValues(), (function(name, prop, target, value) {
             if (this.renderer_adapter)
                 this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), value);
         }).bind(this));
         
-        const material = o.getMaterialValues();
-        if (material && false) {
-            oc += `<div class="object-material-controls"><table>`;
-            for (let mk of Object.keys(material)) {
-                const label = mk.substr(0,1).toLocaleUpperCase() + mk.substr(1);
-                if (material[mk].type == "number") {
-                    oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td>
-                            <td><input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" data-mc-type="number" value="${material[mk].value}"></td></tr>`;
-                }
-                if (material[mk].type == "color") {
-                    oc += `<tr><td><label for="material-${o.index}-${material[mk]._id}">${label}</label></td><td>
-                                   <input class="ui-spinner-input" id="material-${o.index}-${material[mk]._id}-intensity" data-mc-id="${material[mk]._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color)}">
-                                   <input type="color" id="material-${o.index}-${material[mk]._id}" data-mc-id="${material[mk]._id}" value="${rgbToHex(material[mk].color)}">
-                               </td>
-                               </tr>`;
-                }
-                if (material[mk].type == "checkerboard") {
-                    oc += `<tr><td><span>${label}</span></td><td>
-                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color1._id}-intensity" data-mc-id="${material[mk].color1._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color1.color)}">
-                               <input type="color" id="material-${o.index}-${material[mk].color1._id}" data-mc-id="${material[mk].color1._id}" value="${rgbToHex(material[mk].color1.color)}">
-                               <input class="ui-spinner-input" id="material-${o.index}-${material[mk].color2._id}-intensity" data-mc-id="${material[mk].color2._id}" data-mc-type="intensity" value="${Math.max(1, ...material[mk].color2.color)}">
-                               <input type="color" id="material-${o.index}-${material[mk].color2._id}" data-mc-id="${material[mk].color2._id}" value="${rgbToHex(material[mk].color2.color)}">
-                           </td></tr>`;
-                }
-            }
-            oc += "</table></div>";
-        }
-        
-        
+        // Finally, fill in the object property controls (usually only used for SDFs).
         const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
         if (object_properties) {
             oc += `<div class="object-properties-controls"><table>`;
@@ -515,20 +510,6 @@ class WebGLEditorInterface {
             }
             oc += `</table></div>`;
         }
-                
-        $(".object-geometry-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
-        $(".object-material-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
-        
-        $(`#selected-object-controls input[type="color"]`).on('input', this.modifyMaterialColor.bind(this));
-        $('.object-material-controls input.ui-spinner-input[data-mc-type="intensity"]').on('spin spinstop', this.modifyMaterialColorIntensity.bind(this));
-        $('.object-material-controls input.ui-spinner-input[data-mc-type="number"]'   ).on('spin spinstop', this.modifyMaterialScalar.bind(this));
-        
-        $('#geometry-type-select').on('change', (function() {
-            o.changeGeometryType(Number.parseInt($('#geometry-type-select').val()));
-            const selecttreenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey("o" + o.ID);
-            if (selecttreenode)
-                selecttreenode.setTitle(WebGLGeometriesAdapter.TypeStringLabel(o.geometryIndex) + " : " + o.object.OBJECT_UID);
-        }).bind(this));
         
         if (o.notTransformable)
             $("#selected-object-controls .object-geometry-controls input[data-transform-type]").spinner("disable");
@@ -601,26 +582,6 @@ class WebGLEditorInterface {
             };
         }));
         lights_root.setExpanded(true);
-    }
-    
-    // Material modification/viewing functionality
-    modifyMaterialColor(e) {
-        const target = $(e.target);
-        const id = target.attr("data-mc-id");
-        const intensity = Number.parseFloat($(`input[data-mc-id="${id}"][data-mc-type="intensity"]`).val() || "1");
-        const color = hexToRgb(target.val());
-        this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
-    }
-    modifyMaterialColorIntensity(e, ui) {
-        const target = $(e.target);
-        const id = target.attr("data-mc-id");
-        const intensity = (ui && ui.value !== undefined) ? ui.value : Number.parseFloat(target.val());
-        const color = hexToRgb($(`input[data-mc-id="${id}"][type="color"]`).val());
-        this.renderer_adapter.modifyMaterialSolidColor(id, color.times(intensity));
-    }
-    modifyMaterialScalar(e, ui) {
-        const target = $(e.target);
-        this.renderer_adapter.modifyMaterialScalar(target.attr("data-mc-id"), (ui && ui.value !== undefined) ? ui.value : target.val());
     }
     
     

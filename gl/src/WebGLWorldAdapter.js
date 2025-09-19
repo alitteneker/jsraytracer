@@ -1022,6 +1022,9 @@ class WrappedPrimitiveInstance extends AbstractWrappedWorldObject {
         this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" :
 "") + wrapped_primitive.ID;
     }
+    getDataVector() {
+        return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
+    }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);
     }

@@ -128,11 +128,12 @@
             <div id="object-geometry-types">
                 <label for="geometry-type-select">Geometry Type:</label>
                 <select id="geometry-type-select">
-                    ${ WebGLGeometriesAdapter.SWITCHABLE_TYPES.map(t => '<option value="${t}">' + WebGLGeometriesAdapter.TypeStringLabel(t) + '</option>') }
+                    <option value="triangle" data-type="unusual">Triangle</option>
+                    <option value="SDF" data-type="unusual">SDF</option>
                 </select>
             </div>
             <div id="object-transform">
-                <table class="transform-table">
+                <table class="transform-table control-group">
                     <tr><td>Position</td><td>
                         <input class="ui-spinner-input" data-transform-type="pos" data-transform-comp="0" step="0.01">
                         <input class="ui-spinner-input" data-transform-type="pos" data-transform-comp="1" step="0.01">
