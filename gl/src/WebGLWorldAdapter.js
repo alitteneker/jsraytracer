@@ -115,6 +115,14 @@ class WebGLWorldAdapter {
         
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
+
+        // If this adapter is being used to represent a world that is not editable, the generated shader source
+        // will require that all transform indices for transformable objects be unique. Do that here.
+        if (!this.WORLD_EDITABLE) {
+            for (const p of this.primitives)
+                if (!p.notTransformable)
+                    this.updateTransformLocal(p, false);
+        }
         
         // finally, we need to determine an order for any list start positions, as traversal order may separate
         // contiguous primitives under a single aggregate.
@@ -137,7 +145,7 @@ class WebGLWorldAdapter {
         }
     }
     
-    visitPrimitive(prim, webgl_helper, notTransformable=false) {
+    visitPrimitive(prim, webgl_helper) {
         if (!(prim instanceof Primitive))
             throw "Cannot call visitPrimitive on non-Primitive";
         
@@ -147,7 +155,7 @@ class WebGLWorldAdapter {
         const index = this.primitive_id_index_map[prim.OBJECT_UID] = this.primitives.length;
         
         const wrapped = new WrappedPrimitive(index, prim,
-            this.registerTransform(prim.getInvTransform(), prim, notTransformable),
+            this.registerTransform(prim.getInvTransform(), prim),
             this.adapters.geometries.visit(prim.geometry, webgl_helper),
             this.adapters.materials.visit( prim.material, webgl_helper), this);
         this.primitives.push(wrapped);
@@ -192,7 +200,9 @@ class WebGLWorldAdapter {
         if (!intersect.object)
             return null;
         return new WrappedPrimitiveInstance(this.primitives[this.primitive_id_index_map[intersect.object.OBJECT_UID]],
-            intersect.ancestors.map((a,i) => this.aggregates[this.aggregate_id_index_map[this.aggregates[0].object.OBJECT_UID + ":" + intersect.ancestors.slice(0, i+1).map(aa => aa.OBJECT_UID).join(":")]]), this);
+            intersect.ancestors.map((a,i) =>
+                this.aggregates[this.aggregate_id_index_map[
+                    this.aggregates[0].object.OBJECT_UID + ":" + intersect.ancestors.slice(0, i+1).map(aa => aa.OBJECT_UID).join(":")]]), this);
     }
     getLights(renderer_adapter, gl, program) {
         return this.adapters.lights.getLights().map(l => new WrappedLight(l, this));
@@ -201,8 +211,8 @@ class WebGLWorldAdapter {
         return this.aggregates[0];
     }
     
-    registerTransform(transform, object, notTransformable=false) {
-        const transformIndex = this.transform_store.store(transform, this.WORLD_EDITABLE || notTransformable);
+    registerTransform(transform, object, allow_reuse = true) {
+        const transformIndex = this.transform_store.store(transform, allow_reuse);
         if (!(transformIndex in this.transform_object_map))
             this.transform_object_map[transformIndex] = [];
         this.transform_object_map[transformIndex].push(object);
@@ -211,18 +221,24 @@ class WebGLWorldAdapter {
     registerObjectTransform(object, ancestors) {
         return this.registerTransform(object.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), object);
     }
-    updateTransformsRecursive(wrapped_obj) {
-        if (wrapped_obj.type == "primitive")
-            return;
-        
-        const set_transform = wrapped_obj.getWorldInvTransform();
+    updateTransformLocal(wrapped_obj, allow_reuse=true) {
+        const set_transform = wrapped_obj.type == "primitive" ? wrapped_obj.getInvTransform() : wrapped_obj.getWorldInvTransform();
         if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
-            this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
-            wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object, wrapped_obj.notTransformable);
+            if (!this.WORLD_EDITABLE)
+                myconsole.error("Transform modification of object with shared transform not possible for shader built without editing enabled. Weirdness ahead...");
+            this.transform_object_map[wrapped_obj.transformIndex] 
+                = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
+            wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object, allow_reuse);
             this.world_node_texture.modifyDataPixel(wrapped_obj.index, wrapped_obj.getDataVector());
         }
         else
             this.transform_store.set(wrapped_obj.transformIndex, set_transform);
+    }
+    updateTransformsRecursive(wrapped_obj) {
+        if (wrapped_obj.type == "primitive")
+            return;
+        
+        this.updateTransformLocal(wrapped_obj);
         
         for (let child of wrapped_obj.children)
             if (child.type != "primitive")
@@ -235,13 +251,7 @@ class WebGLWorldAdapter {
         wrapped_obj.object.setTransform(wrapped_obj.getAncestorInvTransform().times(new_transform), new_inv_transform.times(wrapped_obj.getAncestorTransform()));
         
         if (wrapped_obj.type == "primitive") {
-            if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
-                this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
-                wrapped_obj.transformIndex = this.registerTransform(wrapped_obj.getInvTransform(), wrapped_obj.object, wrapped_obj.notTransformable);
-                this.world_node_texture.modifyDataPixel(this.aggregates.length + wrapped_obj.index, wrapped_obj.getDataVector());
-            }
-            else
-                this.transform_store.set(wrapped_obj.transformIndex, wrapped_obj.getInvTransform());
+            this.updateTransformLocal(wrapped_obj);
             for (let p of wrapped_obj.parents) {
                 p.object.contentsChanged();
                 for (let a of p.ancestors)
@@ -259,7 +269,7 @@ class WebGLWorldAdapter {
                     this.updateTransformsRecursive(child);
         }
         
-        // TODO: do we need to check whether transforms have expanded beyond the bounds of available memory?
+        // TODO: should this check whether transforms have expanded beyond the bounds of available memory?
         this.renderer_adapter.useTracerProgram();
         this.renderer_adapter.gl.uniformMatrix4fv(this.renderer_adapter.getUniformLocation("uTransforms"), true, this.transform_store.flat());
         this.renderer_adapter.resetDrawCount();
