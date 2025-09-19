@@ -221,7 +221,7 @@ class WebGLSDFDecorator {
             if (typeof v === 'number' && k != "UID")
                 ret.push({ title: titlebase + k, key: k, value: v, type: "number", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
             else if (v instanceof Vec)
-                ret.push({ title: titlebase + k, key: k, value: v, type: "vec", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
+                ret.push({ title: titlebase + k, key: k, value: v, type: k == "basecolor" ? "color" : "vec", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
             else if (v instanceof Mat)
                 ret.push({ title: titlebase + k, key: k, value: v, type: "mat", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
         }

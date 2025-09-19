@@ -2,8 +2,10 @@ class WebGLWorldAdapter {
     static WORLD_NODE_AGGREGATE_TYPE = 3;
     static WORLD_NODE_BVH_NODE_TYPE  = 4;
     
-    constructor(world, webgl_helper, renderer_adapter) {
+    constructor(world, webgl_helper, renderer_adapter, world_editable = false) {
         this.renderer_adapter = renderer_adapter;
+
+        this.WORLD_EDITABLE = world_editable;
         
         [this.world_node_texture_unit, this.world_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         [this.world_aabb_texture_unit, this.world_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
@@ -339,7 +341,7 @@ class WebGLWorldAdapter {
             + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
-    getShaderSource(sceneEditable) {
+    getShaderSource() {
         this.shader_transform_max_size = Math.max(16, this.transform_store.size());
         
         // Below is most of the significant source for world ray cast and color functions, where the geometry and
@@ -351,7 +353,7 @@ class WebGLWorldAdapter {
         
         
             // ========== WORLD ==========
-            #define WORLD_EDITABLE ${Number(!!sceneEditable)}
+            #define WORLD_EDITABLE ${Number(!!this.WORLD_EDITABLE)}
             #define WORLD_HAS_BVH_NODES ${Number(this.bvh_node_count > 0)}
             #define WORLD_BVH_LEAVES_SINGULAR ${Number(!!this.bvh_all_leaves_singular)}
             #define WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES ${Number(!!this.bvh_only_uses_untransformed_triangles)}
@@ -605,7 +607,7 @@ class WebGLWorldAdapter {
         // to be rendered with the same shader. However, the downside is that the renderer will be significantly
         // slower for some scene/device permutations, and shader compilation will be very slow (e.g., more than
         // a minute) on some devices (e.g., Windows).
-        if (sceneEditable) {
+        if (this.WORLD_EDITABLE) {
             ret += `
             #define WORLD_NODE_AGGREGATE_TYPE    ${WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE}
             #define WORLD_NODE_BVH_TYPE          ${WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE}
@@ -751,9 +753,9 @@ class WebGLWorldAdapter {
             }`;
         }
         return ret
-            + this.adapters.lights.getShaderSource(sceneEditable)     + "\n"
-            + this.adapters.materials.getShaderSource(sceneEditable)  + "\n"
-            + this.adapters.geometries.getShaderSource(sceneEditable, !this.bvh_only_uses_untransformed_triangles) + "\n";
+            + this.adapters.lights.getShaderSource(this.WORLD_EDITABLE)     + "\n"
+            + this.adapters.materials.getShaderSource(this.WORLD_EDITABLE)  + "\n"
+            + this.adapters.geometries.getShaderSource(this.WORLD_EDITABLE, !this.bvh_only_uses_untransformed_triangles) + "\n";
     }
 }
 

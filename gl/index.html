@@ -133,6 +133,7 @@
                 </select>
             </div>
             <div id="object-transform">
+                <h3>Transform</h3>
                 <table class="transform-table control-group">
                     <tr><td>Position</td><td>
                         <input class="ui-spinner-input" data-field-name="object-transform" data-transform-type="pos" data-transform-comp="0" step="0.01">
@@ -152,6 +153,7 @@
                 </table>
             </div>
             <div id="object-material-properties">
+                <h3>Material Properties</h3>
                 <div><table id="object-material-properties-table" class="template-insertion-point control-group">
                 </table></div>
                 <div class="template-holder">
@@ -180,45 +182,55 @@
                     </script>
                 </div>
             </div>
-            <div id="object-geometry-properties">
-                <table class="template-insertion-point"></table>
+            <div id="object-properties">
+                <h3>Object Properties</h3>
+                <table class="template-insertion-point control-group"></table>
                 <div class="template-holder">
                     <script type="text/x-template" data-template-type="number">
                         <tr data-obj-pkey="$key">
-                            <td><label for="$name">$label</label></td>
-                            <td><input class="ui-spinner-input" id="$name" data-field-type="number" data-obj-pindex="$index" value="$value">
+                            <td><label for="$name">$title</label></td>
+                            <td><input class="ui-spinner-input" id="$name" data-field-name="$name" data-field-type="number" value="$value">
                             </td>
                         </tr>
                     </script>
                     <script type="text/x-template" data-template-type="vec">
-                        <tr><td colspan="100">$label</td></tr>
+                        <tr><td colspan="100">$title</td></tr>
                         <tr data-obj-pkey="$key"><td colspan="100">
-                            <input class="ui-spinner-input" data-obj-pindex="$pindex" data-field-type="vec" data-comp="0" value="${value[0]}">
-                            <input class="ui-spinner-input" data-obj-pindex="$pindex" data-field-type="vec" data-comp="1" value="${value[1]}">
-                            <input class="ui-spinner-input" data-obj-pindex="$pindex" data-field-type="vec" data-comp="2" value="${value[2]}">
+                            <input class="ui-spinner-input" data-field-name="$name" data-field-type="vec" data-comp="0" value="${value[0]}">
+                            <input class="ui-spinner-input" data-field-name="$name" data-field-type="vec" data-comp="1" value="${value[1]}">
+                            <input class="ui-spinner-input" data-field-name="$name" data-field-type="vec" data-comp="2" value="${value[2]}">
                         </td></tr>
                     </script>
                     <script type="text/x-template" data-template-type="mat">
-                        <tr><td colspan="100">${prop.title}</td></tr>
-                        <tr data-obj-pkey="$key" data-obj-pindex="$index"><td colspan="100">
+                        <tr><td colspan="100">$title</td></tr>
+                        <tr data-obj-pkey="$key"><td colspan="100">
                             <div><table class="transform-table">
                                 <tr><td>Position</td><td>
-                                    <input class="ui-spinner-input" data-transform-type="pos" data-transform-comp="0" step="0.01" value="${pos[0]}">
-                                    <input class="ui-spinner-input" data-transform-type="pos" data-transform-comp="1" step="0.01" value="${pos[1]}">
-                                    <input class="ui-spinner-input" data-transform-type="pos" data-transform-comp="2" step="0.01" value="${pos[2]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="pos" data-transform-comp="0" step="0.01" value="${pos[0]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="pos" data-transform-comp="1" step="0.01" value="${pos[1]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="pos" data-transform-comp="2" step="0.01" value="${pos[2]}">
                                 </td></tr>
                                 <tr><td>Rotation</td><td>
-                                    <input class="ui-spinner-input" data-transform-type="rot" data-transform-comp="0" step="0.01" value="${rot[0]}">
-                                    <input class="ui-spinner-input" data-transform-type="rot" data-transform-comp="1" step="0.01" value="${rot[1]}">
-                                    <input class="ui-spinner-input" data-transform-type="rot" data-transform-comp="2" step="0.01" value="${rot[2]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="rot" data-transform-comp="0" step="0.01" value="${rot[0]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="rot" data-transform-comp="1" step="0.01" value="${rot[1]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="rot" data-transform-comp="2" step="0.01" value="${rot[2]}">
                                 </td></tr>
                                 <tr><td>Scale</td><td>
-                                    <input class="ui-spinner-input" data-transform-type="scale" data-transform-comp="0" step="0.01" value="${scale[0]}">
-                                    <input class="ui-spinner-input" data-transform-type="scale" data-transform-comp="1" step="0.01" value="${scale[1]}">
-                                    <input class="ui-spinner-input" data-transform-type="scale" data-transform-comp="2" step="0.01" value="${scale[2]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="scale" data-transform-comp="0" step="0.01" value="${scale[0]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="scale" data-transform-comp="1" step="0.01" value="${scale[1]}">
+                                    <input class="ui-spinner-input" data-field-name="$name" data-transform-type="scale" data-transform-comp="2" step="0.01" value="${scale[2]}">
                                 </td></tr>
                             </table></div>
                         </td></tr>
+                    </script>
+                    <script type="text/x-template" data-template-type="color">
+                        <tr>
+                            <td><label for="material-$name">$title</label></td>
+                            <td>
+                                <input class="ui-spinner-input" id="material-$name-intensity" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...Object.values(value))}">
+                                <input type="color"             id="material-$name"           data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(value))}">
+                           </td>
+                        </tr>
                     </script>
                 </div>
             </div>

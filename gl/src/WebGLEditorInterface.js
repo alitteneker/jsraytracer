@@ -86,7 +86,7 @@ class UIProperties {
         for (let j = 0; j < dim; ++j)
             v[j] = (tc == j && ui && ui.value !== undefined)
                 ? ui.value
-                : Number.parseFloat(target.parent().find(`input[data-comp="${j}"]`).val()) || 0;
+                : Number.parseFloat(target.parents("tr").find(`input[data-comp="${j}"]`).val()) || 0;
         callback(name, prop, target, v);
     }
     static matPropertyChanged(name, prop, callback, e, ui) {
@@ -143,9 +143,6 @@ class WebGLEditorInterface {
         
         $(".control-group").controlgroup();
         $("#renderer-controlgroup").controlgroup({ direction: "vertical" });
-        
-        // setup standard listeners for changing lens settings
-        //$(".camera-transform").spinner({ step: 0.01, numberFormat: "N3" });
         
         $('#object-control-bar').controlgroup("disable");
         $("#transform-mode").selectmenu({ change: this.transformModeChange.bind(this), width: 'auto' });
@@ -308,17 +305,6 @@ class WebGLEditorInterface {
             $('#fps-display').text("");
     }
     
-    
-    changeLensSettings() {
-        const focusValue  =  Number.parseFloat($('#focus-distance').val()),
-              sensorValue =  Number.parseFloat($('#sensor-size').val()),
-              fovValue    = -Number.parseFloat($('#fov-range').val());
-        if (this.renderer_adapter)
-            this.renderer_adapter.changeLensSettings(focusValue, sensorValue, fovValue);
-        $('#focus-output').text(focusValue.toFixed(2));
-        $('#sensor-output').text(sensorValue.toFixed(2));
-        $('#fov-output').text((180 * fovValue / Math.PI).toFixed(2));
-    }
     
     initializeRendererControls(renderer_adapter) {
         UIProperties.fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(),  (function(name, prop, target, value) {
@@ -485,6 +471,8 @@ class WebGLEditorInterface {
         UIProperties.updateTransformInputs($("#object-transform"), o.getTransform());
         $("#object-transform").find("input").spinner(o.notTransformable ? "disable" : "enable");
 
+        // Similarly, disable the transformable type menu if the object is not transformable.
+        $("#transform-mode").selectmenu(this.transformObject ? "enable" : "disable");
         
         // Third, fill in the material property controls.
         UIProperties.fillPropertyControls($("#object-material-properties"), o.getMaterialValues(), (function(name, prop, target, value) {
@@ -493,60 +481,12 @@ class WebGLEditorInterface {
         }).bind(this));
 
         
-        // Finally, fill in the object property controls (usually only used for SDFs).
+        // Fourth, fill in the object property controls (usually only used for SDFs).
         const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
-        if (object_properties) {
-            oc += `<div class="object-properties-controls"><table>`;
-            for (let [i,prop] of Object.entries(object_properties)) {
-                if (prop.type == "num") {
-                    oc += `<tr data-obj-pkey="${prop.key}"><td><label for="object-property-${o.index}-${prop.key}">${prop.title}</label></td><td><input class="ui-spinner-input" id="op-${o.index}-${prop.key}" data-obj-pindex="${i}" data-type="${prop.type}" value="${prop.value}"></td>
-                               </tr>`;
-                }
-                if (prop.type == "mat") {
-                    oc += `<tr><td colspan="100">${prop.title}</td></tr><tr data-obj-pkey="${prop.key}" data-obj-pindex="${i}"><td colspan="100">${this.getSourceForTransformControls(prop.value, prop.key)}</td>`;
-                }
-                if (prop.type == "vec") {
-                    oc += `<tr><td colspan="100">${prop.title}</td></tr><tr data-obj-pkey="${prop.key}"><td colspan="100">
-                        <input class="ui-spinner-input" id="op-${o.index}-${prop.key}" data-obj-pindex="${i}" data-type="${prop.type}" data-comp="0" value="${prop.value[0]}">
-                        <input class="ui-spinner-input" id="op-${o.index}-${prop.key}" data-obj-pindex="${i}" data-type="${prop.type}" data-comp="1" value="${prop.value[1]}">
-                        <input class="ui-spinner-input" id="op-${o.index}-${prop.key}" data-obj-pindex="${i}" data-type="${prop.type}" data-comp="2" value="${prop.value[2]}">
-                        </td></tr>`;
-                }
-            }
-            oc += `</table></div>`;
-        }
-        
-        if (o.notTransformable)
-            $("#selected-object-controls .object-geometry-controls input[data-transform-type]").spinner("disable");
-        else
-            $("#selected-object-controls .object-geometry-controls input[data-transform-type]").on('spin spinstop',
-                this.objectTransformModified.bind(this, this.setSelectedObjectTransform.bind(this)));
-        
-        $("#transform-mode").selectmenu(this.transformObject ? "enable" : "disable");
-        
-        if (object_properties) {
-            for (let [i,prop] of Object.entries(object_properties)) {
-                $(`.object-properties-controls [data-obj-pkey="${prop.key}"] .ui-spinner-input`).spinner({ step: prop.step || 0.01 });
-                if (prop.type == "num")
-                    $(`.object-properties-controls [data-obj-pkey="${prop.key}"] .ui-spinner-input[data-obj-pindex="${i}"]`)
-                        .on('spin spinstop', 
-                            ((prop, e, ui) => prop.modifyFn(prop.key, (ui && ui.value !== undefined) ? ui.value : $(e.target).val())).bind(this, prop));
-                else if (prop.type == "mat")
-                    $(`.object-properties-controls [data-obj-pkey="${prop.key}"][data-obj-pindex="${i}"] input[data-transform-type]`)
-                        .on('spin spinstop', this.objectTransformModified.bind(this, prop.modifyFn.bind(this, prop.key)));
-                else if (prop.type == "vec")
-                    $(`.object-properties-controls [data-obj-pkey="${prop.key}"] .ui-spinner-input[data-obj-pindex="${i}"]`)
-                        .on('spin spinstop', (function(prop, e, ui) {
-                            const dim = prop.value.length, tc = $(e.target).attr("data-comp");
-                            const v = Vec.from(Array(dim).fill(0));
-                            for (let j = 0; j < dim; ++j)
-                                v[j] = (tc == j && ui && ui.value !== undefined)
-                                    ? ui.value
-                                    : Number.parseFloat($(`[data-obj-pkey="${prop.key}"] .ui-spinner-input[data-obj-pindex="${i}"][data-comp="${j}"]`).val()) || 0;
-                            prop.modifyFn(prop.key, v);
-                        }).bind(this, prop));
-            }
-        }
+        if (object_properties)
+            UIProperties.fillPropertyControls($("#object-properties"), object_properties, (function(name, prop, target, ...value) {
+                prop.modifyFn(prop.key, ...value);
+            }).bind(this));
     }
     
     initializeWorldControls(adapter) {
@@ -629,18 +569,6 @@ class WebGLEditorInterface {
 
         this.setSelectedObjectTransform(new_transform, new_inv_transform);
         this.updateSelectedObjectTransformValues();
-    }
-    
-    objectTransformModified(modifyFn, e, ui) {
-        const target = $(e.target);
-        const tt = target.attr("data-transform-type"), tc = target.attr("data-comp"), id = target.attr("data-object-id");
-        const [pos, rot, scale] = [Vec.of(0,0,0), Vec.of(0,0,0), Vec.of(0,0,0)];
-        for (let i of [0,1,2]) {
-            pos[i]   = (tt == "pos" && tc == i && ui && ui.value !== undefined) ? ui.value : Number.parseFloat($(`input[data-object-id="${id}"][data-comp="${i}"][data-transform-type="pos"]`  ).val());
-            scale[i] = (tt == "scale" && tc == i && ui && ui.value !== undefined) ? ui.value : Number.parseFloat($(`input[data-object-id="${id}"][data-comp="${i}"][data-transform-type="scale"]`).val());
-            rot[i]   = (tt == "rot" && tc == i && ui && ui.value !== undefined) ? ui.value : Number.parseFloat($(`input[data-object-id="${id}"][data-comp="${i}"][data-transform-type="rot"]`  ).val()) * Math.PI / 180;
-        }
-        modifyFn(...Mat4.transformAndInverseFromParts(pos, rot, scale));
     }
     
     updateSelectedObjectTransformValues() {
