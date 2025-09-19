@@ -137,7 +137,7 @@ class WebGLWorldAdapter {
         }
     }
     
-    visitPrimitive(prim, webgl_helper) {
+    visitPrimitive(prim, webgl_helper, notTransformable=false) {
         if (!(prim instanceof Primitive))
             throw "Cannot call visitPrimitive on non-Primitive";
         
@@ -147,7 +147,7 @@ class WebGLWorldAdapter {
         const index = this.primitive_id_index_map[prim.OBJECT_UID] = this.primitives.length;
         
         const wrapped = new WrappedPrimitive(index, prim,
-            this.registerTransform(prim.getInvTransform(), prim),
+            this.registerTransform(prim.getInvTransform(), prim, notTransformable),
             this.adapters.geometries.visit(prim.geometry, webgl_helper),
             this.adapters.materials.visit( prim.material, webgl_helper), this);
         this.primitives.push(wrapped);
@@ -201,8 +201,8 @@ class WebGLWorldAdapter {
         return this.aggregates[0];
     }
     
-    registerTransform(transform, object) {
-        const transformIndex = this.transform_store.store(transform);
+    registerTransform(transform, object, notTransformable=false) {
+        const transformIndex = this.transform_store.store(transform, this.WORLD_EDITABLE || notTransformable);
         if (!(transformIndex in this.transform_object_map))
             this.transform_object_map[transformIndex] = [];
         this.transform_object_map[transformIndex].push(object);
@@ -218,7 +218,7 @@ class WebGLWorldAdapter {
         const set_transform = wrapped_obj.getWorldInvTransform();
         if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
             this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
-            wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object);
+            wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object, wrapped_obj.notTransformable);
             this.world_node_texture.modifyDataPixel(wrapped_obj.index, wrapped_obj.getDataVector());
         }
         else
@@ -237,7 +237,7 @@ class WebGLWorldAdapter {
         if (wrapped_obj.type == "primitive") {
             if (this.transform_object_map[wrapped_obj.transformIndex].length > 1) {
                 this.transform_object_map[wrapped_obj.transformIndex] = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
-                wrapped_obj.transformIndex = this.registerTransform(wrapped_obj.getInvTransform(), wrapped_obj.object);
+                wrapped_obj.transformIndex = this.registerTransform(wrapped_obj.getInvTransform(), wrapped_obj.object, wrapped_obj.notTransformable);
                 this.world_node_texture.modifyDataPixel(this.aggregates.length + wrapped_obj.index, wrapped_obj.getDataVector());
             }
             else
@@ -864,7 +864,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
         for (const [geometry_type, prims] of Object.entries(prims_by_geometry_type)) {
             if (prims.length == 1) {
                 const prim = prims[0];
-                if (prim.getInvTransform().is_identity())
+                if (prim.notTransformable && prim.getInvTransform().is_identity())
                     ret += `
                     local_r = root_r;`;
                 else
@@ -953,7 +953,7 @@ class WrappedBVHTree {
             node_data.hitIndex = this.bvh_node_indices[node.greater_node.NODE_UID];
         }
         else {
-            const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper));
+            const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper, true));
             node_data.isSingularLeaf = primitives.length == 1;
             this.primitives = this.primitives.concat(primitives);
             for (let p of primitives) {

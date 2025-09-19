@@ -12,9 +12,9 @@ class WebGLVecStore {
     size() {
         return this.data.length;
     }
-    store(vec) {
+    store(vec, allow_reuse) {
         vec = vec.slice(0, this.components);
-        if (!this.reuse) {
+        if (!this.reuse || !allow_reuse) {
             this.data.push(Array.from(vec));
             return this.data.length - 1;
         }
@@ -50,8 +50,8 @@ class WebGLTransformStore {
     size() {
         return this.data.length;
     }
-    store(mat) {
-        if (!this.reuse) {
+    store(mat, allow_reuse) {
+        if (!this.reuse|| !allow_reuse) {
             this.data.push(mat);
             return this.data.length - 1;
         }

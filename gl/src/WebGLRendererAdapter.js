@@ -58,14 +58,16 @@ class WebGLRendererAdapter {
         const ret = new WebGLRendererAdapter(gl, canvas, renderer);
         
         // Build the shader programs to make this render
-        const start = Date.now();
+        const compile_start = Date.now();
         myconsole.log("Building shader...");
         ret.buildShaders(ret.gl, canvas, () => {
-            myconsole.log(`Shader successfully built in ${(Date.now() - start) / 1000} seconds.`);
+            myconsole.log(`Shader successfully built in ${(Date.now() - compile_start) / 1000} seconds.`);
             
             // Write data to shaders
             myconsole.log("Writing shader data...");
+            const write_start = Date.now();
             ret.writeShaderData(ret.gl);
+            myconsole.log(`Shader data written in ${(Date.now() - write_start) / 1000} seconds.`);
             
             if (callback)
                 callback(ret);
