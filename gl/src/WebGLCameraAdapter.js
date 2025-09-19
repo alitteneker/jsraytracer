@@ -52,7 +52,7 @@ class WebGLCameraAdapter {
             transform      : { label: "Transform",      value: this.camera.transform,  type: "mat" },
         };
     }
-    parameterModified(gl, program, name, prop, val, inv_val) {
+    parameterModified(gl, program, name, val, inv_val) {
         this[name] = this.camera[name] = val;
         if (name == "FOV")
             this.tan_fov = this.camera.tan_fov = Math.tan((this.FOV = val * Math.PI/180) / 2);

@@ -8,7 +8,7 @@ class UIProperties {
         if (block_matches)
             for (const block_match of [...block_matches])
                 src = src.replace(block_match[0], Function(Object.entries(props).map(
-                    ([name, prop]) => `const ${name} = ${prop instanceof Vec ? "Vec.from(" + JSON.stringify(Array.from(prop)) + ")" : JSON.stringify(prop)};`).join("\n") + "\n return " + block_match[1])())
+                    ([name, prop]) => `const ${name} = ${ JSON.stringify(prop) };`).join("\n") + "\n return " + block_match[1])())
     
         const var_matches = src.matchAll(/\$(\w+)\b/g);
         if (var_matches) {
@@ -23,7 +23,30 @@ class UIProperties {
         }
         return src;
     }
-    
+
+    static listeners = {
+        bool:         { e: 'input',                          c: UIProperties.boolPropertyChanged },
+        number:       { e: 'spin spinstop input',            c: UIProperties.numberPropertyChanged },
+        vec:          { e: 'spin spinstop input',            c: UIProperties.vecPropertyChanged },
+        mat:          { e: 'spin spinstop input',            c: UIProperties.matPropertyChanged },
+        color:        { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
+        checkerboard: { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
+    };
+    static listenToControls(root, name, prop, callback) {
+        if (prop.type in UIProperties.listeners) {
+            const l = UIProperties.listeners[prop.type];
+            const input = root.find(`[data-field-name="${name}"]`);
+            if (!input || input.length == 0)
+                throw `No valid inputs found to listen to for property ${name}`;
+            input.on(l.e, l.c.bind(null, name, prop, callback));
+            
+            const output = root.find(`output[for="${name}"]`);
+            if (output && output.length)
+                input.on(l.e, l.c.bind(null, name, prop, function(n, p, t, value) { output.text(value.toFixed(2)); }));
+        }
+        else
+            throw "Unable to automatically handle listening to property type " + prop.type;
+    }
     static fillPropertyControls(root, props, callback) {
         const insertion_point = root.find(".template-insertion-point");
         if (!insertion_point || insertion_point.length == 0)
@@ -44,36 +67,17 @@ class UIProperties {
 
         (insertion_point.hasClass("control-group") ? insertion_point : insertion_point.parents(".control-group")).controlgroup("refresh");
         
-        const listeners = {
-            bool:   { e: 'input',               c: UIProperties.boolPropertyChanged },
-            number: { e: 'spin spinstop input', c: UIProperties.numberPropertyChanged },
-            vec:    { e: 'spin spinstop input', c: UIProperties.vecPropertyChanged },
-            mat:    { e: 'spin spinstop input', c: UIProperties.matPropertyChanged },
-            color:  { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
-        };
-        for (const [name, prop] of Object.entries(props)) {
-            if (prop.type in listeners) {
-                const l = listeners[prop.type];
-                const input = root.find(`[data-field-name="${name}"]`);
-                if (!input || input.length == 0)
-                    throw `No valid inputs found to listen to for property ${name}`;
-                input.on(l.e, l.c.bind(null, name, prop, callback));
-                
-                const output = root.find(`output[for="${name}"]`);
-                if (output && output.length)
-                    input.on(l.e, l.c.bind(null, name, prop, function(n, p, value) { output.text(value.toFixed(2)); }));
-            }
-            else
-                throw "Unable to automatically handle controls for property type " + prop.type;
-        }
+        for (const [name, prop] of Object.entries(props))
+            UIProperties.listenToControls(root, name, prop, callback);
     }
     
     static boolPropertyChanged(name, prop, callback, e, ui) {
-        callback(name, prop, e.target.checked);
+        callback(name, prop, $(e.target), e.target.checked);
     }
     static numberPropertyChanged(name, prop, callback, e, ui) {
-        const v = (ui && ui.value !== undefined) ? ui.value : $(e.target).val();
-        callback(name, prop, Number.parseFloat(v));
+        const target = $(e.target);
+        const v = (ui && ui.value !== undefined) ? ui.value : target.val();
+        callback(name, prop, target, Number.parseFloat(v));
     }
     static vecPropertyChanged(name, prop, callback, e, ui) {
         const target = $(e.target);
@@ -83,7 +87,7 @@ class UIProperties {
             v[j] = (tc == j && ui && ui.value !== undefined)
                 ? ui.value
                 : Number.parseFloat(target.parent().find(`input[data-comp="${j}"]`).val()) || 0;
-        callback(name, prop, v);
+        callback(name, prop, target, v);
     }
     static matPropertyChanged(name, prop, callback, e, ui) {
         const target = $(e.target);
@@ -95,7 +99,7 @@ class UIProperties {
                     : Number.parseFloat(root.find(`input[data-transform-comp="${i}"][data-transform-type="${k}"]`).val());
             }
         }
-        callback(name, prop, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
+        callback(name, prop, target, ...Mat4.transformAndInverseFromParts(vals.pos, vals.rot.times(Math.PI / 180), vals.scale));
     }
     static updateTransformInputs(root, transform) {
         const [pos, rot, scale] = Mat4.breakdownTransform(transform);
@@ -108,7 +112,7 @@ class UIProperties {
         const type = target.attr("data-mc-type");
         const intensity = Number.parseFloat((type == "intensity" && ui && ui.value) ? ui.value : target.parents("tr").find(`input[data-mc-type="intensity"]`).val());
         const color = hexToRgb(type == "color" ? target.val() : target.parents("tr").find(`input[data-mc-type="color"]`).val());
-        callback(name, prop, color.times(intensity));
+        callback(name, prop, target, color.times(intensity));
     }
 }
 
@@ -311,7 +315,10 @@ class WebGLEditorInterface {
     }
     
     initializeRendererControls(renderer_adapter) {
-        UIProperties.fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(), renderer_adapter.rendererParameterModified.bind(renderer_adapter));
+        UIProperties.fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(),  (function(name, prop, target, value) {
+            if (this.renderer_adapter)
+                this.renderer_adapter.rendererParameterModified(name, value);
+        }).bind(this));
     }
     initializeCameraControls(renderer_adapter) {
         const params = Object.assign({}, renderer_adapter.getMutableCameraParameters());
@@ -319,7 +326,10 @@ class WebGLEditorInterface {
         if (params.focus_distance.value == 1)
             params.focus_distance.value = renderer_adapter.getCameraPosition().minus(
                 renderer_adapter.adapters.world.world.getFiniteBoundingBox().center).norm();
-        UIProperties.fillPropertyControls($("#camera-controls"), params, renderer_adapter.cameraParameterModified.bind(renderer_adapter));
+        UIProperties.fillPropertyControls($("#camera-controls"), params, (function(name, prop, target, ...value) {
+            if (this.renderer_adapter)
+                this.renderer_adapter.cameraParameterModified(name, ...value);
+        }).bind(this));
     }
     
 
@@ -425,7 +435,7 @@ class WebGLEditorInterface {
             if (activeNode)
                 activeNode.setActive(false);
             $('#object-control-bar').controlgroup("disable");
-            $("#selected-object-controls").empty();
+            //$("#selected-object-controls").empty();
         }
     }
     selectObjectTree(e, d) {
@@ -449,19 +459,10 @@ class WebGLEditorInterface {
                 oc += `<option value="${t}" ${t == o.geometryIndex ? "selected" : ""}>${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`;
             oc += "</select>";
         }
-        oc += `<div class="object-geometry-controls">${this.getSourceForTransformControls(o.getWorldTransform(), o.index)}</div>`;
 
-        const rawMaterialValues = o.getMaterialValues(), materialValues = {};
-        for (const [name, raw_prop] of Object.entries(rawMaterialValues)) {
-            if (raw_prop.type == "checkerboard") {
-                materialValues[name + "1"] = { type: 'color', name: name + "1", material_id: raw_prop.color1._id, color: raw_prop.color1.color };
-                materialValues[name + "2"] = { type: 'color', name: name + "2", material_id: raw_prop.color2._id, color: raw_prop.color2.color };
-            }
-            else
-                materialValues[name] = Object.assign({ material_id: raw_prop._id }, raw_prop);
-        }
-        UIProperties.fillPropertyControls($("#object-material-properties"), materialValues, (function(name, prop, value) {
-            this.renderer_adapter.modifyMaterialSolidColor(prop._id, value);
+        UIProperties.fillPropertyControls($("#object-material-properties"), o.getMaterialValues(), (function(name, prop, target, value) {
+            if (this.renderer_adapter)
+                this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), value);
         }).bind(this));
         
         const material = o.getMaterialValues();
@@ -514,10 +515,7 @@ class WebGLEditorInterface {
             }
             oc += `</table></div>`;
         }
-        
-        
-        $("#selected-object-controls").append(oc);
-        
+                
         $(".object-geometry-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         $(".object-material-controls .ui-spinner-input").spinner({ step: 0.01, numberFormat: "N3" });
         
@@ -667,26 +665,6 @@ class WebGLEditorInterface {
         this.updateSelectedObjectTransformValues();
     }
     
-    getSourceForTransformControls(transform, id) {
-        const [pos, rot, scale] = Mat4.breakdownTransform(transform);
-        return `<div><table>
-                    <tr><td>Position</td><td>
-                        <input class="ui-spinner-input" data-transform-type="pos" data-comp="0" data-object-id="${id}" value="${pos[0].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="pos" data-comp="1" data-object-id="${id}" value="${pos[1].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="pos" data-comp="2" data-object-id="${id}" value="${pos[2].toFixed(2)}">
-                    </td></tr>
-                    <tr><td>Rotation</td><td>
-                        <input class="ui-spinner-input" data-transform-type="rot" data-comp="0" data-object-id="${id}" value="${(rot[0] * 180 / Math.PI).toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="rot" data-comp="1" data-object-id="${id}" value="${(rot[1] * 180 / Math.PI).toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="rot" data-comp="2" data-object-id="${id}" value="${(rot[2] * 180 / Math.PI).toFixed(2)}">
-                    </td></tr>
-                    <tr><td>Scale</td><td>
-                        <input class="ui-spinner-input" data-transform-type="scale" data-comp="0" data-object-id="${id}" value="${scale[0].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="scale" data-comp="1" data-object-id="${id}" value="${scale[1].toFixed(2)}">
-                        <input class="ui-spinner-input" data-transform-type="scale" data-comp="2" data-object-id="${id}" value="${scale[2].toFixed(2)}">
-                    </td></tr>
-               </table></div>`;
-    }
     objectTransformModified(modifyFn, e, ui) {
         const target = $(e.target);
         const tt = target.attr("data-transform-type"), tc = target.attr("data-comp"), id = target.attr("data-object-id");

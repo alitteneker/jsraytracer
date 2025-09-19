@@ -157,17 +157,25 @@
                     <script type="text/x-template" data-template-type="number">
                         <tr>
                             <td><label for="material-$name">$name</label></td>
-                            <td><input class="ui-spinner-input" id="material-$name" data-mc-id="$material_id" data-field-type="number" data-field-name="$name" value="$value"></td>
+                            <td><input class="ui-spinner-input" id="material-$name" data-mc-id="$_id" data-field-type="number" data-field-name="$name" value="$value"></td>
                         </tr>
                     </script>
-                    <<script type="text/x-template" template data-template-type="color">
+                    <<script type="text/x-template" data-template-type="color">
                         <tr>
                             <td><label for="material-$name">$name</label></td>
                             <td>
-                                <input class="ui-spinner-input" id="material-$name-intensity" data-mc-id="$material_id" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...color)}">
-                                <input type="color" id="material-$name" data-mc-id="$material_id" data-mc-type="color" data-field-name="$name" value="${rgbToHex(color)}">
+                                <input class="ui-spinner-input" id="material-$name-intensity" data-mc-id="$_id" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...Object.values(color))}">
+                                <input type="color"             id="material-$name"           data-mc-id="$_id" data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(color))}">
                            </td>
                         </tr>
+                    </script>
+                    <script type="text/x-template" data-template-type="checkerboard">
+                        <tr><td><span>$name</span></td><td>
+                           <input class="ui-spinner-input" data-mc-id="${color1._id}" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...Object.values(color1.color))}">
+                           <input type="color"             data-mc-id="${color1._id}" data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(color1.color))}">
+                           <input class="ui-spinner-input" data-mc-id="${color2._id}" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...Object.values(color2.color))}">
+                           <input type="color"             data-mc-id="${color2._id}" data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(color2.color))}">
+                       </td></tr>
                     </script>
                 </div>
             </div>

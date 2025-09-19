@@ -105,7 +105,7 @@ class WebGLRendererAdapter {
         };
     }
     
-    rendererParameterModified(name, prop, value) {
+    rendererParameterModified(name, value) {
         if (name == "canvasWidth" || name == "canvasHeight")
             this.resizeCanvas(name == "canvasWidth"  ? value : this.canvas.width,
                               name == "canvasHeight" ? value : this.canvas.height);
@@ -496,9 +496,9 @@ class WebGLRendererAdapter {
     getMutableCameraParameters() {
         return this.adapters.camera.getMutableParameters();
     }
-    cameraParameterModified(name, prop, ...values) {
+    cameraParameterModified(name, ...values) {
         this.gl.useProgram(this.tracerShaderProgram);
-        if (this.adapters.camera.parameterModified(this.gl, this.tracerShaderProgram, name, prop, ...values))
+        if (this.adapters.camera.parameterModified(this.gl, this.tracerShaderProgram, name, ...values))
             this.resetDrawCount();
     }
     
