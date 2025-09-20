@@ -86,7 +86,7 @@ class WebGLWorldAdapter {
                 && node.getTransform().is_identity()
                 && node.does_cast_shadow)
             {
-                const materialIndex = me.adapters.materials.visit(node.material);
+                const materialIndex = me.adapters.materials.visit(node.material, webgl_helper);
                 while (me.untransformed_triangles_by_material.length <= materialIndex)
                     me.untransformed_triangles_by_material.push({ materialIndex: materialIndex, triangles: [], prims: [] });
                 me.untransformed_triangles_by_material[materialIndex].triangles.push(node);

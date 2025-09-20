@@ -231,17 +231,20 @@ class WebGLRendererAdapter {
                         for (d.x=-radius; d.x <= radius; d.x++) {
                             float pt = sqrt(radQ-d.x*d.x);       // pt = yRadius: have circular trend
                             for (d.y=-pt; d.y <= pt; d.y++) {
-                                float blurFactor = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
-
                                 vec2 coord = max(min(uv + d / size, 1.0), 0.0);
-                                vec4 walkPx =          texture(tex, coord)       * texture_factor;
-                                vec4 stdPx  = sqrt(max(texture(var, coord), 0.0) * texture_factor);
+                                vec4 px_color =          texture(tex, coord)       * texture_factor;
+                                vec4 px_std   = sqrt(max(texture(var, coord), 0.0) * texture_factor);
 
-                                vec4 diffStd = stdPx - centerStd;
-                                vec4 deltaFactor = invThresholdSqrt2PI * blurFactor / (1.0 + exp( -diffStd * invThresholdSqx2));
+                                vec4 std_diff = px_std - centerStd;
+                                
+                                float spatialW = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
+                                vec4  stdDiffW = invThresholdSqrt2PI / (1.0 + exp( -std_diff * invThresholdSqx2));
+                                float depthW = exp(-abs(px_color.w - centerPx.w) * 50.0);
+                                
+                                vec4 deltaFactor = spatialW * stdDiffW * depthW;
 
                                 zBuff += deltaFactor;
-                                aBuff += deltaFactor * walkPx;
+                                aBuff += deltaFactor * px_color;
                             }
                         }
                         return vec4((aBuff / zBuff).xyz, centerPx.w);
