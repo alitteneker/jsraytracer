@@ -14,14 +14,19 @@ class WebGLRendererAdapter {
         // Sometimes it's useful to render into log color space, scaled to an appropriate level
         this.colorLogScale = 0.0;
         this.maxDepth = 1000.0;
-        
+
         this.maxBounceDepth = renderer.maxRecursionDepth;
-        
+
+        // Clamping the luminance of any single path sample before it is accumulated tames fireflies at the
+        // source, rather than relying on the denoiser to filter them out after the fact. A value of 0 disables it.
+        this.fireflyClamp = 10;
+
         // We also include a denoiser with the passthrough shader. Let's specify some default parameters here.
         this.doDenoise = true;
         this.denoiseSigma = 1;
         this.denoiseKSigma = 2;
         this.denoiseThreshold = 5;
+        this.denoiseNormalPower = 32;
         
         // store the canvas and renderer for future usage
         this.canvas = canvas;
@@ -99,11 +104,13 @@ class WebGLRendererAdapter {
             doRandomSample   : { label: "Do Random Sample",   value: this.doRandomSample,   type: "bool"  },
             colorLogScale    : { label: "Color Log Scale",    value: this.colorLogScale,    type: "number", step: 0.1, min: 0 },
             maxBounceDepth   : { label: "Max Bounce Depth",   value: this.maxBounceDepth,   type: "number", step: 1,   min: 0 },
-            
+            fireflyClamp     : { label: "Firefly Clamp",      value: this.fireflyClamp,     type: "number", step: 0.1, min: 0 },
+
             doDenoise        : { label: "Do Denoise",         value: this.doDenoise,        type: "bool"  },
             denoiseSigma     : { label: "Denoise Sigma",      value: this.denoiseSigma,     type: "number", step: 0.01, min: 0 },
             denoiseKSigma    : { label: "Denoise K Sigma",    value: this.denoiseKSigma,    type: "number", step: 0.01, min: 0 },
             denoiseThreshold : { label: "Denoise Threshold",  value: this.denoiseThreshold, type: "number", step: 0.01, min: 0 },
+            denoiseNormalPower: { label: "Denoise Normal Power", value: this.denoiseNormalPower, type: "number", step: 1, min: 0 },
         };
     }
     
@@ -112,7 +119,7 @@ class WebGLRendererAdapter {
             this.resizeCanvas(name == "canvasWidth"  ? value : this.canvas.width,
                               name == "canvasHeight" ? value : this.canvas.height);
         else {
-            const requires_reset = { doRandomSample: true, maxBounceDepth: true };
+            const requires_reset = { doRandomSample: true, maxBounceDepth: true, fireflyClamp: true };
             this[name] = value;
             if (requires_reset[name])
                 this.resetDrawCount();
@@ -200,6 +207,7 @@ class WebGLRendererAdapter {
                     uniform float uDenoiseThreshold;
                     uniform float uDenoiseSigma;
                     uniform float uDenoiseKSigma;
+                    uniform float uDenoiseNormalPower;
 
                     // The following function is modified from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
                     // Parameters:
@@ -210,7 +218,7 @@ class WebGLRendererAdapter {
                     //      float uDenoiseKSigma >= 0 - sigma coefficient
                     //          uDenoiseKSigma * uDenoiseSigma  -->  radius of the circular kernel
                     //      float uDenoiseThreshold   - edge sharpening threshold
-                    vec4 smartDeNoise(in sampler2D tex, in sampler2D var, in vec2 uv, in float texture_factor) {
+                    vec4 smartDeNoise(in sampler2D tex, in sampler2D var, in sampler2D norm, in vec2 uv, in float texture_factor) {
                         float radius = round(uDenoiseKSigma * uDenoiseSigma);
                         float radQ = radius * radius;
 
@@ -222,6 +230,13 @@ class WebGLRendererAdapter {
 
                         vec4 centerPx = texture(tex, uv) * texture_factor;
                         vec4 centerStd = sqrt(max(texture(var, uv), 0.0) * texture_factor);
+
+                        // The accumulated normal buffer isn't unit length (it's a sum across samples), and is exactly
+                        // zero wherever every sample was a background miss, so guard the normalize rather than risk NaN.
+                        vec3 centerNormalRaw = texture(norm, uv).xyz;
+                        float centerNormalLen = length(centerNormalRaw);
+                        bool centerNormalValid = centerNormalLen > EPSILON;
+                        vec3 centerNormal = centerNormalValid ? (centerNormalRaw / centerNormalLen) : vec3(0.0);
 
                         vec4 zBuff = vec4(0.0);
                         vec4 aBuff = vec4(0.0);
@@ -236,12 +251,26 @@ class WebGLRendererAdapter {
                                 vec4 px_std   = sqrt(max(texture(var, coord), 0.0) * texture_factor);
 
                                 vec4 std_diff = px_std - centerStd;
-                                
+
                                 float spatialW = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
                                 vec4  stdDiffW = invThresholdSqrt2PI / (1.0 + exp( -std_diff * invThresholdSqx2));
                                 float depthW = exp(-abs(px_color.w - centerPx.w) * 50.0);
-                                
-                                vec4 deltaFactor = spatialW * stdDiffW * depthW;
+
+                                // Normal-based edge stopping: pixels facing similar directions to the center pixel
+                                // are likely the same surface, so blend them freely; a surface next to background,
+                                // or two differently-oriented surfaces, should not bleed into each other. When both
+                                // the center and sample are background (no accumulated normal), fall back to 1.0 so
+                                // background regions still blend on spatial/variance/depth terms alone.
+                                vec3 px_normalRaw = texture(norm, coord).xyz;
+                                float px_normalLen = length(px_normalRaw);
+                                bool px_normalValid = px_normalLen > EPSILON;
+                                float normalW = 1.0;
+                                if (centerNormalValid || px_normalValid)
+                                    normalW = (centerNormalValid && px_normalValid)
+                                        ? pow(max(dot(centerNormal, px_normalRaw / px_normalLen), 0.0), uDenoiseNormalPower)
+                                        : 0.0;
+
+                                vec4 deltaFactor = spatialW * stdDiffW * depthW * normalW;
 
                                 zBuff += deltaFactor;
                                 aBuff += deltaFactor * px_color;
@@ -256,7 +285,7 @@ class WebGLRendererAdapter {
                         
                         vec4 sampleColor;
                         if (uDoDenoise)
-                            sampleColor = smartDeNoise(uSampleSumTexture, uVarianceTexture, textureCoord, texture_factor);
+                            sampleColor = smartDeNoise(uSampleSumTexture, uVarianceTexture, uNormalSumTexture, textureCoord, texture_factor);
                         else
                             sampleColor = texture(uSampleSumTexture, textureCoord) * texture_factor;
                         
@@ -291,6 +320,7 @@ class WebGLRendererAdapter {
                             doRandomSample:              gl.getUniformLocation(this.tracerShaderProgram,      "uRendererRandomMultisample"),
                             maxBounceDepth:              gl.getUniformLocation(this.tracerShaderProgram,      "uMaxBounceDepth"),
                             tracerSampleCount:           gl.getUniformLocation(this.tracerShaderProgram,      "uSampleCount"),
+                            fireflyClamp:                gl.getUniformLocation(this.tracerShaderProgram,      "uFireflyClamp"),
                                                          
                             tracerTexture_render:        gl.getUniformLocation(this.tracerShaderProgram,      "uSampleSumTexture"),
                             tracerTexture_normal:        gl.getUniformLocation(this.tracerShaderProgram,      "uNormalSumTexture"),
@@ -306,7 +336,8 @@ class WebGLRendererAdapter {
                             doDenoise:                   gl.getUniformLocation(this.passthroughShaderProgram, "uDoDenoise"),
                             denoiseThreshold:            gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseThreshold"),
                             denoiseSigma:                gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseSigma"),
-                            denoiseKSigma:               gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseKSigma")
+                            denoiseKSigma:               gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseKSigma"),
+                            denoiseNormalPower:          gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseNormalPower")
                         };
                         
                         if (callback)
@@ -343,7 +374,8 @@ class WebGLRendererAdapter {
             uniform bool uRendererRandomMultisample;
             uniform int uSampleCount;
             uniform float uRandomSeed;
-            
+            uniform float uFireflyClamp;
+
             uniform vec2 uCanvasSize;
             
             layout(location=0) out vec4 outSampleSum;
@@ -365,6 +397,14 @@ class WebGLRendererAdapter {
                 
                 vec4 firstHitNormal = vec4(0.0);
                 vec4 sampleColor = rendererRayColor(r, random_seed, firstHitNormal);
+
+                // Clamp the luminance of this single path sample before it enters the running sum/variance, so
+                // that rare, very bright samples (fireflies) don't spike the noise estimate the denoiser relies on.
+                if (uFireflyClamp > 0.0) {
+                    float sampleLum = max(max(sampleColor.r, sampleColor.g), sampleColor.b);
+                    if (sampleLum > uFireflyClamp)
+                        sampleColor.rgb *= uFireflyClamp / sampleLum;
+                }
 
                 if (uSampleCount == 0) {
                     outSampleSum = sampleColor;
@@ -550,6 +590,7 @@ class WebGLRendererAdapter {
         this.gl.uniform1i(this.uniforms.doRandomSample, this.doRandomSample);
         this.gl.uniform1i(this.uniforms.tracerSampleCount, this.doRandomSample ? this.drawCount : 0);
         this.gl.uniform1i(this.uniforms.maxBounceDepth, this.maxBounceDepth);
+        this.gl.uniform1f(this.uniforms.fireflyClamp, this.fireflyClamp);
         
         
         // Okay, this next part is simple, but looks complicated.
@@ -599,6 +640,7 @@ class WebGLRendererAdapter {
         this.gl.uniform1f(this.uniforms.denoiseSigma, this.denoiseSigma);
         this.gl.uniform1f(this.uniforms.denoiseKSigma, this.denoiseKSigma);
         this.gl.uniform1f(this.uniforms.denoiseThreshold, this.denoiseThreshold);
+        this.gl.uniform1f(this.uniforms.denoiseNormalPower, this.denoiseNormalPower);
 
         
         // Finally, draw with the passthrough shader. Note that this uses the same geometry array buffer that was used

@@ -17,7 +17,7 @@ class PixelBuffer {
     static loadImageFromPath(path) {
         return new Promise(function loadImagePromise(resolve, reject) {
             let img = new Image();
-            img.src = url;
+            img.src = path;
             img.onload = function() {
                 resolve(PixelBuffer.fromImage(img));
             };

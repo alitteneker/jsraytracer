@@ -29,6 +29,8 @@ class WebGLMaterialsAdapter {
     destroy() {
         this.material_colors_texture.destroy();
         this.material_indices_texture.destroy();
+        for (const td of this.textures)
+            td.texture.destroy();
     }
     storeSolidColor(color) {
         const id = this.solid_colors.store(color);
@@ -325,7 +327,7 @@ class WebGLMaterialsAdapter {
                 inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
             {
                 outDirection = normalize(N + vec4(randomSpherePoint(random_seed), 0));
-                outColor = matParams.diffuse / PI;
+                outColor = matParams.diffuse;
                 return true;
             }
             bool samplePhongScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,

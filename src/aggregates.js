@@ -347,7 +347,7 @@ class BSPAggregateNode {
             if (intersection.distance > minDist && intersection.distance < maxDist && intersection.distance < ret.distance) {
                 ret.distance = intersection.distance;
                 ret.object = intersection.object;
-                ret.invTransform = intersection.invTransform;
+                ret.ancestors = intersection.ancestors;
             }
         }
 

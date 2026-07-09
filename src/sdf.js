@@ -245,12 +245,13 @@ class SphereSDF extends SDF {
 
 class PlaneSDF extends SDF {
     constructor(norm = Vec.of(0,0,1,0), delta=0, basecolor=Vec.of(1,1,1)) {
-        this.normal = normal;
+        super();
+        this.normal = norm;
         this.delta = delta;
         this.basecolor = basecolor;
     }
     distance(p) {
-        return this.normal.dot(p) + delta;
+        return this.normal.dot(p) + this.delta;
     }
     getMaterialData(p) {
         return {

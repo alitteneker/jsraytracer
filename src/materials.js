@@ -183,7 +183,7 @@ class PositionalUVMaterial extends Material {
         this.v_axis = v_axis;
     }
     static deserialize(data) {
-        return new TransparentMaterial(data.baseMaterial, data.origin, data.u_axis, data.v_axis);
+        return new PositionalUVMaterial(data.baseMaterial, data.origin, data.u_axis, data.v_axis);
     }
     color(data, world, recursionDepth) {
         const delta = this.origin.minus(data.position);
@@ -392,7 +392,7 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
         this.mirrorProbability = mirrorProbability;
     }
     static deserialize(data) {
-        return new FresnelPhongMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.refractiveIndexRatio, data.mirrorProbability);
+        return new PhongPathTracingMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.refractiveIndexRatio, data.mirrorProbability);
     }
     
     scatter(R, N, data) {
@@ -406,7 +406,7 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
             return [null, null];
         
         if (Math.random() < (diffuseProb / probSum))
-            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity.times(1 / Math.PI)];
+            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity];
         
         return [PhongPathTracingMaterial.scatterSpecular(R, N, data.smoothness), data.specularity];
     }
@@ -427,7 +427,7 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     static getSpaceTransform(R) {
         let space_transform = Mat4.identity();
         
-        const i = getFurthestAxis(R).cross(R).normalized().to4();
+        const i = PhongPathTracingMaterial.getFurthestAxis(R).cross(R).normalized().to4();
         space_transform.set_col(0, i);
         space_transform.set_col(1, R);
         space_transform.set_col(2, R.cross(i).to4());
@@ -453,7 +453,8 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
         const forward = space_transform.times(Vec.of(cos_theta, 0,  sin_theta, 0));
         const right   = space_transform.times(Vec.of(sin_theta, 0, -cos_theta, 0));
         
-        let phiN = (1.0 - Math.abs(right.dot(N)) > EPSILON) ? N.cross(right).normalized().to4(0) : up;
+        // right is nearly parallel to N here, and forward (⊥ right) is then also ⊥ N, so it's a valid fallback
+        let phiN = (1.0 - Math.abs(right.dot(N)) > EPSILON) ? N.cross(right).normalized().to4(0) : forward;
         if (phiN.dot(forward) < -EPSILON)
             phiN = phiN.times(-1);
         const maxPhi = Math.acos(Math.max(R.dot(phiN), 0));

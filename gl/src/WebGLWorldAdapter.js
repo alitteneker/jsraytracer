@@ -284,7 +284,7 @@ class WebGLWorldAdapter {
         if (wrapped_obj.type != "primitive")
             throw "Cannot change geometry type for non-primitive object";
         this.primitives[wrapped_obj.index].geometryIndex = wrapped_obj.geometryIndex = new_type;
-        wrapped_obj.object.geometry = this.adapters.geometries.geometries[new_type];
+        wrapped_obj.object.geometry = this.adapters.geometries.geometries[new_type - 1];
         wrapped_obj.object.contentsChanged();
         wrapped_obj.aabb = wrapped_obj.getBoundingBox();
         
@@ -843,6 +843,14 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
     }
     getObjectCount() {
         return this.indicesList.length;
+    }
+    getDataVector() {
+        if (this.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE)
+            return [this.type_code, this.transformIndex, this.indicesStartIndex, this.indicesList.length];
+        else if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
+            return [this.type_code, this.transformIndex, this.bvhStartIndex, this.indicesStartIndex];
+        else
+            throw "Unsupported aggregate type detected";
     }
     getMutableObjectProperties() {
         return [];

@@ -41,7 +41,7 @@ class OriginPoint extends Geometry {
         return Vec.of(0, 0, 0, 1);
     }
     materialData(base_data, direction) {
-        const norm_dir = direction.times(-1).nornalized();
+        const norm_dir = direction.times(-1).normalized();
         return Object.assign(base_data, {
             UV: Vec.cartesianToSpherical(norm_dir),
             normal: norm_dir
@@ -83,7 +83,10 @@ class AABB extends Geometry {
         this.max = max;
     }
     serialize(serializer) {
-        return { center: serializer.serializeStep(this.center), half_size: serializer.serializeStep(this.half_size) };
+        return {
+            center: serializer.serializeStep(this.center), half_size: serializer.serializeStep(this.half_size),
+            min: serializer.serializeStep(this.min), max: serializer.serializeStep(this.max)
+        };
     }
     static deserialize(data) {
         return new AABB(data.center, data.half_size, data.min, data.max);
@@ -353,7 +356,7 @@ class Triangle extends Geometry {
         this.denom = this.d00 * this.d11 - this.d01 * this.d01;
     }
     serialize(serializer) {
-        return { ps: serializer.serializeStep(this.ps), psdata: serializer.serializeStep(this.ps) };
+        return { ps: serializer.serializeStep(this.ps), psdata: serializer.serializeStep(this.psdata) };
     }
     static deserialize(data) {
         return new Triangle(data.ps, data.psdata);

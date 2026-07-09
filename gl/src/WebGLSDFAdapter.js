@@ -539,7 +539,7 @@ class WebGLPlaneSDFDecorator extends WebGLSDFDecorator {
         return `
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
                 GeometricMaterialData ret;
-                data.UV = vec2(position.x, position.y);
+                ret.UV = vec2(position.x, position.y);
                 ret.baseColor = sdf_basecolor_${this.ID};
                 return ret;
             }`;
@@ -601,8 +601,8 @@ class WebGLMatrixTransformSDFDecorator extends WebGLSDFDecorator {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.ID}`), true, this.raw._inv_transform.flat());
         gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw._scale);
     }
-    getMutableObjectProperties(index, renderer_adapter) {
-        return super.getMutableObjectProperties(index, renderer_adapter).filter(x => x.key == "_transform");
+    getMutableObjectProperties(renderer_adapter) {
+        return super.getMutableObjectProperties(renderer_adapter).filter(x => x.key == "_transform");
     }
     modifyProperty(renderer_adapter, key, newvalue, inv_newvalue) {
         if (key == "_transform") {

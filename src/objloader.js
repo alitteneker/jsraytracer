@@ -14,7 +14,7 @@ function makeMaterial(data, isPath) {
           refractionIndex = data.Ni || Infinity;
     // TODO: add support for illum, Tr/Tf, bump?
     if (isPath || isFinite(refractionIndex))
-        new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
+        return new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
             Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);
     return new PhongMaterial(Vec.of(1,1,1), ambient, diffuse, specular, smoothness);
 }
