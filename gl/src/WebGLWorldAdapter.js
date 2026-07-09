@@ -313,7 +313,7 @@ class WebGLWorldAdapter {
             indices_list = indices_list.concat(a.bvh_object_list);
             aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
                 ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
-                ...n.aabb.half_size.to3(), n.missIndex]).flat());
+                ...n.aabb.half_size.to3(), 0 /* unused: traversal now uses an explicit stack instead of a rope */]).flat());
         }
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
@@ -503,51 +503,59 @@ class WebGLWorldAdapter {
             }
     #endif
             
-            // This function looks complicated, but it's actually pretty simple. It's basically
-            // emulating the standard recursive BVH traversal, but without recursion. How?
-            // The magic is that the node to visit next, whether this node's AABB has been
-            // hit or missed by the ray, was precomputed on the JS client side when the BVH data
-            // was encoded into uWorldAABBs. See WrappedBVHTree for details.
+            // Emulates recursive BVH traversal without actual recursion, using a small fixed-size local stack.
+            // Each internal node stores its "greater" child implicitly (always node_index+1, since it's visited
+            // immediately after this node when the tree was flattened) and its "lesser" child explicitly (packed
+            // together with the split axis, since lesser_node's position varies). At traversal time, the ray's
+            // direction sign along that axis determines which child is actually nearer for THIS ray, so unlike a
+            // fixed rope/miss-index chain, the nearer child is always descended into first, letting min_found_t
+            // prune the farther child before it's ever visited.
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
-                
+
+                // 32 levels of stack comfortably covers any BVH depth that could occur in practice; if it were
+                // ever exceeded, we simply stop pushing rather than overflow, at worst skipping some far nodes.
+                int stack[32];
+                int stackPtr = 0;
                 int node_index = 0;
-                while (node_index >= 0) {
+
+                while (true) {
                     // BVH node data is stored in the following format in a texture with 4 values per pixel:
-                    //    [ AABB center    (x,y,z), hitIndex,
-                    //      AABB half-size (x,y,z), missIndex ]
-                    
+                    //    [ AABB center    (x,y,z), leaf encoding, or (lesser child index << 2 | split axis),
+                    //      AABB half-size (x,y,z), unused ]
+
                     // As a result, data for node i can be found at index 2*i. However, all node
                     // indices are specified relative to the index of the root node, so an offset
                     // of the root index must be included.
                     int aabb_index = 2 * (root_index + node_index);
-                    
+
                     vec4 node1 = texelFetchByIndex(aabb_index,     uWorldAABBs);
                     vec4 node2 = texelFetchByIndex(aabb_index + 1, uWorldAABBs);
-                    
-                    int hitIndex  = int(node1.w);
-                    int missIndex = int(node2.w);
-                    
+
+                    int nodeData = int(node1.w);
+
                     // Identify where the ray could intersect this node's AABB, and test whether the possible
                     // range of intersections would be useful given the range desired. This is called a 'hit'.
                     vec2 aabb_ts = AABBIntersects(r, vec4(node1.xyz, 1.0), vec4(node2.xyz, 0.0), minT, maxT);
                     bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
-                    
+
+                    bool descending = false;
+
                     if (hit_node) {
-                        
-                        // If the hit node is a leaf node (encoded by an index less than zero), check all objects in this node.
-                        if (hitIndex < 0) {
-                            int id = -hitIndex - 1;
+
+                        // If the hit node is a leaf node (encoded by an index less than or equal to zero), check all objects in this node.
+                        if (nodeData <= 0) {
+                            int id = -nodeData - 1;
                             // There are two possibilities: either the id corresponds to a single primitive
                             // id (encoded as a number less than the number of primitives), or to a list
                             // (encoded as a number greater than the number of primitives).
-                            
+
                             // If the world is not editable, and every BVH is a leaf with a single primitive,
                             // only the single primitive case need be compiled.
     #if (!WORLD_EDITABLE && WORLD_BVH_LEAVES_SINGULAR)
                             if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                 found_min = true;
-                            
+
     #else
                             // Single primitive ids are easy (and should dominate most good BVH constructions),
                             // so we just do them directly.
@@ -555,7 +563,7 @@ class WebGLWorldAdapter {
                                 if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
                                     found_min = true;
                             }
-                            
+
                             // lists are a bit harder: we don't know how long the list is, so we have to first
                             // lookup the length before we can test. Fortunately, these should be a small fraction
                             // of BVH nodes, so the cost should be much lower on average.
@@ -567,21 +575,42 @@ class WebGLWorldAdapter {
                             }
     #endif
                         }
-                        
-                        // If this node has children (i.e., is not a leaf, indicated by an index greater than zero),
-                        // visit this node's left child next, which is stored in hitIndex.
-                        else if (hitIndex > 0)
-                            node_index = hitIndex;
+
+                        // Otherwise, this is an internal node: figure out which child the ray reaches first along
+                        // the split axis, descend into it directly, and push the other child to visit afterward.
+                        else {
+                            int axis = nodeData & 3;
+                            int farChildIndex = nodeData >> 2;
+                            int nearChildIndex = node_index + 1;
+
+                            int nextIndex, pushIndex;
+                            if (r.d[axis] < 0.0) {
+                                // ray points toward decreasing axis value: the implicit (greater) child is nearer
+                                nextIndex = nearChildIndex;
+                                pushIndex = farChildIndex;
+                            }
+                            else {
+                                // ray points toward increasing (or zero) axis value: the explicit (lesser) child is nearer
+                                nextIndex = farChildIndex;
+                                pushIndex = nearChildIndex;
+                            }
+
+                            if (stackPtr < 32)
+                                stack[stackPtr++] = pushIndex;
+                            node_index = nextIndex;
+                            descending = true;
+                        }
                     }
-                    
-                    // If we missed this node or this node has NO child nodes (e.g. leaf node),
-                    // find the closest ancestor that is a left child, and visit its right sibling next.
-                    // Note that the finding of the closest ancestor was done when the BVH was encoded
-                    // in the client side JS, so missIndex is exactly that next node.
-                    if (!hit_node || hitIndex < 0)
-                        node_index = missIndex;
+
+                    // If we missed this node, or just finished checking a leaf's objects, backtrack to the next
+                    // node waiting on the stack. An empty stack means every reachable node has been visited.
+                    if (!descending) {
+                        if (stackPtr <= 0)
+                            break;
+                        node_index = stack[--stackPtr];
+                    }
                 }
-                
+
                 return found_min;
             }
 #endif
@@ -940,35 +969,30 @@ class WrappedBVHTree {
         
         this.BVHVisitorFn(kdtree, webgl_helper);
         this.node_count = this.bvh_nodes.length;
-        
-        for (let node_data of this.bvh_nodes) {
-            let next_node = node_data;
-            while (next_node && !next_node.isGreater)
-                next_node = next_node.parent_node;
-            node_data.missIndex = next_node ? this.bvh_node_indices[next_node.parent_node.raw_node.lesser_node.NODE_UID] : -1;
-        }
-        
+
         this.bvhStartIndex = worldadapter.bvh_node_count;
         worldadapter.bvh_node_count += this.bvh_nodes.length;
         
         this.instances = [];
     }
     
-    BVHVisitorFn(node, webgl_helper, parent_node=null, isGreater=false) {
+    BVHVisitorFn(node, webgl_helper) {
         const node_index = this.bvh_node_indices[node.NODE_UID] = this.bvh_nodes.length;
         const node_data = {
-            raw_node:       node,
-            parent_node:    parent_node,
-            aabb:           node.aabb,
-            isGreater:      isGreater,
-            isLeaf:         node.isLeaf,
+            aabb:   node.aabb,
+            isLeaf: node.isLeaf,
         };
         this.bvh_nodes.push(node_data);
-        
+
         if (!node.isLeaf) {
-            this.BVHVisitorFn(node.greater_node, webgl_helper, node_data, true);
-            this.BVHVisitorFn(node.lesser_node,  webgl_helper, node_data, false);
-            node_data.hitIndex = this.bvh_node_indices[node.greater_node.NODE_UID];
+            this.BVHVisitorFn(node.greater_node, webgl_helper);
+            this.BVHVisitorFn(node.lesser_node,  webgl_helper);
+            // greater_node is always placed immediately after this node (i.e., at node_index+1), so it needs no
+            // explicit storage; lesser_node's index is variable (it comes after greater_node's whole subtree) and
+            // must be stored explicitly. Packing it together with the split axis lets the shader pick whichever
+            // child the ray reaches first, rather than always descending into greater_node first.
+            const lesserIndex = this.bvh_node_indices[node.lesser_node.NODE_UID];
+            node_data.hitIndex = (lesserIndex << 2) | node.sep_axis;
         }
         else {
             const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper, true));

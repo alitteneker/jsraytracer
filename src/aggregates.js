@@ -72,9 +72,10 @@ class BVHAggregateNode {
         else {
             const split = BVHAggregateNode.split_objects(objects);
             if (split) {
-                return new BVHAggregateNode(depth, false, [], split.bounds, 
+                return new BVHAggregateNode(depth, false, [], split.bounds,
                     BVHAggregateNode.build(split.lesser_objs,  depth+1, maxDepth, minNodeSize),
-                    BVHAggregateNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize));
+                    BVHAggregateNode.build(split.greater_objs, depth+1, maxDepth, minNodeSize),
+                    split.sep_axis);
             }
             else {
                 const aabb = objects.length > 0
@@ -184,24 +185,27 @@ class BVHAggregateNode {
         };
     }
     
-    constructor(depth, isLeaf, objects, aabb, lesser_node, greater_node) {
+    constructor(depth, isLeaf, objects, aabb, lesser_node, greater_node, sep_axis=-1) {
         Object.defineProperty(this, "NODE_UID", { value: BVHAggregateNode._NODE_UID_GEN++, enumerable: false, configurable: false, writable: false });
-        
+
         this.depth = depth;
         this.isLeaf = isLeaf;
-        
+
         if (isLeaf)
             this.objects = objects;
         this.aabb = aabb;
-        
+
         this.lesser_node  = lesser_node;
         this.greater_node = greater_node;
-        
+        // The axis used to split lesser_node/greater_node apart (0/1/2 for x/y/z), or -1 for a leaf. Not used by
+        // this class's own intersect(), but read by the WebGL adapter to traverse children in ray-direction order.
+        this.sep_axis = sep_axis;
+
         if (!this.aabb)
             throw("Empty aabb for BVH node");
     }
     static deserialize(data) {
-        return new BVHAggregateNode(data.depth, !!data.isLeaf, data.objects, data.aabb, data.lesser_node, data.greater_node);
+        return new BVHAggregateNode(data.depth, !!data.isLeaf, data.objects, data.aabb, data.lesser_node, data.greater_node, data.sep_axis);
     }
     
     intersect(ray, ret, minDist, maxDist, intersectTransparent=true) {
