@@ -129,6 +129,13 @@ class WebGLWorldAdapter {
         this.updateIndicesStart();
     }
     
+    // BVH structure is fixed once a scene is loaded (the editor can change transforms/materials/geometry types,
+    // but never the tree shape itself), so the exact stack depth worldRayCastBVH needs is known at shader-build
+    // time here, rather than needing to guess a conservative worst case in the generated GLSL.
+    getBVHStackSize() {
+        return Math.max(1, ...this.bvh_tree_order.map(t => t.kdtree.maxDepth()));
+    }
+
     updateIndicesStart() {
         let indices_count = 0;
         for (const t of this.bvh_tree_order) {
@@ -510,12 +517,13 @@ class WebGLWorldAdapter {
             // direction sign along that axis determines which child is actually nearer for THIS ray, so unlike a
             // fixed rope/miss-index chain, the nearer child is always descended into first, letting min_found_t
             // prune the farther child before it's ever visited.
+            // Sized exactly to the deepest BVH actually present in this scene (see WebGLWorldAdapter.getBVHStackSize),
+            // rather than a conservative guess, since the tree shape can't change without a full shader rebuild anyway.
+            #define BVH_STACK_SIZE ${this.getBVHStackSize()}
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
 
-                // 32 levels of stack comfortably covers any BVH depth that could occur in practice; if it were
-                // ever exceeded, we simply stop pushing rather than overflow, at worst skipping some far nodes.
-                int stack[32];
+                int stack[BVH_STACK_SIZE];
                 int stackPtr = 0;
                 int node_index = 0;
 
@@ -595,7 +603,7 @@ class WebGLWorldAdapter {
                                 pushIndex = nearChildIndex;
                             }
 
-                            if (stackPtr < 32)
+                            if (stackPtr < BVH_STACK_SIZE)
                                 stack[stackPtr++] = pushIndex;
                             node_index = nextIndex;
                             descending = true;
