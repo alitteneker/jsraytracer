@@ -456,8 +456,10 @@ class WebGLWorldAdapter {
                         indexTexel = itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData);
                         indexTexelEnd = 4 * (index / 4) + 3;
                     }
-                    if (worldRayCastObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                    if (worldRayCastObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id)) {
                         found_min = true;
+                        if (shadowFlag) break;
+                    }
                 }
                 return found_min;
             }
@@ -491,8 +493,10 @@ class WebGLWorldAdapter {
                         indexTexel = itexelFetchByIndex(uWorldListsStart + index / 4, uWorldData);
                         indexTexelEnd = 4 * (index / 4) + 3;
                     }
-                    if (worldRayCastBVHObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                    if (worldRayCastBVHObject(indexTexel[index % 4], r, minT, maxT, shadowFlag, min_found_t, min_prim_id)) {
                         found_min = true;
+                        if (shadowFlag) break;
+                    }
                 }
                 return found_min;
             }
@@ -612,8 +616,10 @@ class WebGLWorldAdapter {
 
                     // If we missed this node, or just finished checking a leaf's objects, backtrack to the next
                     // node waiting on the stack. An empty stack means every reachable node has been visited.
+                    // For a shadow ray, any recorded hit is enough to occlude the light, so stop as soon as one
+                    // is found rather than continuing to search for the closest one.
                     if (!descending) {
-                        if (stackPtr <= 0)
+                        if ((shadowFlag && found_min) || stackPtr <= 0)
                             break;
                         node_index = stack[--stackPtr];
                     }
@@ -684,6 +690,10 @@ class WebGLWorldAdapter {
                         if (worldRayCastBVH(nodeData.b, nodeData.a, local_r, minT, maxT, shadowFlag, min_found_t, primID))
                             ancestorInvTransform = root_invTransform;
                     }
+
+                    // A shadow ray only needs one occluder; stop scanning the remaining root nodes once found.
+                    if (shadowFlag && primID != -1)
+                        break;
                 }
 
                 return min_found_t;
@@ -723,6 +733,8 @@ class WebGLWorldAdapter {
                     root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
                     if (worldRayCastBVH(bvhs[3*i + 1], bvhs[3*i + 2], root_r, minT, maxT, shadowFlag, min_found_t, primID))
                         ancestorInvTransform = root_invTransform;
+                    if (shadowFlag && primID != -1)
+                        break;
                 }`;
             }
             
@@ -731,9 +743,10 @@ class WebGLWorldAdapter {
                 if (aggs.length == 0 || aggs[0].isEmpty() || aggs[0].type == "BVH")
                     continue;
                 ret += `
-                
-                    // ---------- Aggregate ${i} ----------`;
-                
+
+                    // ---------- Aggregate ${i} ----------
+                    if (shadowFlag && primID != -1) return min_found_t;`;
+
                 // The following two sections of code are functionally identical: both essentially get a
                 // transform for each aggregate instance, apply it to the ray, and call the aggregate
                 // intersect function. However, the code can be made simpler, and faster to compile, for
@@ -753,6 +766,7 @@ class WebGLWorldAdapter {
                         root_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
                         if (${aggs[0].getIntersectShaderSource("root_r", "minT", "maxT", "shadowFlag", "primID", "min_found_t")})
                             ancestorInvTransform = root_invTransform;
+                        if (shadowFlag && primID != -1) break;
                     }`;
                 }
             }
@@ -916,7 +930,14 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                 prims_by_geometry_type[prim.geometryIndex].push(prim);
         }
         
+        let first_group = true;
         for (const [geometry_type, prims] of Object.entries(prims_by_geometry_type)) {
+            // For a shadow ray, an occluder found in an earlier geometry group already blocks the light, so
+            // skip the remaining groups entirely rather than searching them for a (irrelevant) closer hit.
+            if (!first_group)
+                ret += `
+                    if (shadowFlag && found_min) return true;`;
+            first_group = false;
             if (prims.length == 1) {
                 const prim = prims[0];
                 if (prim.notTransformable && prim.getInvTransform().is_identity())
@@ -949,6 +970,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
                         if ((bool(prim_data_${geometry_type}[3 * i + 1]) || !shadowFlag) && worldRayCastCompareTime(${this.worldadapter.adapters.geometries.getIntersectShaderSource(geometry_type, "local_r", "minT")}, minT, maxT, min_found_t)) {
                             primID = prim_data_${geometry_type}[3 * i + 2];
                             found_min = true;
+                            if (shadowFlag) break;
                         }
                     }`;
             }
