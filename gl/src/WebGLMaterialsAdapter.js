@@ -227,6 +227,18 @@ class WebGLMaterialsAdapter {
             }
             
             void getPhongMaterialParameters(in int materialID, in GeometricMaterialData geodata, out PhongMaterialParameters matParams) {
+                ${WebGLRendererAdapter.debugConstMaterialParams ? `
+                // Diagnostic: constant parameters instead of fetched ones, chosen to keep the same downstream
+                // branches as a typical reflective, non-refractive material (so only the fetch cost is removed).
+                matParams.ambient              = geodata.baseColor * vec3(0.1);
+                matParams.diffuse              = geodata.baseColor * vec3(0.4);
+                matParams.specular             = vec3(0.6);
+                matParams.reflectivity         = vec3(0.3);
+                matParams.transmissivity       = vec3(0.0);
+                matParams.specularFactor       = 100.0;
+                matParams.refractiveIndexRatio = uintBitsToFloat(0x7f800000u); // +infinity: no refraction, matches Ni=inf
+                matParams.mirrorProbability    = 1.0;
+                ` : `
                 ivec4 mat_ind_1, mat_ind_2;
                 getMaterialIndices(materialID, mat_ind_1, mat_ind_2);
                 matParams.ambient              = geodata.baseColor * getMaterialColor(mat_ind_1[0], geodata.UV);
@@ -236,7 +248,7 @@ class WebGLMaterialsAdapter {
                 matParams.transmissivity       =                     getMaterialColor(mat_ind_2[0], geodata.UV);
                 matParams.specularFactor       =                     getMaterialColor(mat_ind_2[1], geodata.UV).r;
                 matParams.refractiveIndexRatio =                     getMaterialColor(mat_ind_2[2], geodata.UV).r;
-                matParams.mirrorProbability    =                     getMaterialColor(mat_ind_2[3], geodata.UV).r;
+                matParams.mirrorProbability    =                     getMaterialColor(mat_ind_2[3], geodata.UV).r;`}
             }
             
             void computeRefractionParameters(in vec4 V, in vec4 N, in float vdotn, in float refractiveIndexRatio, in bool backside,
@@ -397,11 +409,11 @@ class WebGLMaterialsAdapter {
                 vec3 totalColor = matParams.ambient;
                 for (int i = 0; i < uNumLights; ++i) {
                     LightSample lightSample = sampleLight(i, rp, random_seed);
-                    
+                    ${WebGLRendererAdapter.debugNoShadows ? `` : `
                     float shadowIntersection = worldRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
                         continue;
-                    
+                    `}
                     totalColor += lightSample.color * phongBRDF(N, R, lightSample.direction, kr, refractionDirection, matParams);
                 }
                 

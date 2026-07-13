@@ -1,6 +1,27 @@
 class WebGLRendererAdapter {
     static BUFFER_COUNT = 2;
     static BUFFER_TYPES = ["render", "normal", "variance"];
+
+    // Diagnostics only (all static so they survive scene reloads, all read at shader-generation time so the
+    // isolated code is actually removed from the compiled program rather than branched around at runtime). Set
+    // one true in the console, reload the scene to rebuild, note FPS + compile time, then set it back to false.
+    // Each isolates a single mechanism so we can attribute shading cost rather than guess:
+    //   debugTraversalOnly      - return flat color on first hit; strips ALL shading (baseline: traversal only).
+    //   debugNoShadows          - keep material math, but skip the per-light shadow-ray cast (isolates the cost
+    //                             of the extra shadow-ray BVH traversals).
+    //   debugConstMaterialParams- keep everything, but replace the 8 material-property texture/uniform reads with
+    //                             constants (isolates material-parameter fetch cost).
+    static debugTraversalOnly = false;
+    static debugNoShadows = false;
+    static debugConstMaterialParams = false;
+
+    // Occupancy probe: injects this many dead-but-live vec4s (~4 registers each) into the hot bounce loop. They
+    // do no meaningful work but stay live across traversal+shading, so they raise peak register pressure without
+    // changing what the shader computes. Sweep it (0,1,2,4,8...) and watch FPS: an immediate drop means the shader
+    // is on the occupancy cliff (register-pressure-bound); flat until large values means there's headroom and
+    // register pressure is not the current wall. Individually-named vec4s (not an array) so they stay in registers
+    // rather than becoming a spilled indexable-temp on ANGLE, which would measure memory traffic instead.
+    static debugBallastRegisters = 0;
     
     constructor(gl, canvas, renderer) {
         
@@ -17,9 +38,10 @@ class WebGLRendererAdapter {
 
         this.maxBounceDepth = renderer.maxRecursionDepth;
 
-        // Clamping the luminance of any single path sample before it is accumulated tames fireflies at the
-        // source, rather than relying on the denoiser to filter them out after the fact. A value of 0 disables it.
-        this.fireflyClamp = 10;
+        // Clamping the luminance of indirect path contributions tames fireflies at the source. It is off by
+        // default (0) because a fixed threshold darkens scenes whose legitimate radiance scale exceeds it (e.g.
+        // bright emitters); enable it per-scene when fireflies are actually a problem.
+        this.fireflyClamp = 0;
 
         // We also include a denoiser with the passthrough shader. Let's specify some default parameters here.
         this.doDenoise = true;
@@ -398,14 +420,6 @@ class WebGLRendererAdapter {
                 vec4 firstHitNormal = vec4(0.0);
                 vec4 sampleColor = rendererRayColor(r, random_seed, firstHitNormal);
 
-                // Clamp the luminance of this single path sample before it enters the running sum/variance, so
-                // that rare, very bright samples (fireflies) don't spike the noise estimate the denoiser relies on.
-                if (uFireflyClamp > 0.0) {
-                    float sampleLum = max(max(sampleColor.r, sampleColor.g), sampleColor.b);
-                    if (sampleLum > uFireflyClamp)
-                        sampleColor.rgb *= uFireflyClamp / sampleLum;
-                }
-
                 if (uSampleCount == 0) {
                     outSampleSum = sampleColor;
                     outNormalSum = firstHitNormal;
@@ -432,14 +446,28 @@ class WebGLRendererAdapter {
                 
                 Ray r = in_ray;
                 vec3 attenuation_color = vec3(1);
-                
+                ${Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
+                    `vec4 ballast${b} = vec4(uRandomSeed + ${(b + 0.123).toFixed(3)});`).join("\n                ")}
+
                 int i = 0;
                 for (;i < uMaxBounceDepth; ++i) {
                     vec4 intersect_position = vec4(0);
                     vec3 intersect_normal = vec3(0);
                     RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                    total_color += attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal);
-                    
+                    vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal);
+
+                    // Firefly clamp: cap the luminance of INDIRECT contributions (bounce >= 1) only. Directly
+                    // visible surfaces and emitters (i == 0) are never clamped, so bright lights render at full
+                    // intensity; only rare bright outliers from deeper bounces (the actual fireflies) are tamed.
+                    if (i > 0 && uFireflyClamp > 0.0) {
+                        float lum = max(max(contribution.r, contribution.g), contribution.b);
+                        if (lum > uFireflyClamp)
+                            contribution *= uFireflyClamp / lum;
+                    }
+                    total_color += contribution;
+                    ${Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
+                        `ballast${b} += intersect_position + float(i);`).join("\n                    ")}
+
                     if (intersect_position.w == 0.0)
                         break;
                     
@@ -479,7 +507,13 @@ class WebGLRendererAdapter {
                     if (!do_next_ray)
                         break;
                 }
-                
+                ${WebGLRendererAdapter.debugBallastRegisters > 0
+                    ? `float ballastSum = 0.0; `
+                        + Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
+                            `ballastSum += dot(ballast${b}, vec4(1.0));`).join(" ")
+                        + ` total_color += vec3(ballastSum * 1e-30);`
+                    : ``}
+
                 first_hit_normal.w = float(i);
                 return vec4(total_color, initial_intersection_distance);
             }`;

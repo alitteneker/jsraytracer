@@ -639,7 +639,14 @@ class WebGLWorldAdapter {
                     return uBackgroundColor;
                 
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
-                return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays, normal);
+                ${WebGLRendererAdapter.debugTraversalOnly
+                    // Diagnostic: return a flat color instead of shading. Because worldObjectColor is then never
+                    // referenced anywhere, the compiler dead-code-eliminates the entire material/light/scatter
+                    // subtree, so this measures traversal cost with shading's register footprint actually removed
+                    // (a runtime branch would leave that code compiled in and occupancy unchanged). nextRays stays
+                    // zero, so no secondary rays are spawned and only primary-ray traversal is exercised.
+                    ? `return vec3(0.7);`
+                    : `return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays, normal);`}
             }
             
             
