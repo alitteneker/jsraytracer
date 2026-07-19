@@ -22,7 +22,22 @@ class WebGLRendererAdapter {
     // register pressure is not the current wall. Individually-named vec4s (not an array) so they stay in registers
     // rather than becoming a spilled indexable-temp on ANGLE, which would measure memory traffic instead.
     static debugBallastRegisters = 0;
-    
+
+    // Traversal-cost heatmap: instead of shading, colorize each pixel by how much work its PRIMARY ray did while
+    // traversing the BVH, to split "visits too many nodes" (BVH-quality problem) from "each primitive test moves
+    // too many bytes" (data-layout problem) — these need different fixes. Like the flags above it is read at
+    // shader-gen time and short-circuits worldRayColorShallow before any shading/secondary rays, so only primary-
+    // ray traversal is measured. Set the mode string in the console, reload the scene, and (since the output is a
+    // per-pixel diagnostic, not radiance) turn Do Denoise off so counts aren't blurred across edges.
+    //   false   - off (normal shading).
+    //   'nodes' - blue->red ramp on BVH nodes visited      (isolates BVH quality / how many nodes a ray touches).
+    //   'prims' - blue->red ramp on primitive tests done   (isolates leaf fatness / per-test fetch cost).
+    //   'both'  - R = primitive tests, G = nodes visited    (red-dominant = intersection-bound, green = node-bound).
+    // The *Scale values are the count mapped to full intensity; tune per scene to use the ramp's full range.
+    static debugTraversalHeatmap = false;
+    static debugHeatmapNodeScale = 200;
+    static debugHeatmapPrimScale = 100;
+
     constructor(gl, canvas, renderer) {
         
         gl.viewport(0, 0, canvas.width, canvas.height);

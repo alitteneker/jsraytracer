@@ -1,14 +1,88 @@
 class WebGLWorldAdapter {
     static WORLD_NODE_AGGREGATE_TYPE = 3;
     static WORLD_NODE_BVH_NODE_TYPE  = 4;
-    
+
+    // ---- fp16 packing for compressed BVH nodes ----
+    // Each BVH node is stored in a single RGBA32I texel: three ints hold the six AABB bounds as packed
+    // fp16 pairs (bit-compatible with GLSL unpackHalf2x16 after an int->uint bit cast), and the fourth
+    // holds the leaf/child encoding at full integer precision (fp16 can't hold node indices, and the old
+    // float-encoded int capped out at 2^24 anyway). Quantization rounds DIRECTIONALLY: min components
+    // round down, max components round up, so a quantized box always contains the true box (grows by at
+    // most 1 fp16 ulp per side, ~0.05%) and traversal correctness is unaffected.
+    static _f16_f32buf = new Float32Array(1);
+    static _f16_u32buf = new Uint32Array(WebGLWorldAdapter._f16_f32buf.buffer);
+    static _halfToFloat(h) {
+        const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1F, m = h & 0x3FF;
+        if (e === 0)  return s * m * Math.pow(2, -24);
+        if (e === 31) return m ? NaN : s * Infinity;
+        return s * (1 + m / 1024) * Math.pow(2, e - 15);
+    }
+    static _floatToHalfNearest(val) {
+        WebGLWorldAdapter._f16_f32buf[0] = val;
+        const x = WebGLWorldAdapter._f16_u32buf[0];
+        const sign = (x >>> 16) & 0x8000;
+        const e = (x >>> 23) & 0xFF, m = x & 0x7FFFFF;
+        if (e === 0xFF) return sign | 0x7C00 | (m ? 0x200 : 0); // inf/NaN
+        if (e > 142)    return sign | 0x7C00;                   // overflow -> inf (directional fixup below corrects inward roundings)
+        if (e < 103)    return sign;                            // underflow -> +-0
+        if (e < 113) {                                          // subnormal half
+            const shift = 126 - e, mm = 0x800000 | m;
+            let hm = mm >>> shift;
+            if (mm & (1 << (shift - 1))) hm += 1;               // may carry into the smallest normal; that's the correct next value
+            return sign | hm;
+        }
+        let h = sign | ((e - 112) << 10) | (m >>> 13);
+        if (m & 0x1000) h += 1;                                 // mantissa carry may bump exponent (or overflow to inf); both are the correct next value
+        return h;
+    }
+    // Bit-order-aware one-ulp steps (negative halves move toward -inf as their bits increase).
+    static _halfSucc(h) { // next representable value toward +inf, saturating
+        if (h === 0x7C00) return h;
+        if (h === 0x0000 || h === 0x8000) return 0x0001;
+        return (h & 0x8000) ? h - 1 : h + 1;
+    }
+    static _halfPred(h) { // next representable value toward -inf, saturating
+        if (h === 0xFC00) return h;
+        if (h === 0x0000 || h === 0x8000) return 0x8001;
+        return (h & 0x8000) ? h + 1 : h - 1;
+    }
+    static floatToHalfBits(v, roundUp) {
+        let h = WebGLWorldAdapter._floatToHalfNearest(v);
+        const back = WebGLWorldAdapter._halfToFloat(h);
+        if (roundUp) {
+            if (back < v) h = WebGLWorldAdapter._halfSucc(h);
+        }
+        else if (back > v) h = WebGLWorldAdapter._halfPred(h);
+        return h;
+    }
+    // Matches GLSL packHalf2x16: x in the low 16 bits, y in the high 16. The |0 wraps to a signed int32
+    // for the RGBA32I texture; the shader's uint() cast is bit-preserving, so unpackHalf2x16 recovers
+    // the exact halves.
+    static packHalf2x16(xBits, yBits) {
+        return ((yBits << 16) | xBits) | 0;
+    }
+    static packBVHNodeTexel(aabb, nodeData) {
+        const dn = (v) => WebGLWorldAdapter.floatToHalfBits(v, false),
+              up = (v) => WebGLWorldAdapter.floatToHalfBits(v, true);
+        return [
+            WebGLWorldAdapter.packHalf2x16(dn(aabb.min[0]), dn(aabb.min[1])),
+            WebGLWorldAdapter.packHalf2x16(dn(aabb.min[2]), up(aabb.max[0])),
+            WebGLWorldAdapter.packHalf2x16(up(aabb.max[1]), up(aabb.max[2])),
+            nodeData
+        ];
+    }
+
+
     constructor(world, webgl_helper, renderer_adapter, world_editable = false) {
         this.renderer_adapter = renderer_adapter;
 
         this.WORLD_EDITABLE = world_editable;
         
         [this.world_node_texture_unit, this.world_node_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
-        [this.world_aabb_texture_unit, this.world_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "FLOAT");
+        // BVH nodes are packed one RGBA32I texel per node (fp16 AABB + full-precision child data, see
+        // packBVHNodeTexel), halving per-node fetch traffic vs the older two-RGBA32F-texel layout —
+        // traversal was measured to be strongly bandwidth-bound, dominated by node fetches.
+        [this.world_aabb_texture_unit, this.world_aabb_texture] = webgl_helper.createDataTextureAndUnit(4, "INTEGER");
         
         this.transform_store = new WebGLTransformStore();
         this.adapters = {
@@ -127,6 +201,10 @@ class WebGLWorldAdapter {
         // finally, we need to determine an order for any list start positions, as traversal order may separate
         // contiguous primitives under a single aggregate.
         this.updateIndicesStart();
+
+        // Report BVH shape so we can tell a node-count problem (poor tree) from a per-test cost problem (fat leaves
+        // / data layout) before profiling, and confirm assumptions like "list leaves are rare on dragon".
+        this.logBVHDemographics();
     }
     
     // BVH structure is fixed once a scene is loaded (the editor can change transforms/materials/geometry types,
@@ -134,6 +212,65 @@ class WebGLWorldAdapter {
     // time here, rather than needing to guess a conservative worst case in the generated GLSL.
     getBVHStackSize() {
         return Math.max(1, ...this.bvh_tree_order.map(t => t.kdtree.maxDepth()));
+    }
+
+    // Walk each BVH and log its shape: node/leaf counts, leaf-size distribution (singular vs list), depth, and an
+    // SAH cost estimate. The SAH cost is the classic expected-traversal-cost model
+    //     Ct * sum_internal(SA_node / SA_root)  +  Ci * sum_leaf(SA_leaf / SA_root * prims_in_leaf),
+    // i.e. the mean number of node visits + primitive tests a random ray is expected to pay. Lower is a better tree.
+    // Ct = 0.125 matches the traversal constant used by the SAH split search in src/aggregates.js.
+    logBVHDemographics() {
+        if (!this.bvh_tree_order.length)
+            return;
+
+        const Ct = 0.125, Ci = 1.0;
+        const fmt = x => (Number.isFinite(x) ? x.toFixed(2) : String(x));
+
+        let totals = { nodes: 0, leaves: 0, prims: 0, listLeaves: 0 };
+        myconsole.log(`BVH demographics (${this.bvh_tree_order.length} tree(s), stack size ${this.getBVHStackSize()}):`);
+
+        for (const tree of this.bvh_tree_order) {
+            const root = tree.kdtree;
+            const rootSA = root.aabb.surfaceArea();
+
+            let nodes = 0, leaves = 0, internal = 0, prims = 0, listLeaves = 0, maxLeafSize = 0;
+            let maxDepth = 0, leafDepthSum = 0, sahTraversal = 0, sahIntersect = 0;
+
+            (function walk(node) {
+                nodes++;
+                const saFrac = (rootSA > 0 && Number.isFinite(rootSA)) ? node.aabb.surfaceArea() / rootSA : 0;
+                if (node.isLeaf) {
+                    leaves++;
+                    const n = node.objects.length;
+                    prims += n;
+                    if (n > 1) listLeaves++;
+                    maxLeafSize = Math.max(maxLeafSize, n);
+                    maxDepth = Math.max(maxDepth, node.depth);
+                    leafDepthSum += node.depth;
+                    sahIntersect += Ci * saFrac * n;
+                }
+                else {
+                    internal++;
+                    sahTraversal += Ct * saFrac;
+                    walk(node.greater_node);
+                    walk(node.lesser_node);
+                }
+            })(root);
+
+            totals.nodes += nodes; totals.leaves += leaves; totals.prims += prims; totals.listLeaves += listLeaves;
+            const idx = tree.index !== undefined ? tree.index : this.bvh_tree_order.indexOf(tree);
+            myconsole.log(
+                `  tree #${idx}: ${nodes} nodes (${leaves} leaf / ${internal} internal), ${prims} prims\n` +
+                `    depth: max ${maxDepth}, mean leaf ${fmt(leafDepthSum / leaves)}\n` +
+                `    leaf size: 1..${maxLeafSize}, mean ${fmt(prims / leaves)} — ` +
+                    `${leaves - listLeaves} singular / ${listLeaves} list (${fmt(100 * listLeaves / leaves)}% list)\n` +
+                `    SAH cost estimate: ${fmt(sahTraversal + sahIntersect)} ` +
+                    `(traversal ${fmt(sahTraversal)} + intersection ${fmt(sahIntersect)}), root SA ${fmt(rootSA)}`);
+        }
+
+        if (this.bvh_tree_order.length > 1)
+            myconsole.log(`  totals: ${totals.nodes} nodes, ${totals.leaves} leaves ` +
+                `(${totals.listLeaves} list), ${totals.prims} prims`);
     }
 
     updateIndicesStart() {
@@ -318,9 +455,8 @@ class WebGLWorldAdapter {
         let aggregate_list = [], indices_list = [], aabb_data = [];
         for (let a of this.bvh_tree_order) {
             indices_list = indices_list.concat(a.bvh_object_list);
-            aabb_data = aabb_data.concat(a.bvh_nodes.map(n => [
-                ...n.aabb.center.to3(),    (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex,
-                ...n.aabb.half_size.to3(), 0 /* unused: traversal now uses an explicit stack instead of a rope */]).flat());
+            aabb_data = aabb_data.concat(a.bvh_nodes.map(n => WebGLWorldAdapter.packBVHNodeTexel(n.aabb,
+                (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex)).flat());
         }
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
@@ -360,6 +496,13 @@ class WebGLWorldAdapter {
     }
     getShaderSource() {
         this.shader_transform_max_size = Math.max(16, this.transform_store.size());
+
+        // Traversal-cost heatmap instrumentation (see WebGLRendererAdapter.debugTraversalHeatmap). When active, the
+        // shared BVH traversal below increments per-fragment counters that worldRayColorShallow then maps to a false
+        // color instead of shading. 'heatmap' is false | 'nodes' | 'prims' | 'both'.
+        const heatmap = WebGLRendererAdapter.debugTraversalHeatmap;
+        const heatNodeScale = Number(WebGLRendererAdapter.debugHeatmapNodeScale) || 1;
+        const heatPrimScale = Number(WebGLRendererAdapter.debugHeatmapPrimScale) || 1;
         
         // Below is most of the significant source for world ray cast and color functions, where the geometry and
         // material functionality is directly invoked. The source below has a variety of preprocessor branches that
@@ -391,7 +534,7 @@ class WebGLWorldAdapter {
             uniform int uWorldNumPrimitives;
             uniform int uWorldNumUntransformedTriangles;
             uniform isampler2D uWorldData;
-            uniform  sampler2D uWorldAABBs;
+            uniform isampler2D uWorldAABBs;
             
 
             // ---- Intersection/Color with a single primitive ----
@@ -412,9 +555,28 @@ class WebGLWorldAdapter {
                 }
                 return false;
             }
-            
+            ${heatmap ? `
+            // ---- Traversal-cost heatmap counters ----
+            // Non-const globals are legal in GLSL ES 3.00 and are per-fragment-invocation (implicitly reset each
+            // invocation, and explicitly reset at the top of worldRayColorShallow). They accumulate during a single
+            // primary-ray cast, since worldRayColorShallow returns before spawning any shadow/secondary rays.
+            int gHeatmapNodeCount = 0;   // BVH nodes fetched/visited (internal + leaf)
+            int gHeatmapPrimCount = 0;   // primitive intersection tests performed
+            vec3 heatmapRamp(in float t) {
+                t = clamp(t, 0.0, 1.0);
+                const vec3 c0 = vec3(0.0, 0.0, 1.0); // blue   (low)
+                const vec3 c1 = vec3(0.0, 1.0, 1.0); // cyan
+                const vec3 c2 = vec3(0.0, 1.0, 0.0); // green
+                const vec3 c3 = vec3(1.0, 1.0, 0.0); // yellow
+                const vec3 c4 = vec3(1.0, 0.0, 0.0); // red    (high)
+                float s = t * 4.0;
+                if (s < 1.0) return mix(c0, c1, s);
+                if (s < 2.0) return mix(c1, c2, s - 1.0);
+                if (s < 3.0) return mix(c2, c3, s - 2.0);
+                return mix(c3, c4, s - 3.0);
+            }` : ``}
 
-            
+
 #if (WORLD_EDITABLE || (WORLD_HAS_BVH_NODES && !WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES))
             // ---- Generic Intersection with a particular object ----
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
@@ -473,6 +635,7 @@ class WebGLWorldAdapter {
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
+                ${heatmap ? `gHeatmapPrimCount++;` : ``}
                 float t = triangleIntersect(r, minT, prim_id);
                 if (worldRayCastCompareTime(t, minT, maxT, min_found_t)) {
                     min_prim_id = prim_id;
@@ -505,6 +668,7 @@ class WebGLWorldAdapter {
             bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float maxT, in bool shadowFlag,
                 inout float min_found_t, inout int min_prim_id)
             {
+                ${heatmap ? `gHeatmapPrimCount++;` : ``}
                 return worldRayCastObject(prim_id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
             }
             bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
@@ -532,23 +696,33 @@ class WebGLWorldAdapter {
                 int node_index = 0;
 
                 while (true) {
-                    // BVH node data is stored in the following format in a texture with 4 values per pixel:
-                    //    [ AABB center    (x,y,z), leaf encoding, or (lesser child index << 2 | split axis),
-                    //      AABB half-size (x,y,z), unused ]
+                    // BVH node data is packed 16 bytes per node into a single RGBA32I texel (halving the fetch
+                    // traffic of the older two-RGBA32F-texel layout; traversal is bandwidth-bound):
+                    //    [ min.x|min.y,  min.z|max.x,  max.y|max.z   as fp16 pairs bit-cast through int,
+                    //      leaf encoding or (lesser child index << 2 | split axis) as a full int ]
+                    // The AABB was quantized conservatively at upload (min rounded down, max up, see
+                    // packBVHNodeTexel), so boxes only ever grow (<= 1 fp16 ulp per side) and no hit can be lost.
 
-                    // As a result, data for node i can be found at index 2*i. However, all node
-                    // indices are specified relative to the index of the root node, so an offset
-                    // of the root index must be included.
-                    int aabb_index = 2 * (root_index + node_index);
+                    // Node i lives at texel i. All node indices are specified relative to the index of the
+                    // root node, so an offset of the root index must be included.
+                    ${heatmap ? `gHeatmapNodeCount++;` : ``}
+                    ivec4 nodeTexel = itexelFetchByIndex(root_index + node_index, uWorldAABBs);
 
-                    vec4 node1 = texelFetchByIndex(aabb_index,     uWorldAABBs);
-                    vec4 node2 = texelFetchByIndex(aabb_index + 1, uWorldAABBs);
+                    // int->uint on ANGLE/GLSL ES 3.0 is a bit-preserving cast, so unpackHalf2x16 sees the
+                    // exact half bits packed on the JS side.
+                    vec2 min_xy    = unpackHalf2x16(uint(nodeTexel.r));
+                    vec2 minz_maxx = unpackHalf2x16(uint(nodeTexel.g));
+                    vec2 max_yz    = unpackHalf2x16(uint(nodeTexel.b));
+                    vec3 aabb_min  = vec3(min_xy, minz_maxx.x);
+                    vec3 aabb_max  = vec3(minz_maxx.y, max_yz);
 
-                    int nodeData = int(node1.w);
+                    int nodeData = nodeTexel.a;
 
                     // Identify where the ray could intersect this node's AABB, and test whether the possible
                     // range of intersections would be useful given the range desired. This is called a 'hit'.
-                    vec2 aabb_ts = AABBIntersects(r, vec4(node1.xyz, 1.0), vec4(node2.xyz, 0.0), minT, maxT);
+                    // (Center/half-size reconstruction feeds the shared AABBIntersects; fp16 values are exact
+                    // in fp32, so this round-trip introduces no error beyond the old float path's own rounding.)
+                    vec2 aabb_ts = AABBIntersects(r, vec4(0.5*(aabb_min + aabb_max), 1.0), vec4(0.5*(aabb_max - aabb_min), 0.0), minT, maxT);
                     bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
 
                     bool descending = false;
@@ -633,8 +807,21 @@ class WebGLWorldAdapter {
             vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal) {
                 int primID = -1;
                 mat4 ancestorInvTransform = mat4(1.0);
-                
+                ${heatmap ? `gHeatmapNodeCount = 0; gHeatmapPrimCount = 0;` : ``}
+
                 float intersect_time = worldRayCast(in_ray, EPSILON, 1E20, false, primID, ancestorInvTransform);
+                ${heatmap ? `
+                // Diagnostic: colorize the primary ray's traversal work instead of shading. Returning here leaves
+                // nextRays zero (no shadow/secondary rays), so the counts reflect exactly one primary-ray cast. Miss
+                // and hit are both colorized, since background rays still pay to traverse. worldObjectColor goes
+                // unreferenced, so the whole material/light subtree is dead-code-eliminated as with debugTraversalOnly.
+                {
+                    float nodeC = float(gHeatmapNodeCount) / float(${heatNodeScale});
+                    float primC = float(gHeatmapPrimCount) / float(${heatPrimScale});
+                    ${heatmap === 'nodes' ? `return heatmapRamp(nodeC);`
+                    : heatmap === 'prims' ? `return heatmapRamp(primC);`
+                    : `return vec3(clamp(primC, 0.0, 1.0), clamp(nodeC, 0.0, 1.0), 0.0);`}
+                }` : ``}
                 if (primID == -1)
                     return uBackgroundColor;
                 
