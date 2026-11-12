@@ -43,6 +43,8 @@ class WebGLGeometriesAdapter {
     constructor(webgl_helper) {
         [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
+        // debugInlineTriangleVerts: positions duplicated per triangle (3 consecutive RGB32F texels), for intersection.
+        [this.triangle_verts_texture_unit,   this.triangle_verts_texture]   = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         
         this.sdf_adapter = new WebGLSDFAdapter();
         
@@ -122,8 +124,12 @@ class WebGLGeometriesAdapter {
                     return t;
                 vec4 p = r.o + t * r.d;
                 return (dot(p.xy, p.xy) <= 1.0) ? t : (minDistance - 1.0);
-            }`,
-            "", `
+            }`, `
+            // Uniform over the unit disk, so circles can be area lights (matches Circle.sampleSurface).
+            vec4 circleSurfaceSample(inout vec2 random_seed) {
+                float r = sqrt(randf(random_seed)), theta = 2.0 * PI * randf(random_seed);
+                return vec4(r * cos(theta), r * sin(theta), 0, 1);
+            }`, `
             void circleMaterialData(in vec4 position, inout GeometricMaterialData data) {
                 planeMaterialData(position, data);
             }`),
@@ -191,6 +197,7 @@ class WebGLGeometriesAdapter {
         // triangle
         new WebGLTriangleGeometryShaderSource()];
     }
+    static triangleDataGenerations = 0;
     reset() {
         this.geometry_usage_map = {};
         for (let i = 0; i <= WebGLGeometriesAdapter.MIN_TRIANGLE_ID; ++i)
@@ -202,12 +209,21 @@ class WebGLGeometriesAdapter {
         this.sdf_geometries = [];
         this.sdf_adapter.reset();
         
-        this.triangle_data.clear();
+        // Triangle vertex data is kept across re-visits of the world (after an edit, see
+        // WebGLRendererAdapter.worldModified): each Triangle remembers where its data was stored, so a mesh that is
+        // still in the scene isn't stored again. The store is only cleared once most of it is stale.
+        if (!this.triangle_data_generation || (this.triangles && this.triangles.length < 0.5 * this.triangle_data_triangle_count)) {
+            this.triangle_data.clear();
+            // Unique across adapters: a new adapter (a new scene load) must never accept data cached by an old one.
+            this.triangle_data_generation = ++WebGLGeometriesAdapter.triangleDataGenerations;
+            this.triangle_data_triangle_count = 0;
+        }
         this.triangles = [];
     }
     destroy(gl) {
         this.triangle_data_texture.destroy();
         this.triangle_indices_texture.destroy();
+        this.triangle_verts_texture.destroy();
     }
     register_usage(ID, intersect, sample) {
         ID = Math.min(ID, WebGLGeometriesAdapter.MIN_TRIANGLE_ID);
@@ -237,18 +253,33 @@ class WebGLGeometriesAdapter {
         if (geometry instanceof UnitLine)
             return this.register_usage(WebGLGeometriesAdapter.UNITLINE_ID, intersect, sample);
         
-        if (geometry.GEOMETRY_UID in this.id_map)
-            return this.register_usage(this.id_map[geometry.GEOMETRY_UID], intersect, sample);
+        // Already registered: count the usage, but return the geometry's own id. (register_usage clamps every
+        // triangle to the triangle type id, which is right for usage counting but would lose which triangle this is.)
+        if (geometry.GEOMETRY_UID in this.id_map) {
+            this.register_usage(this.id_map[geometry.GEOMETRY_UID], intersect, sample);
+            return this.id_map[geometry.GEOMETRY_UID];
+        }
         
         if (geometry instanceof Triangle) {
             // Very small triangles frequently cause precision issues in WebGL, so simply skip them as a band aid
             if (geometry.area < 0.00001)
                 return 0;
-            this.triangles.push({
-                vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.store(p)),
-                normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.store(v)),
-                uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.store(Vec.of(...v, 0)))
-            });
+            let cached = geometry._webglTriangleData;
+            if (!cached || cached.generation !== this.triangle_data_generation) {
+                cached = {
+                    generation: this.triangle_data_generation,
+                    entry: {
+                        positions: geometry.ps.map(p => [p[0], p[1], p[2]]),
+                        vertex_indices: (geometry.ps                                             ).map(p => this.triangle_data.store(p)),
+                        normal_indices: (geometry.psdata.normal || Array(3).fill(geometry.normal)).map(v => this.triangle_data.store(v)),
+                        uv_indices:     (geometry.psdata.UV     || Array(3).fill(Vec.of(0,0)    )).map(v => this.triangle_data.store(Vec.of(...v, 0)))
+                    }
+                };
+                // Not enumerable, so it's never serialized with the scene.
+                Object.defineProperty(geometry, "_webglTriangleData", { value: cached, writable: true, enumerable: false, configurable: true });
+            }
+            this.triangles.push(cached.entry);
+            this.triangle_data_triangle_count = Math.max(this.triangle_data_triangle_count, this.triangles.length);
             this.id_map[geometry.GEOMETRY_UID] = this.geometries.length + 1;
             this.geometries.push(geometry);
             this.register_usage(WebGLGeometriesAdapter.MIN_TRIANGLE_ID, intersect, sample);
@@ -272,11 +303,34 @@ class WebGLGeometriesAdapter {
             ? this.sdf_adapter.getMutableObjectProperties(index - WebGLGeometriesAdapter.MIN_SDF_ID, renderer_adapter) : [];
     }
     writeShaderData(gl, program, webgl_helper) {
-        // Write triangle data, as all other types need no data written for geometry
-        this.triangle_data_texture.setDataPixelsUnit(this.triangle_data.flat(), this.triangle_data_texture_unit, "tTriangleData", program);
-        this.triangle_indices_texture.setDataPixelsUnit(
-            this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat(),
-            this.triangle_indices_texture_unit, "tTriangleIndices", program);
+        // Write triangle data, as all other types need no data written for geometry. After an edit that left the
+        // triangles alone (the same entries in the same order, and nothing new stored), the textures already hold the
+        // right data for this program, so only the sampler uniforms are set.
+        const unchanged = this.uploaded && this.uploaded.program === program
+            && this.uploaded.dataSize === this.triangle_data.size()
+            && this.uploaded.inlineVerts === WebGLTriangleGeometryShaderSource.inlineVertsActive
+            && this.uploaded.triangles.length === this.triangles.length
+            && this.triangles.every((t, i) => t === this.uploaded.triangles[i]);
+        if (unchanged) {
+            for (const [unit, name] of [[this.triangle_data_texture_unit, "tTriangleData"], [this.triangle_indices_texture_unit, "tTriangleIndices"],
+                                        [this.triangle_verts_texture_unit, "tTriangleVerts"]])
+                gl.uniform1i(gl.getUniformLocation(program, name), WebGLHelper.textureUnitIndex(unit));
+        }
+        else {
+            this.triangle_data_texture.setDataPixelsUnit(this.triangle_data.flat(), this.triangle_data_texture_unit, "tTriangleData", program);
+            this.triangle_indices_texture.setDataPixelsUnit(
+                this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat(),
+                this.triangle_indices_texture_unit, "tTriangleIndices", program);
+            // Only uploaded when the shader was generated to read it (decided in getShaderSource).
+            if (WebGLTriangleGeometryShaderSource.inlineVertsActive)
+                this.triangle_verts_texture.setDataPixelsUnit(
+                    this.triangles.map(t => t.positions).flat(2),
+                    this.triangle_verts_texture_unit, "tTriangleVerts", program);
+            else
+                this.triangle_verts_texture.setDataPixelsUnit([0, 0, 0], this.triangle_verts_texture_unit, "tTriangleVerts", program);
+            this.uploaded = { program: program, dataSize: this.triangle_data.size(), triangles: this.triangles.slice(),
+                              inlineVerts: WebGLTriangleGeometryShaderSource.inlineVertsActive };
+        }
         this.sdf_adapter.writeShaderData(gl, program, webgl_helper);
     }
     
@@ -360,7 +414,7 @@ class WebGLGeometriesAdapter {
                 switch(geometryID) {`;
         for (let type_index of WebGLGeometriesAdapter.SWITCHABLE_TYPES) {
             const shader_src_module = this.ShaderSourceModules[type_index];
-            if (this.geometry_usage_map[type_index].sample)
+            if (sceneEditable || this.geometry_usage_map[type_index].sample)
                 ret += `
                     case ${shader_src_module.src_type_name}: return ${shader_src_module.getSampleSurfaceShaderSource(type_index, "random_seed")}; break;`;
             }
@@ -374,7 +428,7 @@ class WebGLGeometriesAdapter {
                 switch(geometryID) {`;
         for (let type_index of WebGLGeometriesAdapter.SWITCHABLE_TYPES) {
             const shader_src_module = this.ShaderSourceModules[type_index];
-            if (this.geometry_usage_map[type_index].sample)
+            if (sceneEditable || this.geometry_usage_map[type_index].sample)
                 ret += `
                     case ${shader_src_module.src_type_name}: ${shader_src_module.getMaterialDataShaderSource(type_index, "position", "direction", "data")}; break;`;
             }
@@ -389,7 +443,7 @@ class WebGLGeometriesAdapter {
                     switch(geometryID) {`
             for (let type_index of WebGLGeometriesAdapter.SWITCHABLE_TYPES) {
                 const shader_src_module = this.ShaderSourceModules[type_index];
-                if (this.geometry_usage_map[type_index].intersect)
+                if (sceneEditable || this.geometry_usage_map[type_index].intersect)
                     ret += `
                         case ${shader_src_module.src_type_name}: return ${shader_src_module.getIntersectShaderSource(type_index, "r", "minDistance")}; break;`;
             }
@@ -400,7 +454,7 @@ class WebGLGeometriesAdapter {
                 else {
                     if (geometryID < GEOMETRY_TRIANGLE_MIN_INDEX)
                         return sdfIntersect(r, minDistance, geometryID - GEOMETRY_SDF_MIN_INDEX);`;
-            if (this.geometry_usage_map[WebGLGeometriesAdapter.MIN_TRIANGLE_ID].intersect)
+            if (sceneEditable || this.geometry_usage_map[WebGLGeometriesAdapter.MIN_TRIANGLE_ID].intersect)
                 ret += `
                     else
                         return triangleIntersect(r, minDistance, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);`
@@ -415,7 +469,7 @@ class WebGLGeometriesAdapter {
                     switch(geometryID) {`
             for (let type_index of WebGLGeometriesAdapter.SWITCHABLE_TYPES) {
                 const shader_src_module = this.ShaderSourceModules[type_index];
-                if (this.geometry_usage_map[type_index].intersect || this.geometry_usage_map[type_index].sample)
+                if (sceneEditable || this.geometry_usage_map[type_index].intersect || this.geometry_usage_map[type_index].sample)
                     ret += `
                         case ${shader_src_module.src_type_name}: ${shader_src_module.getMaterialDataShaderSource(type_index, "position", "direction", "data")}; break;`;
             }
@@ -425,7 +479,7 @@ class WebGLGeometriesAdapter {
                 else {
                     if (geometryID < GEOMETRY_TRIANGLE_MIN_INDEX)
                         sdfMaterialData(position, data, geometryID - GEOMETRY_SDF_MIN_INDEX);`
-            if (this.geometry_usage_map[WebGLGeometriesAdapter.MIN_TRIANGLE_ID].intersect)
+            if (sceneEditable || this.geometry_usage_map[WebGLGeometriesAdapter.MIN_TRIANGLE_ID].intersect)
                 ret += `
                     else
                         triangleMaterialData(position, data, geometryID - GEOMETRY_TRIANGLE_MIN_INDEX);`
@@ -538,6 +592,8 @@ class WebGLSDFGeometryShaderSource extends WebGLAbstractGeometryShaderSource  {
 }
 
 class WebGLTriangleGeometryShaderSource extends WebGLAbstractGeometryShaderSource  {
+    // Set when the shader source is generated, read when data is uploaded (always afterward).
+    static inlineVertsActive = false;
     canIntersect() {
         return true;
     }
@@ -599,6 +655,24 @@ class WebGLTriangleGeometryShaderSource extends WebGLAbstractGeometryShaderSourc
                 return vec3(1.0 - v - w, v, w);
             }
             float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
+                ${WebGLRendererAdapter.debugFastTriangle ? `
+                // Moller-Trumbore (debugFastTriangle): one reciprocal and no normalize, versus the plane-then-
+                // barycentric test below (a normalize, a plane divide and two barycentric divides). Same contract:
+                // returns t along the (unnormalized) ray direction, or minDistance - 1.0 on a miss. The parallel
+                // cutoff is on the unnormalized determinant, so grazing-angle behavior differs very slightly.
+                vec3 e1 = p2.xyz - p1.xyz, e2 = p3.xyz - p1.xyz;
+                vec3 pv = cross(r.d.xyz, e2);
+                float det = dot(e1, pv);
+                if (abs(det) < 1e-20)
+                    return minDistance - 1.0;
+                float invDet = 1.0 / det;
+                vec3 tv = r.o.xyz - p1.xyz;
+                float u = dot(tv, pv) * invDet;
+                vec3 qv = cross(tv, e1);
+                float v = dot(r.d.xyz, qv) * invDet;
+                if (u < 0.0 || v < 0.0 || u + v > 1.0)
+                    return minDistance - 1.0;
+                return dot(e2, qv) * invDet;` : `
                 vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 0.0);
                 float distance = planeIntersect(r, minDistance, normal, dot(p1, normal));
                 if (distance < minDistance)
@@ -606,13 +680,23 @@ class WebGLTriangleGeometryShaderSource extends WebGLAbstractGeometryShaderSourc
                 vec3 bary = triangleToBarycentric(r.o + (distance * r.d), p1, p2, p3);
                 if (all(greaterThanEqual(bary, vec3(0.0))) && all(lessThanEqual(bary, vec3(1.0))))
                     return distance;
-                return minDistance - 1.0;
+                return minDistance - 1.0;`}
             }
+            ${(WebGLTriangleGeometryShaderSource.inlineVertsActive = !!WebGLRendererAdapter.debugInlineTriangleVerts) ? `
+            // debugInlineTriangleVerts: each triangle's three positions sit in 3 consecutive texels of tTriangleVerts,
+            // so intersection needs no index lookup and the three fetches don't wait on one.
+            uniform sampler2D tTriangleVerts;
+            float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
+                vec4 p1 = vec4(texelFetchByIndex(triangleID * 3,     tTriangleVerts).rgb, 1);
+                vec4 p2 = vec4(texelFetchByIndex(triangleID * 3 + 1, tTriangleVerts).rgb, 1);
+                vec4 p3 = vec4(texelFetchByIndex(triangleID * 3 + 2, tTriangleVerts).rgb, 1);
+                return triangleIntersect(r, minDistance, p1, p2, p3);
+            }` : `
             float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
                 vec4 p1, p2, p3;
                 getTriangleVertices(triangleID, p1, p2, p3);
                 return triangleIntersect(r, minDistance, p1, p2, p3);
-            }
+            }`}
             void triangleMaterialData(in vec4 position, inout GeometricMaterialData data, in int triangleID) {
                 vec4 p1, p2, p3, n1, n2, n3;
                 vec2 uv1, uv2, uv3;

@@ -313,27 +313,30 @@ class FresnelPhongMaterial extends PhongMaterial {
         
         // reflection
         if (data.kr > 0) {
-            let [dir, col] = this.scatter(data.R, data.N, data);
+            let [dir, col, exact] = this.scatter(data.R, data.N, data);
             if (dir)
                 surfaceColor = surfaceColor.plus(
-                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001)
+                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001, exact !== false)
                         .times(col).times(data.reflectivity).times(data.kr));
         }
 
         // refraction
         if (data.kr < 1) {
-            let [dir, col] = this.scatter(data.refractionDirection, data.N.times(-1), data);
+            let [dir, col, exact] = this.scatter(data.refractionDirection, data.N.times(-1), data);
             if (dir && col)
                 surfaceColor = surfaceColor.plus(
-                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001)
+                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001, exact !== false)
                         .times(col).times(data.transmissivity).times(1 - data.kr));
         }
         
         return surfaceColor;
     }
     
+    // Returns [direction, color weight, exact]. `exact` is true when the direction wasn't randomly sampled from a lobe
+    // (a perfect mirror or refraction), which tells World.color whether a light hit directly should count its own
+    // emission (see lights.js). Omitted (undefined) means exact.
     scatter(R, N, data) {
-        return [R, Vec.of(1,1,1)];
+        return [R, Vec.of(1,1,1), true];
     }
 
     // override this to correspond to the way that light passes through Fresnel materials
@@ -397,7 +400,7 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     
     scatter(R, N, data) {
         if (Math.random() < this.mirrorProbability)
-            return [R, Vec.of(1,1,1)];
+            return [R, Vec.of(1,1,1), true];
         
         let diffuseProb = data.diffusivity.average(),
             specularProb = data.specularity.average();
@@ -406,9 +409,10 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
             return [null, null];
         
         if (Math.random() < (diffuseProb / probSum))
-            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity];
+            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity, false];
         
-        return [PhongPathTracingMaterial.scatterSpecular(R, N, data.smoothness), data.specularity];
+        const specularDir = PhongPathTracingMaterial.scatterSpecular(R, N, data.smoothness);
+        return [specularDir, data.specularity, !isFinite(data.smoothness)];
     }
     
     static getFurthestAxis(R) {
@@ -441,7 +445,9 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     static scatterSpecular(R, N, smoothness, data) {
         const EPSILON = 0.00001;
         
-        if (isFinite(smoothness))
+        // An infinitely smooth lobe is a perfect mirror. (This used to test isFinite, which made every finite-
+        // smoothness glossy surface a mirror on the CPU, unlike the GLSL glossyScatter.)
+        if (!isFinite(smoothness))
             return R;
         
         const space_transform = PhongPathTracingMaterial.getSpaceTransform(R);

@@ -1,8 +1,41 @@
 class World {
+    // Lights are WorldObjects and live in this.objects with everything else. The separate `lights` argument is kept
+    // for convenience (and for existing scene files): any lights passed there are simply added to the objects.
     constructor(objects, lights=[], bg_color=Vec.of(0, 0, 0)) {
         this.bg_color = bg_color;
-        this.objects = objects;
-        this.lights = lights;
+        this.objects = objects.concat(lights.filter(l => !objects.includes(l)));
+    }
+    static deserialize(data) {
+        // Scenes serialized before lights were WorldObjects carry a separate `lights` array.
+        return new World(data.objects || [], data.lights || [], data.bg_color);
+    }
+    // The lights that illuminate this world: one LightInstance per light reachable through this.objects, including
+    // lights nested inside Aggregates and TransformedWorldObjects (the instance carries those ancestors, so sampling
+    // uses the light's world transform). Lights inside a BVHAggregate aren't supported (see BVHAggregate.build).
+    // Cached, since materials ask for this at every shading point; call contentsChanged() after adding, removing or
+    // moving lights between aggregates. (Transforms are read live, so moving a light needs no call.)
+    get lights() {
+        if (!this._light_instances || this._light_instances_source !== this.objects || this._light_instances_count !== this.objects.length) {
+            const instances = [];
+            const visit = (o, ancestors) => {
+                if (o instanceof Light)
+                    instances.push(new LightInstance(o, ancestors));
+                else if (o instanceof TransformedWorldObject)
+                    visit(o.object, ancestors.concat(o));
+                else if (o instanceof Aggregate && !(o instanceof BVHAggregate))
+                    for (const child of o.objects)
+                        visit(child, ancestors.concat(o));
+            };
+            for (const o of this.objects)
+                visit(o, []);
+            // Not enumerable, so the cache is never serialized.
+            for (const [k, v] of [["_light_instances", instances], ["_light_instances_source", this.objects], ["_light_instances_count", this.objects.length]])
+                Object.defineProperty(this, k, { value: v, writable: true, enumerable: false, configurable: true });
+        }
+        return this._light_instances;
+    }
+    contentsChanged() {
+        Object.defineProperty(this, "_light_instances", { value: null, writable: true, enumerable: false, configurable: true });
     }
     static getMinimumIntersection(objects, ray, minDistance, maxDistance, intersectTransparent) {
         let closestIntersection = { distance: Infinity, object: null, ancestors: [] };
@@ -13,12 +46,17 @@ class World {
         }
         return closestIntersection;
     }
+    // Bounding boxes describe the scene's geometry, so lights are left out (a distant point light would otherwise
+    // drag the box, and anything centered on it, far from the visible objects).
     getBoundingBox() {
-        return this.objects.length ? AABB.hull(this.objects.map(o => o.getBoundingBox())) : AABB.empty();
+        const objects = this.objects.filter(o => !(o instanceof Light));
+        return objects.length ? AABB.hull(objects.map(o => o.getBoundingBox())) : AABB.empty();
     }
     getFiniteBoundingBox() {
         const aabbs = [];
         for (let o of this.objects) {
+            if (o instanceof Light)
+                continue;
             const aabb = o.getBoundingBox();
             if (aabb.isFinite())
                 aabbs.push(aabb);
@@ -28,7 +66,9 @@ class World {
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
         return World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);
     }
-    color(ray, recursionDepth, minDistance = 0) {
+    // countEmission: whether a light hit directly by this ray should contribute its emission. See the comment at the
+    // top of lights.js: true for camera rays and exact (mirror/refraction) bounces, false for sampled bounces.
+    color(ray, recursionDepth, minDistance = 0, countEmission = true) {
         if (!recursionDepth)
             return Vec.of(0,0,0);
         const intersection = this.cast(ray, minDistance);
@@ -37,7 +77,7 @@ class World {
         let ancestorInvTransform = Mat4.identity();
         for (let i = 0; i < intersection.ancestors.length; ++i)
             ancestorInvTransform = intersection.ancestors[i].getInvTransform().times(ancestorInvTransform);
-        return intersection.object.color(ray, intersection.distance, ancestorInvTransform, this, recursionDepth - 1);
+        return intersection.object.color(ray, intersection.distance, ancestorInvTransform, this, recursionDepth - 1, countEmission);
     }
 }
 

@@ -37,6 +37,81 @@ class WebGLRendererAdapter {
     static debugTraversalHeatmap = false;
     static debugHeatmapNodeScale = 200;
     static debugHeatmapPrimScale = 100;
+    // While the heatmap is active, read back the raw per-pixel counts this often and log distribution stats to the
+    // console (see reportHeatmapStats). readPixels stalls the GPU pipeline, so keep this coarse. 0 disables.
+    static debugHeatmapStatsIntervalMs = 1000;
+
+    // Per-node-visit cost ablations for worldRayCastBVH (read at shader-gen time like the flags above; reload the
+    // scene after changing). Each replaces one piece of the per-node work with a cheaper equivalent:
+    //   debugFastAABB      - precompute 1/r.d once per ray and use a branchless slab test (min/max) on the node's
+    //                        min/max directly, instead of the looping, branching, dividing AABBIntersects with its
+    //                        center/half-size reconstruction.
+    //   debugFastNodeIndex - lay the BVH node texture out with a power-of-two width baked into the shader, so the node
+    //                        index -> texel coordinate is a mask and a shift, instead of textureSize() + integer % and /.
+    // Traversal optimizations, Nov 2026. Measured on dragon (full 4-bounce render, GPU tracer-pass p50, same machine):
+    // baseline 6.05 ms -> 2.67 ms with debugChildBoxes + debugPow2DataTextures + debugSkipUnlitShadows +
+    // debugFastTriangle + debugInlineTriangleVerts, which are now ON by default (starwars 5.73 -> 2.91 ms,
+    // AMultipleBVH 0.70 -> 0.35 ms; images match the baseline within sampling noise). Set any of them false
+    // (console, or URL parameter e.g. ?debugChildBoxes=false) and reload the scene to A/B.
+    // Measured and NOT adopted: debugFastNodeIndex (superseded by debugPow2DataTextures), debugStackTNear (slower),
+    // debugStackTopCache (no change), debugWideBVH (slightly slower than binary on top of the others).
+    static debugFastAABB = false;
+    static debugFastNodeIndex = false;
+    // Lay out every generic data texture (triangles, world data, materials, BVH nodes unless debugFastNodeIndex) at a
+    // fixed power-of-two width, so texelFetchByIndex is a mask + shift everywhere. See WebGLTexture.coerceToDataTextureData.
+    static debugPow2DataTextures = true;
+    // Skip the shadow ray for a light whose contribution phongBRDF would zero anyway (e.g. a light behind an opaque
+    // surface). Output-identical; see computePhongMaterialColor.
+    static debugSkipUnlitShadows = true;
+    // BVH layout with each internal node holding its two children's boxes (see WebGLWorldAdapter.buildChildBoxBVHData),
+    // so nodes the ray misses are never fetched. Used by editable shaders too.
+    static debugChildBoxes = true;
+    // Build the editable ("interpreter") shader: aggregate and primitive data is read from data textures at run time
+    // instead of being unrolled into the source for this scene, so the scene's structure could change without a
+    // recompile. Read when the adapters are created; reload the scene after changing it.
+    static worldEditable = false;
+    // Editable shader only: cast rays with a single loop over roots, BVH nodes and primitive lists, so the generic
+    // primitive intersection is compiled once per ray cast instead of three times (see
+    // WebGLWorldAdapter.getEditableUnifiedRayCastSource).
+    static editableUnifiedCast = true;
+    // With debugChildBoxes: also keep each stacked node's box-entry distance, and drop stacked nodes that a closer hit
+    // found after they were pushed has made unreachable, without fetching them.
+    static debugStackTNear = false;
+    // With debugChildBoxes: keep the top stack entry in a register, so most push/pop pairs skip the dynamically
+    // indexed stack array (which ANGLE may place in slow indexable memory).
+    static debugStackTopCache = false;
+    // Moller-Trumbore triangle test in place of plane intersection + barycentric check.
+    static debugFastTriangle = true;
+    // Duplicate each triangle's positions into their own texture so intersection skips the vertex index lookup.
+    static debugInlineTriangleVerts = true;
+    // With debugChildBoxes: collapse the binary BVH into a 4-wide one (4 child boxes per node), roughly halving the
+    // number of loop iterations and stack operations per ray. See WebGLWorldAdapter.buildChildBoxBVHData.
+    static debugWideBVH = false;
+
+    // Floor measurement: worldRayColorShallow returns the background color before casting any ray into the world, so
+    // the tracer pass contains only scene-independent per-pixel work (camera ray and jitter, accumulation reads and
+    // writes). Read at shader-gen time; reload after changing. Tracer GPU time minus this floor ~= traversal cost.
+    static debugSkipTraversal = false;
+
+    // GPU timing of the tracer pass via EXT_disjoint_timer_query_webgl2. Unlike the flags above this is read at
+    // runtime, so no reload is needed: set it true in the console and the GPU time of each tracer draw (excluding the
+    // passthrough/denoise pass, CPU work, and vsync waits) is collected and summarized to the console every
+    // debugGPUTimerIntervalMs. Results arrive a few frames late (queries are asynchronous) and are discarded whenever
+    // the GPU reports a disjoint event (e.g. a power-state change), so the first report after enabling may be sparse.
+    static debugGPUTimer = false;
+    static debugGPUTimerIntervalMs = 1000;
+
+    // Benchmark harness (normally set from URL parameters by webgl-demo.js, e.g. ?test=dragon&bench=5&debugFastAABB=1).
+    // bench > 0: after benchWarmupMs of drawing, collect GPU tracer-pass times for `bench` seconds, then publish a
+    // summary as window.benchResult and log it as one "BENCH_RESULT {json}" line. The summary also records every
+    // debug flag, compile time, shader size, NaN count, and (in heatmap mode) the last heatmap stats.
+    // benchRef = "save" stores a 64x64 downsample of the accumulated image in localStorage under benchRefKey;
+    // benchRef = "compare" reports the RMSE of this run's image against the stored one, to check that an
+    // optimization doesn't change the picture.
+    static bench = 0;
+    static benchWarmupMs = 1500;
+    static benchRef = "";
+    static benchRefKey = "jsrt-bench-ref";
 
     constructor(gl, canvas, renderer) {
         
@@ -72,6 +147,13 @@ class WebGLRendererAdapter {
         // create and store utility variables for managing the WebGL context
         this.gl = gl;
         this.webgl_helper = new WebGLHelper(gl);
+
+        // GPU timer queries (see debugGPUTimer). May be null: not all browsers/GPUs expose the extension.
+        this.timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+        this.pendingTimerQueries = [];
+        this.gpuTimesMs = [];
+        this.lastGPUTimerReport = performance.now();
+        this.warnedNoTimerExt = false;
         
         // Create texture units for intermediary rendering/filtering
         this.textureUnits = {};
@@ -91,7 +173,7 @@ class WebGLRendererAdapter {
         // Create the adapters for the world, which will also validate the data for the world
         this.adapters = {
             camera: new WebGLCameraAdapter(renderer.camera, this.webgl_helper, this),
-            world:  new WebGLWorldAdapter( renderer.world,  this.webgl_helper, this)
+            world:  new WebGLWorldAdapter( renderer.world,  this.webgl_helper, this, !!WebGLRendererAdapter.worldEditable)
         };
     }
     
@@ -103,7 +185,8 @@ class WebGLRendererAdapter {
         const compile_start = Date.now();
         myconsole.log("Building shader...");
         ret.buildShaders(ret.gl, canvas, () => {
-            myconsole.log(`Shader successfully built in ${(Date.now() - compile_start) / 1000} seconds.`);
+            ret.compileSeconds = (Date.now() - compile_start) / 1000;
+            myconsole.log(`Shader successfully built in ${ret.compileSeconds} seconds.`);
             
             // Write data to shaders
             myconsole.log("Writing shader data...");
@@ -173,6 +256,10 @@ class WebGLRendererAdapter {
         
         this.gl.deleteFramebuffer(this.tracerBuffer);
 
+        for (const q of this.pendingTimerQueries)
+            this.gl.deleteQuery(q);
+        this.pendingTimerQueries = [];
+
         this.webgl_helper.destroy(   this.gl);
         this.adapters.world.destroy( this.gl);
         this.adapters.camera.destroy(this.gl);
@@ -197,7 +284,9 @@ class WebGLRendererAdapter {
                 "#version 300 es \n"
                     + this.getShaderSourceDeclarations()
                     + this.getShaderSource();
-        myconsole.log(`Compiling generated shader with ${(fsSource.match(/\n/g)||[]).length + 1} lines`);
+        this.tracerFragmentSource = fsSource;
+        this.shaderLineCount = (fsSource.match(/\n/g)||[]).length + 1;
+        myconsole.log(`Compiling generated shader with ${this.shaderLineCount} lines`);
 
         
         WebGLHelper.compileMultipleShaderProgramsFromSources(gl,
@@ -345,6 +434,8 @@ class WebGLRendererAdapter {
                 this.passthroughShaderProgram = passthroughShaderProgram;
                         
                         // Tell WebGL how to pull out the positions from the position buffer into the vertexPosition attribute.
+                        // (Bound again here: compiling is asynchronous, so something else may be bound by now.)
+                        gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
                         for (let shaderName of ['tracer', 'passthrough']) {
                             const attrib = this[shaderName + 'VertexAttrib'] = gl.getAttribLocation(this[shaderName + 'ShaderProgram'], 'vertexPosition');
                             gl.vertexAttribPointer(attrib, 2, gl.FLOAT, false, 0, 0);
@@ -395,6 +486,11 @@ class WebGLRendererAdapter {
                 float transmissionProbability;
                 vec4  transmissionDirection;
                 vec3  transmissionColor;
+
+                // Whether each direction was exact (mirror/refraction) rather than randomly sampled; decides whether
+                // the next hit counts a light's emission (see worldRayColorShallow).
+                bool  reflectionExact;
+                bool  transmissionExact;
             };
             vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal);
             uniform int uMaxBounceDepth;` + "\n";
@@ -464,12 +560,19 @@ class WebGLRendererAdapter {
                 ${Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
                     `vec4 ballast${b} = vec4(uRandomSeed + ${(b + 0.123).toFixed(3)});`).join("\n                ")}
 
+                // Camera rays see lights directly; after that, only exact bounces do (see worldRayColorShallow).
+                bool countEmission = true;
+
                 int i = 0;
                 for (;i < uMaxBounceDepth; ++i) {
                     vec4 intersect_position = vec4(0);
                     vec3 intersect_normal = vec3(0);
-                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0));
-                    vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal);
+                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false);
+                    vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal, countEmission);
+                    ${WebGLRendererAdapter.debugTraversalHeatmap
+                        // Heatmap mode returns before setting intersect_position, so the loop breaks before the normal
+                        // is normally recorded. Record it here instead: it holds raw (nodes, prims, hit) counts.
+                        ? `if (i == 0) first_hit_normal.xyz = intersect_normal;` : ``}
 
                     // Firefly clamp: cap the luminance of INDIRECT contributions (bounce >= 1) only. Directly
                     // visible surfaces and emitters (i == 0) are never clamped, so bright lights render at full
@@ -504,6 +607,7 @@ class WebGLRendererAdapter {
                         {
                             r = Ray(intersect_position, nextRays.reflectionDirection);
                             attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
+                            countEmission = nextRays.reflectionExact;
                             do_next_ray = true;
                         }
                         
@@ -514,6 +618,7 @@ class WebGLRendererAdapter {
                             {
                                 r = Ray(intersect_position, nextRays.transmissionDirection);
                                 attenuation_color *= nextRays.transmissionColor * max(next_ray_probability_sum, 1.0);
+                                countEmission = nextRays.transmissionExact;
                                 do_next_ray = true;
                             }
                         }
@@ -547,10 +652,41 @@ class WebGLRendererAdapter {
         this.adapters.world.writeShaderData(this.gl, this.tracerShaderProgram, this.webgl_helper);
         this.adapters.camera.writeShaderData(this.gl, this.tracerShaderProgram, this.webgl_helper);
     }
-    worldModified() {
-        this.adapters.world.visitWorld(this.renderer.world);
-        this.writeShaderData();
-        this.resetDrawCount();
+    // Call after changing the world's structure (adding or removing objects or lights, or moving them between
+    // aggregates). The world is visited again and all of its data re-uploaded. The shader is only recompiled if the
+    // regenerated source differs from the compiled one: the editable shader (worldEditable) is written so that it
+    // doesn't depend on what the scene contains, so it normally isn't, while the regular shader always is.
+    // callback(recompiled) runs once the new world is being drawn.
+    worldModified(callback=null) {
+        const start = performance.now();
+        const world = this.renderer.world;
+        world.contentsChanged();
+        this.adapters.world.visitWorld(world, this.webgl_helper);
+        const fsSource = "#version 300 es \n" + this.getShaderSourceDeclarations() + this.getShaderSource();
+        const finish = recompiled => {
+            this.writeShaderData();
+            this.resetDrawCount();
+            this.lastWorldRebuild = { recompiled: recompiled, milliseconds: performance.now() - start };
+            myconsole.log(`World rebuilt in ${(this.lastWorldRebuild.milliseconds / 1000).toFixed(3)} seconds`
+                + (recompiled ? " (shader recompiled)." : " (no recompile needed)."));
+            if (callback)
+                callback(recompiled);
+        };
+        if (fsSource === this.tracerFragmentSource)
+            return finish(false);
+
+        // The source changed: rebuild the shader programs. Drawing is paused until they're ready.
+        const gl = this.gl;
+        this.rebuildingShaders = true;
+        gl.deleteProgram(this.tracerShaderProgram);
+        gl.deleteProgram(this.passthroughShaderProgram);
+        gl.deleteFramebuffer(this.tracerBuffer);
+        gl.deleteBuffer(this.positionBuffer);
+        this.tracerShaderProgram = this.passthroughShaderProgram = null;
+        this.buildShaders(gl, this.canvas, () => {
+            this.rebuildingShaders = false;
+            finish(true);
+        });
     }
     
     resetDrawCount() {
@@ -626,7 +762,262 @@ class WebGLRendererAdapter {
         return this.adapters.world.getSceneTree(this.gl, this, this.tracerShaderProgram);
     }
 
+    // In heatmap mode the normal-sum buffer accumulates raw per-pixel (nodes, prims, hit) counts across samples (see
+    // WebGLWorldAdapter.worldRayColorShallow). Read it back, average per pixel, and log the distribution, both over
+    // pixels whose primary ray hit geometry and over all pixels (background rays inside the root box still traverse).
+    // Byte estimates assume one 16-byte texel per node and 4 texels (12-byte index + 3x 12-byte vertex) per triangle
+    // test; prims that aren't untransformed BVH triangles cost differently, so treat that column as approximate.
+    reportHeatmapStats() {
+        const now = performance.now();
+        if (this._lastHeatmapStatsTime !== undefined
+            && now - this._lastHeatmapStatsTime < WebGLRendererAdapter.debugHeatmapStatsIntervalMs)
+            return;
+        this._lastHeatmapStatsTime = now;
+
+        const gl = this.gl, w = this.canvas.width, h = this.canvas.height, count = w * h;
+        if (!this._heatmapReadback || this._heatmapReadback.length != count * 4)
+            this._heatmapReadback = new Float32Array(count * 4);
+        const px = this._heatmapReadback;
+
+        // The normal buffer is COLOR_ATTACHMENT1 of tracerBuffer, which still holds the just-written textures[0].
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.tracerBuffer);
+        gl.readBuffer(gl.COLOR_ATTACHMENT1);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+        gl.readBuffer(gl.COLOR_ATTACHMENT0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+        // Number of samples summed into the buffer just read (drawCount is incremented after this call).
+        const n = this.doRandomSample ? this.drawCount + 1 : 1;
+
+        const hitNodes = new Float64Array(count), hitPrims = new Float64Array(count);
+        let hits = 0, allNodeSum = 0, allPrimSum = 0;
+        for (let i = 0; i < count; ++i) {
+            const nodes = px[4 * i] / n, prims = px[4 * i + 1] / n, hit = px[4 * i + 2] / n;
+            allNodeSum += nodes;
+            allPrimSum += prims;
+            if (hit > 0.5) {
+                hitNodes[hits] = nodes;
+                hitPrims[hits] = prims;
+                ++hits;
+            }
+        }
+
+        function summarize(arr) {
+            if (!arr.length)
+                return null;
+            const s = Float64Array.from(arr).sort();
+            const pct = p => s[Math.min(s.length - 1, Math.floor(p * s.length))];
+            let sum = 0;
+            for (const v of s) sum += v;
+            return { mean: sum / s.length, p50: pct(0.5), p90: pct(0.9), p99: pct(0.99), max: s[s.length - 1] };
+        }
+        const fmt = st => st ? `mean ${st.mean.toFixed(1)}, p50 ${st.p50.toFixed(1)}, p90 ${st.p90.toFixed(1)}, `
+            + `p99 ${st.p99.toFixed(1)}, max ${st.max.toFixed(1)}` : `n/a`;
+
+        // "BVH rays": pixels whose primary ray got past the BVH root box (more than one node fetched), whether or not
+        // it ended up hitting anything. This excludes rays that only pay the root-box fetch and then hit (or miss)
+        // something outside the BVH, which otherwise dominate the hit-pixel median.
+        const bvhNodes = new Float64Array(count), bvhPrims = new Float64Array(count);
+        let bvhRays = 0;
+        for (let i = 0; i < count; ++i) {
+            const nodes = px[4 * i] / n;
+            if (nodes > 1.5) {
+                bvhNodes[bvhRays] = nodes;
+                bvhPrims[bvhRays] = px[4 * i + 1] / n;
+                ++bvhRays;
+            }
+        }
+        const bn = summarize(bvhNodes.subarray(0, bvhRays)), bp = summarize(bvhPrims.subarray(0, bvhRays));
+
+        const hn = summarize(hitNodes.subarray(0, hits)), hp = summarize(hitPrims.subarray(0, hits));
+        const allNodeMean = allNodeSum / count, allPrimMean = allPrimSum / count;
+        const bytes = (nodes, prims) => `~${(16 * nodes + 48 * prims).toFixed(0)} B/ray `
+            + `(nodes ${(16 * nodes).toFixed(0)} B, tris ${(48 * prims).toFixed(0)} B)`;
+
+        this.lastHeatmapStats = {
+            hitPixelsPct: 100 * hits / count, bvhRaysPct: 100 * bvhRays / count,
+            bvhNodes: bn, bvhPrims: bp, hitNodes: hn, hitPrims: hp, allNodeMean, allPrimMean };
+        myconsole.log(
+            `Heatmap stats (${w}x${h}, ${n} sample${n == 1 ? "" : "s"}, ${(100 * hits / count).toFixed(1)}% pixels hit):\n` +
+            `  hit pixels   nodes: ${fmt(hn)}\n` +
+            `  hit pixels   prims: ${fmt(hp)}\n` +
+            `  hit pixels   ${hn ? bytes(hn.mean, hp.mean) : "n/a"}\n` +
+            `  BVH rays (${(100 * bvhRays / count).toFixed(1)}% of pixels) nodes: ${fmt(bn)}\n` +
+            `  BVH rays     prims: ${fmt(bp)}\n` +
+            `  BVH rays     ${bn ? bytes(bn.mean, bp.mean) : "n/a"}\n` +
+            `  all pixels   nodes mean ${allNodeMean.toFixed(1)}, prims mean ${allPrimMean.toFixed(1)}, ${bytes(allNodeMean, allPrimMean)}`);
+    }
+
+    // ---- GPU timer queries (debugGPUTimer) ----
+    beginGPUTimer() {
+        if (!WebGLRendererAdapter.debugGPUTimer && !(this.benchState && this.benchState.collecting))
+            return null;
+        if (!this.timerExt) {
+            if (!this.warnedNoTimerExt)
+                myconsole.error("debugGPUTimer: EXT_disjoint_timer_query_webgl2 is not available in this browser/GPU.");
+            this.warnedNoTimerExt = true;
+            return null;
+        }
+        const query = this.gl.createQuery();
+        this.gl.beginQuery(this.timerExt.TIME_ELAPSED_EXT, query);
+        return query;
+    }
+    endGPUTimer(query) {
+        if (!query)
+            return;
+        this.gl.endQuery(this.timerExt.TIME_ELAPSED_EXT);
+        this.pendingTimerQueries.push(query);
+        this.collectGPUTimers();
+    }
+    collectGPUTimers() {
+        const gl = this.gl;
+
+        // A disjoint event invalidates every query in flight; drop them all rather than record bogus times.
+        if (gl.getParameter(this.timerExt.GPU_DISJOINT_EXT)) {
+            for (const q of this.pendingTimerQueries)
+                gl.deleteQuery(q);
+            this.pendingTimerQueries = [];
+            return;
+        }
+
+        // Queries complete in order, so stop at the first one whose result isn't ready yet.
+        while (this.pendingTimerQueries.length && gl.getQueryParameter(this.pendingTimerQueries[0], gl.QUERY_RESULT_AVAILABLE)) {
+            const q = this.pendingTimerQueries.shift();
+            const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6; // ns -> ms
+            this.gpuTimesMs.push(ms);
+            if (this.benchState && this.benchState.collecting && !this.benchState.done)
+                this.benchState.samples.push(ms);
+            gl.deleteQuery(q);
+        }
+        // Don't let queries pile up without bound if results stop arriving.
+        // (Generous, since with several draws per frame and a saturated GPU, results can lag by dozens of queries.)
+        while (this.pendingTimerQueries.length > 512)
+            gl.deleteQuery(this.pendingTimerQueries.shift());
+
+        const now = performance.now();
+        if (WebGLRendererAdapter.debugGPUTimer && now - this.lastGPUTimerReport >= WebGLRendererAdapter.debugGPUTimerIntervalMs) {
+            this.lastGPUTimerReport = now;
+            const t = this.gpuTimesMs.sort((a, b) => a - b);
+            this.gpuTimesMs = [];
+            if (t.length) {
+                const mean = t.reduce((s, v) => s + v, 0) / t.length;
+                const pct = p => t[Math.min(t.length - 1, Math.floor(p * t.length))];
+                myconsole.log(`GPU tracer pass (${t.length} draws): mean ${mean.toFixed(2)} ms, `
+                    + `p50 ${pct(0.5).toFixed(2)} ms, min ${t[0].toFixed(2)} ms, p90 ${pct(0.9).toFixed(2)} ms `
+                    + `(~${(1000 / mean).toFixed(0)} tracer passes/s)`);
+            }
+        }
+    }
+
+    // ---- Benchmark harness (see the static bench* fields) ----
+    // Called once per drawWorld, before the texture rotate, while textures[0] is still attached to tracerBuffer.
+    benchTick() {
+        const B = WebGLRendererAdapter;
+        const now = performance.now();
+        if (!this.benchState)
+            this.benchState = { start: now, collecting: false, done: false, samples: [] };
+        const b = this.benchState;
+        if (b.done)
+            return;
+        if (!b.collecting && now - b.start >= B.benchWarmupMs) {
+            b.collecting = true;
+            b.collectStart = now;
+            b.samples = [];
+        }
+        if (b.collecting && now - b.collectStart >= B.bench * 1000)
+            this.finishBench();
+    }
+    // Read the accumulated render buffer and return a 64x64 per-pixel-average downsample (RGB), plus NaN/inf count.
+    benchReadImage() {
+        const gl = this.gl, w = this.canvas.width, h = this.canvas.height, D = 64;
+        const px = new Float32Array(w * h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.tracerBuffer);
+        gl.readBuffer(gl.COLOR_ATTACHMENT0);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        const n = this.doRandomSample ? this.drawCount + 1 : 1;
+        const sum = new Float64Array(D * D * 3), cnt = new Float64Array(D * D);
+        let bad = 0;
+        for (let y = 0; y < h; ++y) {
+            const dy = Math.min(D - 1, Math.floor(y * D / h));
+            for (let x = 0; x < w; ++x) {
+                const i = 4 * (y * w + x), r = px[i] / n, g = px[i + 1] / n, bl = px[i + 2] / n;
+                if (!isFinite(r) || !isFinite(g) || !isFinite(bl)) { ++bad; continue; }
+                const d = dy * D + Math.min(D - 1, Math.floor(x * D / w));
+                sum[3 * d] += r; sum[3 * d + 1] += g; sum[3 * d + 2] += bl; ++cnt[d];
+            }
+        }
+        const down = new Array(D * D * 3);
+        for (let d = 0; d < D * D; ++d)
+            for (let c = 0; c < 3; ++c)
+                down[3 * d + c] = cnt[d] ? sum[3 * d + c] / cnt[d] : 0;
+        return { down, nonFinitePixels: bad, samples: n };
+    }
+    finishBench() {
+        const B = WebGLRendererAdapter, b = this.benchState;
+        b.done = true;
+        b.collecting = false;
+
+        const t = b.samples.slice().sort((x, y) => x - y);
+        const pct = p => t.length ? t[Math.min(t.length - 1, Math.floor(p * t.length))] : null;
+        const r3 = v => (v === null || v === undefined) ? v : Math.round(v * 1000) / 1000;
+        const gpu = t.length ? {
+            draws: t.length, mean: r3(t.reduce((s, v) => s + v, 0) / t.length),
+            p10: r3(pct(0.1)), p50: r3(pct(0.5)), p90: r3(pct(0.9)), min: r3(t[0]) } : null;
+
+        const flags = {};
+        for (const k of Object.keys(B))
+            if (k.startsWith("debug") && !k.startsWith("debugGPUTimer") && !k.startsWith("debugHeatmapStats"))
+                flags[k] = B[k];
+
+        const img = this.benchReadImage();
+        let ref = null;
+        try {
+            if (B.benchRef == "save") {
+                localStorage.setItem(B.benchRefKey, JSON.stringify(img.down));
+                ref = { saved: B.benchRefKey };
+            }
+            else if (B.benchRef == "compare") {
+                const stored = JSON.parse(localStorage.getItem(B.benchRefKey) || "null");
+                if (stored && stored.length == img.down.length) {
+                    let se = 0, maxAbs = 0, refMean = 0;
+                    for (let i = 0; i < stored.length; ++i) {
+                        const d = img.down[i] - stored[i];
+                        se += d * d;
+                        maxAbs = Math.max(maxAbs, Math.abs(d));
+                        refMean += Math.abs(stored[i]);
+                    }
+                    refMean /= stored.length;
+                    const rmse = Math.sqrt(se / stored.length);
+                    ref = { key: B.benchRefKey, rmse: r3(rmse * 1000) / 1000, relRmse: r3(refMean ? rmse / refMean : 0), maxAbs: r3(maxAbs) };
+                }
+                else
+                    ref = { error: "no stored reference under " + B.benchRefKey };
+            }
+        } catch (e) { ref = { error: String(e) }; }
+
+        let meanRGB = [0, 0, 0];
+        for (let i = 0; i < img.down.length; ++i) meanRGB[i % 3] += img.down[i];
+        meanRGB = meanRGB.map(v => r3(v / (img.down.length / 3)));
+
+        const result = {
+            test: new URLSearchParams(window.location.search).get("test"),
+            flags, maxBounceDepth: this.maxBounceDepth,
+            compileSeconds: this.compileSeconds, shaderLines: this.shaderLineCount,
+            canvas: [this.canvas.width, this.canvas.height], accumulatedSamples: img.samples,
+            gpu, nonFinitePixels: img.nonFinitePixels, meanRGB, ref,
+            heatmap: this.lastHeatmapStats || null,
+            timerExt: !!this.timerExt
+        };
+        window.benchResult = result;
+        myconsole.log("BENCH_RESULT " + JSON.stringify(result));
+        if (typeof window.onBenchResult === "function")
+            window.onBenchResult(result);
+    }
+
     drawWorld(timestamp) {
+        if (this.rebuildingShaders || !this.tracerShaderProgram)
+            return;
         // Clear the screen, on all 4 standard channels.
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
@@ -666,7 +1057,9 @@ class WebGLRendererAdapter {
         // Do ray-tracing shader magic, by rendering a simple square.
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.vertexAttribPointer(this.tracerVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
+        const timerQuery = this.beginGPUTimer();
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        this.endGPUTimer(timerQuery);
         
         
         // Alright, time to use the passthrough shader to clean up all our weird intermediary results
@@ -697,6 +1090,13 @@ class WebGLRendererAdapter {
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
         
         
+        // Heatmap diagnostics: periodically read back the raw traversal counts (must happen before the rotate below,
+        // while textures[0] is still the set attached to tracerBuffer).
+        if (WebGLRendererAdapter.debugTraversalHeatmap && WebGLRendererAdapter.debugHeatmapStatsIntervalMs > 0)
+            this.reportHeatmapStats();
+        if (WebGLRendererAdapter.bench > 0)
+            this.benchTick();
+
         // Rotate each list of textures, so the next textures read from will be the last textures rendered.
         this.textures.rotate();
         

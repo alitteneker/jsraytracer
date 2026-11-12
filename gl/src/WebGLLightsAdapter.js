@@ -2,35 +2,49 @@ class WebGLLightsAdapter {
     static LIGHT_TYPE_WORLD = 1;
     static LIGHT_TYPE_DIRECTIONAL = 2;
     
-    constructor(webgl_helper) {
+    constructor(webgl_helper, worldadapter=null) {
+        this.worldadapter = worldadapter;
         this.reset();
     }
     destroy() {}
     reset() {
         this.lights_data = [];
     }
-    visit(light, geometry_adapter, material_adapter, webgl_helper) {
-        const light_data = { index: this.lights_data.length, ID: this.lights_data.length, worldtype: "light", light: light };
+    // `instance` is a LightInstance (see src/lights.js): the light plus the ancestors it's nested in, so the light is
+    // sampled with its world transform even when it sits inside a transformed aggregate.
+    visit(instance, geometry_adapter, material_adapter, webgl_helper) {
+        const light = instance.light;
+        const light_data = { index: this.lights_data.length, ID: this.lights_data.length, worldtype: "light", light: light, instance: instance };
         
         if (light instanceof SimplePointLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
             light_data.geometry      = geometry_adapter.visit(new OriginPoint(), webgl_helper, false, true);
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
-            light_data.transform     = Mat4.translation(light.position);
-            light_data.inv_transform = Mat4.translation(light.position.times(-1));
         }
         else if (light instanceof RandomSampleAreaLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_WORLD;
             light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, false, true);
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
-            light_data.transform     = light.transform;
-            light_data.inv_transform = light.inv_transform;
         }
         else {
             throw "Unsupported light type";
         }
+        WebGLLightsAdapter.updateLightDataTransforms(light_data);
         
         this.lights_data.push(light_data);
+    }
+    // World-space transforms used for sampling. A point light only needs its position.
+    static updateLightDataTransforms(light_data) {
+        const T = light_data.instance.getTransform();
+        if (light_data.light instanceof SimplePointLight) {
+            const p = T.column(3);
+            light_data.transform     = Mat4.translation(p);
+            light_data.inv_transform = Mat4.translation([-p[0], -p[1], -p[2]]);
+        }
+        else {
+            light_data.transform     = T;
+            light_data.inv_transform = light_data.instance.getInvTransform();
+        }
     }
     getLights() {
         return this.lights_data;
@@ -42,10 +56,16 @@ class WebGLLightsAdapter {
         const light = this.lights_data[index];
         
         
-        light.light.setTransform(new_transform, new_inv_transform);
-        
-        light.transform = new_transform;
-        light.inv_transform = new_inv_transform;
+        // new_transform is a world transform; the instance converts it into the light's own (possibly nested) one.
+        light.instance.setWorldTransform(new_transform, new_inv_transform);
+        // Any other instances of the same light (it may be referenced from several aggregates) move too.
+        for (const l of this.lights_data)
+            if (l.light === light.light)
+                WebGLLightsAdapter.updateLightDataTransforms(l);
+
+        // Move the light's visible surface (its stand-in primitive in the world adapter) along with it.
+        if (this.worldadapter)
+            this.worldadapter.lightTransformChanged(light.light);
         
         renderer_adapter.useTracerProgram();
         renderer_adapter.gl.uniformMatrix4fv(renderer_adapter.getUniformLocation("uLightTransforms"), true, Mat.mats_flat(this.lights_data.map(l => [l.transform, l.inv_transform]).flat()));
@@ -81,7 +101,7 @@ class WebGLLightsAdapter {
             #define LIGHT_TYPE_WORLD ${WebGLLightsAdapter.LIGHT_TYPE_WORLD}
             #define LIGHT_TYPE_DIRECTIONAL ${WebGLLightsAdapter.LIGHT_TYPE_DIRECTIONAL}
         
-            #define MAX_LIGHTS ${Math.max(3, this.lights_data.length)}
+            #define MAX_LIGHTS ${sceneEditable ? WebGLWorldAdapter.editableCapacity(this.lights_data.length, 8) : Math.max(3, this.lights_data.length)}
             uniform int  uLightTypes[MAX_LIGHTS];
             uniform int  uLightGeometries[MAX_LIGHTS];
             uniform int  uLightColorMCs[MAX_LIGHTS];

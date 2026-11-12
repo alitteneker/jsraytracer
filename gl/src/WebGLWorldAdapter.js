@@ -141,10 +141,17 @@ class WebGLWorldAdapter {
         this.reset();
         this.world = world;
         
-        // deal with lights
-        // TODO: light geometry should be included in world objects as well, with geometric materials. How should materials be handled?
+        // Deal with lights. Lights are WorldObjects in world.objects (possibly nested in aggregates); world.lights
+        // returns one LightInstance per reachable light, carrying its ancestors, and those are what the lights
+        // adapter samples for direct lighting.
         for (let light of world.lights)
             this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
+
+        // To make a light with a surface visible to rays, it's drawn through an ordinary primitive standing in for it
+        // (see makeLightEmitterProxy): same geometry and local transform, a material that only emits, and no shadow
+        // casting. The stand-in takes the light's place in the tree (see visitDescendantObject), so it inherits the
+        // light's ancestors' transforms. Lights without a surface (point lights) can't be hit and get no stand-in.
+        this.light_emitter_proxies = new Map();   // light OBJECT_UID -> stand-in Primitive
         
         // As an acceleration for scenes with lots of triangles, any triangle primitive without a local
         // transformation in the scene will be indexed in a way that allows for ray intersection testing without
@@ -190,6 +197,11 @@ class WebGLWorldAdapter {
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
 
+        // Primitive indices of the light stand-ins, so the shader can tell when a ray has hit a light (see
+        // worldRayColorShallow's countEmission).
+        this.light_emitter_prim_ids = [...this.light_emitter_proxies.values()]
+            .map(p => this.primitive_id_index_map[p.OBJECT_UID]).filter(i => i !== undefined);
+
         // If this adapter is being used to represent a world that is not editable, the generated shader source
         // will require that all transform indices for transformable objects be unique. Do that here.
         if (!this.WORLD_EDITABLE) {
@@ -207,11 +219,90 @@ class WebGLWorldAdapter {
         this.logBVHDemographics();
     }
     
+    // A stand-in Primitive that draws a light's emitting surface. Its material has the light's color as ambient
+    // (scaled to the radiance the light's sampling implies, see RandomSampleAreaLight.emittedRadianceScale) and
+    // nothing else, so a ray that hits it returns that radiance and stops. It casts no shadows, matching the CPU
+    // rule that lights never occlude shadow rays.
+    // world_transform is the light's full transform including its ancestors; the brightness depends on the world
+    // space area. One stand-in is made per light, so a light referenced from several differently scaled aggregates
+    // gets the brightness of the first one visited (the light it casts is still correct for every instance).
+    makeLightEmitterProxy(light, world_transform) {
+        if (!(light instanceof RandomSampleAreaLight))
+            return null;
+        const scale = light.emittedRadianceScale(world_transform);
+        const proxy = new Primitive(light.surface_geometry,
+            new PhongMaterial(light.color_mc, scale, 0, 0, 5, 0, 0),
+            light.getTransform(), light.getInvTransform(), false);
+        proxy.lightEmitterFor = light;
+        proxy.emitterScale = scale;
+        this.light_emitter_proxies.set(light.OBJECT_UID, proxy);
+        return proxy;
+    }
+    // Called when a light's transform has been edited, to move its stand-in primitive along with it and keep its
+    // brightness consistent with its (possibly changed) area.
+    lightTransformChanged(light) {
+        const proxy = this.light_emitter_proxies && this.light_emitter_proxies.get(light.OBJECT_UID);
+        if (!proxy)
+            return;
+        proxy.setTransform(light.getTransform(), light.getInvTransform());
+        const wrapped = this.primitives[this.primitive_id_index_map[proxy.OBJECT_UID]];
+        for (const p of wrapped.parents) {
+            p.object.contentsChanged();
+            for (const a of p.ancestors)
+                a.object.contentsChanged();
+        }
+        this.updateTransformLocal(wrapped);
+        this.renderer_adapter.useTracerProgram();
+        this.renderer_adapter.gl.uniformMatrix4fv(this.renderer_adapter.getUniformLocation("uTransforms"), true, this.transform_store.flat());
+
+        const light_data = this.adapters.lights.getLights().find(l => l.light === light);
+        if (light_data) {
+            proxy.emitterScale = light.emittedRadianceScale(light_data.instance.getTransform());
+            this.syncLightEmitterColor(light);
+        }
+    }
+    // Copies a light's color (as stored for sampling) into its stand-in's emissive color, times the radiance scale.
+    // Called after the light's color is edited or its area changes.
+    syncLightEmitterColor(light) {
+        const proxy = this.light_emitter_proxies && this.light_emitter_proxies.get(light.OBJECT_UID);
+        const light_data = this.adapters.lights.getLights().find(l => l.light === light);
+        if (!proxy || !light_data)
+            return;
+        const materials = this.adapters.materials;
+        const src = light_data.color_mc,
+              dst = materials.getMaterial(materials.visit(proxy.material)).ambient;
+        let pairs;
+        if (src.type == "checkerboard")  pairs = [[src.color1, dst.color1], [src.color2, dst.color2]];
+        else if (src.type == "texture")  pairs = [[src.scale, dst.scale]];
+        else                             pairs = [[src, dst]];
+        for (const [s, d] of pairs)
+            materials.modifySolidColor(d._id, s.color.times(proxy.emitterScale));
+        this.renderer_adapter.resetDrawCount();
+    }
+    static colorEntryIds(mc) {
+        if (mc.type == "checkerboard") return [mc.color1._id, mc.color2._id];
+        if (mc.type == "texture")      return [mc.scale._id];
+        return [mc._id];
+    }
+
     // BVH structure is fixed once a scene is loaded (the editor can change transforms/materials/geometry types,
     // but never the tree shape itself), so the exact stack depth worldRayCastBVH needs is known at shader-build
     // time here, rather than needing to guess a conservative worst case in the generated GLSL.
     getBVHStackSize() {
-        return Math.max(1, ...this.bvh_tree_order.map(t => t.kdtree.maxDepth()));
+        const depth = Math.max(1, ...this.bvh_tree_order.map(t => t.kdtree.maxDepth()));
+        // The editable shader must not depend on which BVHs are in the scene (see WebGLRendererAdapter.worldModified),
+        // so it gets a fixed size, which only grows if a deeper BVH appears.
+        return this.WORLD_EDITABLE ? Math.max(WebGLWorldAdapter.EDITABLE_MIN_BVH_STACK, depth) : depth;
+    }
+    static EDITABLE_MIN_BVH_STACK = 32;
+    // Rounds a count up to a power of two (at least min), for array sizes in the editable shader: adding a few objects
+    // or lights then rarely changes the shader source, so no recompile is needed.
+    // The 4th channel of a primitive's data: bit 0 = casts shadows, bit 1 = stands in for a light.
+    static primitiveFlags(prim) {
+        return (prim.does_cast_shadow ? 1 : 0) | (prim.lightEmitterFor ? 2 : 0);
+    }
+    static editableCapacity(n, min) {
+        return Math.max(min, Math.pow(2, Math.ceil(Math.log2(Math.max(1, n)))));
     }
 
     // Walk each BVH and log its shape: node/leaf counts, leaf-size distribution (singular vs list), depth, and an
@@ -277,7 +368,10 @@ class WebGLWorldAdapter {
         let indices_count = 0;
         for (const t of this.bvh_tree_order) {
             t.indicesStartIndex = indices_count;
-            indices_count += t.node_count;
+            // Must match what writeShaderData lays out: each BVH contributes its list-leaf entries, not one entry
+            // per node. (Counting nodes here pushed every aggregate list after it out of bounds; only the editable
+            // shader reads those lists from the texture, so it was the only one affected.)
+            indices_count += t.bvh_object_list.length;
         }
         for (const a of this.aggregates) {
             if (a.type == "BVH")
@@ -330,10 +424,22 @@ class WebGLWorldAdapter {
             const agg = new WrappedAggregate(this.aggregates.length, obj, ancestors,
                 this.registerObjectTransform(obj, ancestors), this);
             
-            for (let o of obj.objects)
-                agg.children.push(this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg)));
+            for (let o of obj.objects) {
+                const child = this.visitDescendantObject(o, webgl_helper, ancestors.concat(agg));
+                if (child)
+                    agg.children.push(child);
+            }
             
             return agg;
+        }
+        // A light (at any depth) is drawn by its stand-in primitive, which has the light's local transform and so
+        // picks up the same ancestors. The light's sampling is handled by the lights adapter.
+        else if (obj instanceof Light) {
+            let proxy = this.light_emitter_proxies.get(obj.OBJECT_UID);
+            if (!proxy)
+                proxy = this.makeLightEmitterProxy(obj,
+                    WebGLWorldAdapter.collapseAncestorTransform(ancestors).times(obj.getTransform()));
+            return proxy ? this.visitDescendantObject(proxy, webgl_helper, ancestors) : null;
         }
         else
             throw "Unsupported object type";
@@ -343,6 +449,13 @@ class WebGLWorldAdapter {
         const intersect = this.world.cast(ray);
         if (!intersect.object)
             return null;
+        if (intersect.object instanceof Light) {
+            // Match the specific occurrence of the light that was hit, by its chain of ancestors.
+            const same = (a, b) => a.length == b.length && a.every((x, i) => x === b[i]);
+            const light_data = this.adapters.lights.getLights().find(l => l.light === intersect.object && same(l.instance.ancestors, intersect.ancestors))
+                            || this.adapters.lights.getLights().find(l => l.light === intersect.object);
+            return light_data ? new WrappedLight(light_data, this) : null;
+        }
         return new WrappedPrimitiveInstance(this.primitives[this.primitive_id_index_map[intersect.object.OBJECT_UID]],
             intersect.ancestors.map((a,i) =>
                 this.aggregates[this.aggregate_id_index_map[
@@ -373,7 +486,9 @@ class WebGLWorldAdapter {
             this.transform_object_map[wrapped_obj.transformIndex] 
                 = this.transform_object_map[wrapped_obj.transformIndex].filter(o => o !== wrapped_obj.object);
             wrapped_obj.transformIndex = this.registerTransform(set_transform, wrapped_obj.object, allow_reuse);
-            this.world_node_texture.modifyDataPixel(wrapped_obj.index, wrapped_obj.getDataVector());
+            // Primitives' texels follow the aggregates' in the world data texture (see writeShaderData).
+            this.world_node_texture.modifyDataPixel((wrapped_obj.type == "primitive" ? this.aggregates.length : 0) + wrapped_obj.index,
+                wrapped_obj.getDataVector());
         }
         else
             this.transform_store.set(wrapped_obj.transformIndex, set_transform);
@@ -420,6 +535,11 @@ class WebGLWorldAdapter {
     }
     modifyMaterialSolidColor(material_color_index, new_color) {
         this.adapters.materials.modifySolidColor(material_color_index, new_color);
+        // If this color belongs to a light, its visible surface has to follow.
+        const id = Number(material_color_index);
+        for (const l of this.adapters.lights.getLights())
+            if (WebGLWorldAdapter.colorEntryIds(l.color_mc).includes(id))
+                this.syncLightEmitterColor(l.light);
     }
     modifyMaterialScalar(material_index, new_scalar) {
         this.adapters.materials.modifyScalar(material_index, new_scalar);
@@ -451,7 +571,7 @@ class WebGLWorldAdapter {
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uTransforms"), true, this.transform_store.flat());
         
         // process world node data for writing
-        const primitive_list = this.primitives.map(o => [o.geometryIndex, o.materialIndex, o.transformIndex, Number(o.object.does_cast_shadow)]).flat();
+        const primitive_list = this.primitives.map(o => o.getDataVector()).flat();
         let aggregate_list = [], indices_list = [], aabb_data = [];
         for (let a of this.bvh_tree_order) {
             indices_list = indices_list.concat(a.bvh_object_list);
@@ -464,7 +584,7 @@ class WebGLWorldAdapter {
                 indices_list = indices_list.concat(a.indicesList);
             }
             else if (a.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE) {
-                aggregate_list.push(a.type_code, a.transformIndex, a.bvhStartIndex, a.indicesStartIndex);
+                aggregate_list.push(...a.getDataVector());
             }
             else
                 throw "Unsupported aggregate type detected";
@@ -477,25 +597,376 @@ class WebGLWorldAdapter {
         gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length);
         this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...indices_list],
             this.world_node_texture_unit, "uWorldData", program);
-        this.world_aabb_texture.setDataPixelsUnit(aabb_data.flat(), this.world_aabb_texture_unit, "uWorldAABBs", program);
+        if (this.bvh_child_boxes)
+            this.world_aabb_texture.setDataPixelsUnit(this.bvh_child_box_layout.data, this.world_aabb_texture_unit, "uWorldAABBs", program);
+        else if (this.bvh_node_texture_width) {
+            // debugFastNodeIndex layout: must match the width baked into fetchBVHNodeTexel by getShaderSource.
+            const w = this.bvh_node_texture_width, nodes = aabb_data.length / 4, h = Math.max(1, Math.ceil(nodes / w));
+            const padded = new Int32Array(w * h * 4);
+            padded.set(aabb_data);
+            gl.activeTexture(this.world_aabb_texture_unit);
+            this.world_aabb_texture.setPixels(padded, 4, "INTEGER", w, h);
+            gl.uniform1i(gl.getUniformLocation(program, "uWorldAABBs"), WebGLHelper.textureUnitIndex(this.world_aabb_texture_unit));
+        }
+        else
+            this.world_aabb_texture.setDataPixelsUnit(aabb_data.flat(), this.world_aabb_texture_unit, "uWorldAABBs", program);
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
         this.adapters.materials.writeShaderData(gl, program, webgl_helper);
         this.adapters.geometries.writeShaderData(gl, program, webgl_helper);
     }
+    // debugChildBoxes layout, built at shader-gen time (getShaderSource) and uploaded by writeShaderData. Each BVH
+    // node becomes W consecutive RGBA32I texels, one per child slot: [child AABB as 3 packed fp16 pairs, child data].
+    // Child data is > 0 for an internal child (its node index within the tree + 1), < 0 for a leaf (the same leaf
+    // encoding the original layout uses), and 0 for an empty slot. The root's own box is never stored or tested,
+    // since its children's boxes lie inside it.
+    // W = 2 keeps the binary tree as is. W = 4 (debugWideBVH) collapses it: each wide node starts from a binary
+    // node's two children and repeatedly replaces the internal child with the largest surface area by that child's
+    // own two children, until it has W slots or only leaves remain.
+    // Sets tree.childBoxStart (texel offset) on every tree, and returns { data, maxStack }.
+    buildChildBoxBVHData(W) {
+        const data = [];
+        let maxStack = 1;
+        const emptyTexel = WebGLWorldAdapter.packBVHNodeTexel({ min: [0, 0, 0], max: [0, 0, 0] }, 0);
+        for (const tree of this.bvh_tree_order) {
+            tree.childBoxStart = data.length / 4;
+            const nodes = tree.bvh_nodes;
+            const leafData = n => (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex;
+            const children = i => [i + 1, nodes[i].hitIndex >> 2];
+            const area = i => nodes[i].aabb.surfaceArea();
+
+            const wide = [];   // wide node index -> array of { slot: binary index, child: wide index or undefined }
+            let treeDepth = 0;
+            const build = (slots, depth) => {
+                treeDepth = Math.max(treeDepth, depth);
+                while (slots.length < W) {
+                    let best = -1;
+                    for (const sl of slots)
+                        if (!nodes[sl].isLeaf && (best < 0 || area(sl) > area(best)))
+                            best = sl;
+                    if (best < 0)
+                        break;
+                    slots.splice(slots.indexOf(best), 1, ...children(best));
+                }
+                const index = wide.length;
+                wide.push(null);
+                wide[index] = slots.map(sl => nodes[sl].isLeaf ? { slot: sl } : { slot: sl, child: build(children(sl), depth + 1) });
+                return index;
+            };
+            build(nodes[0].isLeaf ? [0] : children(0), 1);
+            // Each visit can leave at most W - 1 entries on the stack, so this bounds the stack for this tree.
+            maxStack = Math.max(maxStack, (W - 1) * treeDepth + 1);
+
+            for (const entries of wide) {
+                for (let c = 0; c < W; ++c) {
+                    const e = entries[c];
+                    if (!e)
+                        data.push(...emptyTexel);
+                    else
+                        data.push(...WebGLWorldAdapter.packBVHNodeTexel(nodes[e.slot].aabb,
+                            e.child === undefined ? leafData(nodes[e.slot]) : e.child + 1));
+                }
+            }
+        }
+        // An editable scene can have no BVHs at all; keep the texture non-empty.
+        if (!data.length)
+            data.push(...emptyTexel);
+        return { data, maxStack };
+    }
+    // The editable shader's ray cast as a single loop. It walks the root aggregates, the BVH nodes under each BVH root
+    // (child-box layout), and lists of primitives, but tests a primitive in only one place. The shader compiler
+    // inlines the generic geometry intersection at every call site, and each copy costs about a second of compile
+    // time; the layered version (worldRayCastList, worldRayCastBVH and its leaves) had three sites per ray cast.
+    // Used when the BVHs use the child-box layout (or there are none).
+    editableUnifiedCast() {
+        return this.WORLD_EDITABLE && WebGLRendererAdapter.editableUnifiedCast && (this.bvh_child_boxes || this.bvh_node_count == 0);
+    }
+    getEditableUnifiedRayCastSource(heatmap) {
+        const W = this.bvh_child_boxes ? this.bvh_child_box_width : 2;
+        // Leaves are pushed too, so a visit can leave up to W entries on the stack.
+        const stackSize = (this.bvh_child_boxes ? (W == 2 ? this.getBVHStackSize() : this.bvh_child_box_layout.maxStack) : 1) + W;
+        return `
+            #define UNIFIED_STACK_SIZE ${stackSize}
+            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
+                float min_found_t = minT - 1.0;
+
+                int root_index = 0;             // next root aggregate to start
+                mat4 root_invTransform = mat4(1.0);
+                Ray local_r = r;
+                vec3 invD = vec3(0.0), oInvD = vec3(0.0);
+
+                int bvhStart = -1;              // texel offset of the current BVH's nodes, or -1 outside a BVH
+                int indicesOffset = 0;          // the current BVH's list-leaf entries
+                int stack[UNIFIED_STACK_SIZE];  // > 0: internal node index + 1, < 0: leaf encoding
+                int stackPtr = 0;
+
+                int single = -1;                // a pending primitive to test
+                int listPos = 0, listEnd = 0;   // or a pending range of a primitive list
+
+                while (true) {
+                    // 1. With no primitive pending, advance the traversal until one is (or everything is done).
+                    if (single < 0 && listPos >= listEnd) {
+                        if (stackPtr > 0) {
+                            int entry = stack[--stackPtr];
+                            if (entry > 0) {
+                                // An internal node: push the children whose boxes the ray hits, nearest on top.
+                                ${heatmap ? `gHeatmapNodeCount++;` : ``}
+                                int node_index = entry - 1;
+                                int nearEntry = 0;
+                                float nearT = 0.0;
+                                for (int c = 0; c < ${W}; ++c) {
+                                    ivec4 childTexel = fetchBVHNodeTexel(bvhStart + ${W} * node_index + c);
+                                    int childData = childTexel.a;
+                                    if (childData == 0)
+                                        continue;
+                                    vec2 min_xy    = unpackHalf2x16(uint(childTexel.r));
+                                    vec2 minz_maxx = unpackHalf2x16(uint(childTexel.g));
+                                    vec2 max_yz    = unpackHalf2x16(uint(childTexel.b));
+                                    vec3 slab_t0 = vec3(min_xy, minz_maxx.x) * invD - oInvD;
+                                    vec3 slab_t1 = vec3(minz_maxx.y, max_yz) * invD - oInvD;
+                                    vec3 slab_near = min(slab_t0, slab_t1), slab_far = max(slab_t0, slab_t1);
+                                    float tnear = max(max(slab_near.x, slab_near.y), max(slab_near.z, minT));
+                                    float tfar  = min(min(slab_far.x,  slab_far.y),  min(slab_far.z,  maxT));
+                                    if (!(tnear <= tfar && (tnear <= min_found_t || min_found_t < minT))) {
+                                        ${heatmap ? `gHeatmapMissCount++;` : ``}
+                                        continue;
+                                    }
+                                    if (nearEntry == 0) {
+                                        nearEntry = childData;
+                                        nearT = tnear;
+                                    }
+                                    else if (tnear < nearT) {
+                                        if (stackPtr < UNIFIED_STACK_SIZE)
+                                            stack[stackPtr++] = nearEntry;
+                                        nearEntry = childData;
+                                        nearT = tnear;
+                                    }
+                                    else if (stackPtr < UNIFIED_STACK_SIZE)
+                                        stack[stackPtr++] = childData;
+                                }
+                                // The nearest child is handled right away: an internal one goes back on the stack
+                                // to be visited next, a leaf falls through to be decoded and tested below.
+                                if (nearEntry > 0 && stackPtr < UNIFIED_STACK_SIZE) {
+                                    stack[stackPtr++] = nearEntry;
+                                    continue;
+                                }
+                                if (nearEntry == 0)
+                                    continue;
+                                entry = nearEntry;
+                            }
+                            // A leaf: one primitive, or a list of them.
+                            int id = -entry - 1;
+                            if (id < uWorldNumPrimitives)
+                                single = id;
+                            else {
+                                int listStart = indicesOffset + (id - uWorldNumPrimitives);
+                                listPos = listStart + 1;
+                                listEnd = listPos + itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
+                            }
+                        }
+                        else {
+                            // Start the next root aggregate: a plain aggregate queues its list of primitives, a
+                            // BVH pushes its root node.
+                            if (root_index >= uWorldNumAggregates)
+                                break;
+                            ivec4 nodeData = itexelFetchByIndex(root_index, uWorldData);
+                            ++root_index;
+                            root_invTransform = getTransform(nodeData.g);
+                            local_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
+                            if (nodeData.r == WORLD_NODE_AGGREGATE_TYPE) {
+                                listPos = nodeData.b;
+                                listEnd = nodeData.b + nodeData.a;
+                            }
+                            else {
+                                bvhStart = nodeData.b;
+                                indicesOffset = nodeData.a;
+                                // Exactly-zero direction components become tiny, keeping the slab test free of 0 * inf.
+                                vec3 safeD = local_r.d.xyz;
+                                safeD.x = (safeD.x == 0.0) ? 1e-30 : safeD.x;
+                                safeD.y = (safeD.y == 0.0) ? 1e-30 : safeD.y;
+                                safeD.z = (safeD.z == 0.0) ? 1e-30 : safeD.z;
+                                invD  = 1.0 / safeD;
+                                oInvD = local_r.o.xyz * invD;
+                                stack[0] = 1;
+                                stackPtr = 1;
+                                continue;
+                            }
+                        }
+                    }
+
+                    // 2. Test the next pending primitive. This is the only primitive test in the loop.
+                    int prim = single;
+                    if (prim >= 0)
+                        single = -1;
+                    else if (listPos < listEnd) {
+                        prim = itexelFetchByIndex(uWorldListsStart + listPos / 4, uWorldData)[listPos % 4];
+                        ++listPos;
+                    }
+                    else
+                        continue;
+                    ${heatmap ? `if (bvhStart >= 0) gHeatmapPrimCount++;` : ``}
+                    if (worldRayCastObject(prim, local_r, minT, maxT, shadowFlag, min_found_t, primID)) {
+                        ancestorInvTransform = root_invTransform;
+                        if (shadowFlag)
+                            break;
+                    }
+                }
+
+                return min_found_t;
+            }`;
+    }
+    getChildBoxBVHSource(heatmap) {
+        const W = this.bvh_child_box_width;
+        const tnearStack = !!WebGLRendererAdapter.debugStackTNear && W == 2;
+        const topCache = !!WebGLRendererAdapter.debugStackTopCache && !tnearStack && W == 2;
+        return `
+            #define BVH_STACK_SIZE ${W == 2 ? this.getBVHStackSize() : this.bvh_child_box_layout.maxStack}
+            // debugChildBoxes traversal. Each visit fetches both child boxes of one internal node and tests them
+            // with a branchless slab test; hit leaf children are intersected immediately (so a hit there can prune
+            // the sibling's box test), hit internal children are visited nearest-first. A node is therefore only
+            // ever fetched when its box is already known to be hit, unlike the original layout, where every
+            // fetched node first has to test its own box.
+            bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
+                bool found_min = false;
+                // Replace exactly-zero direction components with a tiny value, so 1/d is huge but finite: this keeps
+                // the slab test free of 0 * inf = NaN when the origin lies exactly on a slab plane.
+                vec3 safeD = r.d.xyz;
+                safeD.x = (safeD.x == 0.0) ? 1e-30 : safeD.x;
+                safeD.y = (safeD.y == 0.0) ? 1e-30 : safeD.y;
+                safeD.z = (safeD.z == 0.0) ? 1e-30 : safeD.z;
+                vec3 invD  = 1.0 / safeD;
+                vec3 oInvD = r.o.xyz * invD;
+
+                int stack[BVH_STACK_SIZE];
+                ${tnearStack ? `float stackT[BVH_STACK_SIZE];` : ``}
+                int stackPtr = 0;
+                ${topCache ? `
+                // debugStackTopCache: the most recently pushed node lives in a register (stackTop); only older
+                // entries go through the dynamically indexed array. Most pops take the entry just pushed.
+                int stackTop = -1;` : ``}
+                int node_index = 0;
+
+                while (true) {
+                    ${heatmap ? `gHeatmapNodeCount++;` : ``}
+                    int nearChild = -1, farChild = -1;
+                    float nearT = 0.0, farT = 0.0;
+                    for (int c = 0; c < ${W}; ++c) {
+                        ivec4 childTexel = fetchBVHNodeTexel(root_index + ${W} * node_index + c);
+                        int childData = childTexel.a;
+                        if (childData == 0)
+                            continue;
+
+                        vec2 min_xy    = unpackHalf2x16(uint(childTexel.r));
+                        vec2 minz_maxx = unpackHalf2x16(uint(childTexel.g));
+                        vec2 max_yz    = unpackHalf2x16(uint(childTexel.b));
+                        vec3 slab_t0 = vec3(min_xy, minz_maxx.x) * invD - oInvD;
+                        vec3 slab_t1 = vec3(minz_maxx.y, max_yz) * invD - oInvD;
+                        vec3 slab_near = min(slab_t0, slab_t1), slab_far = max(slab_t0, slab_t1);
+                        float tnear = max(max(slab_near.x, slab_near.y), max(slab_near.z, minT));
+                        float tfar  = min(min(slab_far.x,  slab_far.y),  min(slab_far.z,  maxT));
+                        if (!(tnear <= tfar && (tnear <= min_found_t || min_found_t < minT))) {
+                            ${heatmap ? `gHeatmapMissCount++;` : ``}
+                            continue;
+                        }
+
+                        if (childData < 0) {
+                            int id = -childData - 1;
+    #if (!WORLD_EDITABLE && WORLD_BVH_LEAVES_SINGULAR)
+                            if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                found_min = true;
+    #else
+                            if (id < uWorldNumPrimitives) {
+                                if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                    found_min = true;
+                            }
+                            else {
+                                int listStart = indices_offset + (id - uWorldNumPrimitives);
+                                int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
+                                if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
+                                    found_min = true;
+                            }
+    #endif
+                            if (shadowFlag && found_min)
+                                break;
+                        }
+                        else if (nearChild < 0) {
+                            nearChild = childData - 1;
+                            nearT = tnear;
+                        }${W == 2 ? `
+                        else if (tnear < nearT) {
+                            farChild = nearChild;
+                            farT = nearT;
+                            nearChild = childData - 1;
+                            nearT = tnear;
+                        }
+                        else {
+                            farChild = childData - 1;
+                            farT = tnear;
+                        }` : `
+                        // Wide node: the nearest hit internal child is visited next; every other hit internal
+                        // child goes straight onto the stack (unsorted among themselves).
+                        else if (tnear < nearT) {
+                            if (stackPtr < BVH_STACK_SIZE)
+                                stack[stackPtr++] = nearChild;
+                            nearChild = childData - 1;
+                            nearT = tnear;
+                        }
+                        else if (stackPtr < BVH_STACK_SIZE)
+                            stack[stackPtr++] = childData - 1;`}
+                    }
+                    if (shadowFlag && found_min)
+                        break;
+
+                    ${topCache ? `
+                    if (farChild >= 0) {
+                        if (stackTop >= 0 && stackPtr < BVH_STACK_SIZE)
+                            stack[stackPtr++] = stackTop;
+                        stackTop = farChild;
+                    }` : `
+                    if (farChild >= 0 && stackPtr < BVH_STACK_SIZE) {
+                        ${tnearStack ? `stackT[stackPtr] = farT;` : ``}
+                        stack[stackPtr++] = farChild;
+                    }`}
+                    if (nearChild >= 0)
+                        node_index = nearChild;
+                    else {
+                        ${tnearStack ? `
+                        // debugStackTNear: drop stacked nodes whose box entry is now beyond the closest hit found
+                        // since they were pushed, without fetching them.
+                        while (stackPtr > 0 && min_found_t >= minT && stackT[stackPtr - 1] > min_found_t)
+                            --stackPtr;` : ``}
+                        ${topCache ? `
+                        if (stackTop >= 0) {
+                            node_index = stackTop;
+                            stackTop = -1;
+                        }
+                        else if (stackPtr > 0)
+                            node_index = stack[--stackPtr];
+                        else
+                            break;` : `
+                        if (stackPtr <= 0)
+                            break;
+                        node_index = stack[--stackPtr];`}
+                    }
+                }
+                return found_min;
+            }`;
+    }
     getShaderSourceDeclarations() {
         return `
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
             float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
             vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal);
-            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal);` + "\n"
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal, in bool countEmission);` + "\n"
             + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
-            + this.adapters.geometries.getShaderSourceDeclarations() + "\n"
+            + this.adapters.geometries.getShaderSourceDeclarations(this.WORLD_EDITABLE) + "\n"
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
     getShaderSource() {
-        this.shader_transform_max_size = Math.max(16, this.transform_store.size());
+        this.shader_transform_max_size = this.WORLD_EDITABLE
+            ? WebGLWorldAdapter.editableCapacity(this.transform_store.size(), 64)
+            : Math.max(16, this.transform_store.size());
 
         // Traversal-cost heatmap instrumentation (see WebGLRendererAdapter.debugTraversalHeatmap). When active, the
         // shared BVH traversal below increments per-fragment counters that worldRayColorShallow then maps to a false
@@ -503,6 +974,20 @@ class WebGLWorldAdapter {
         const heatmap = WebGLRendererAdapter.debugTraversalHeatmap;
         const heatNodeScale = Number(WebGLRendererAdapter.debugHeatmapNodeScale) || 1;
         const heatPrimScale = Number(WebGLRendererAdapter.debugHeatmapPrimScale) || 1;
+
+        // debugFastNodeIndex: choose the BVH node texture's width here, at shader-gen time, so it can be baked into the
+        // shader as a mask/shift. writeShaderData (which always runs after this) lays the texture out to match. The node
+        // count is fixed once the scene is visited, so the width stays valid until the next shader rebuild.
+        // debugChildBoxes: store each internal node's two CHILD boxes in the node (2 texels per internal node), so a
+        // child is only fetched once its box is known to be hit. Used by the editable shader too: a BVH's boxes are in
+        // its own local space, so editing transforms never changes them. Decided here at shader-gen time;
+        // writeShaderData uploads the matching layout.
+        this.bvh_child_boxes = !!WebGLRendererAdapter.debugChildBoxes && (this.WORLD_EDITABLE || this.bvh_node_count > 0);
+        this.bvh_child_box_width = (this.bvh_child_boxes && WebGLRendererAdapter.debugWideBVH) ? 4 : 2;
+        this.bvh_child_box_layout = this.bvh_child_boxes ? this.buildChildBoxBVHData(this.bvh_child_box_width) : null;
+        this.bvh_node_texture_width = (WebGLRendererAdapter.debugFastNodeIndex && !this.bvh_child_boxes && this.bvh_node_count > 0)
+            ? Math.pow(2, Math.ceil(Math.log2(Math.max(1, Math.ceil(Math.sqrt(this.bvh_node_count))))))
+            : 0;
         
         // Below is most of the significant source for world ray cast and color functions, where the geometry and
         // material functionality is directly invoked. The source below has a variety of preprocessor branches that
@@ -514,9 +999,9 @@ class WebGLWorldAdapter {
         
             // ========== WORLD ==========
             #define WORLD_EDITABLE ${Number(!!this.WORLD_EDITABLE)}
-            #define WORLD_HAS_BVH_NODES ${Number(this.bvh_node_count > 0)}
-            #define WORLD_BVH_LEAVES_SINGULAR ${Number(!!this.bvh_all_leaves_singular)}
-            #define WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES ${Number(!!this.bvh_only_uses_untransformed_triangles)}
+            #define WORLD_HAS_BVH_NODES ${Number(this.WORLD_EDITABLE || this.bvh_node_count > 0)}
+            #define WORLD_BVH_LEAVES_SINGULAR ${Number(!this.WORLD_EDITABLE && !!this.bvh_all_leaves_singular)}
+            #define WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES ${Number(!this.WORLD_EDITABLE && !!this.bvh_only_uses_untransformed_triangles)}
         
         
             uniform vec3 uBackgroundColor;
@@ -543,10 +1028,11 @@ class WebGLWorldAdapter {
                 int material_id;
                 int transform_id;
                 bool castsShadow;
+                bool isLightEmitter;    // a light's stand-in (see makeLightEmitterProxy)
             };
             Primitive getPrimitive(in int prim_id) {
                 ivec4 p = itexelFetchByIndex(prim_id + uWorldNumAggregates, uWorldData);
-                return Primitive(p.r, p.g, p.b, bool(p.a));
+                return Primitive(p.r, p.g, p.b, (p.a & 1) != 0, (p.a & 2) != 0);
             }
             bool worldRayCastCompareTime(in float t, in float minT, in float maxT, inout float min_found_t) {
                 if (t >= minT && t < maxT && (min_found_t < minT || t < min_found_t)) {
@@ -562,6 +1048,7 @@ class WebGLWorldAdapter {
             // primary-ray cast, since worldRayColorShallow returns before spawning any shadow/secondary rays.
             int gHeatmapNodeCount = 0;   // BVH nodes fetched/visited (internal + leaf)
             int gHeatmapPrimCount = 0;   // primitive intersection tests performed
+            int gHeatmapMissCount = 0;   // BVH nodes fetched whose box test then failed (wasted fetches)
             vec3 heatmapRamp(in float t) {
                 t = clamp(t, 0.0, 1.0);
                 const vec3 c0 = vec3(0.0, 0.0, 1.0); // blue   (low)
@@ -581,8 +1068,11 @@ class WebGLWorldAdapter {
             // ---- Generic Intersection with a particular object ----
             float worldObjectIntersect(in int prim_id, in Ray r, in float minDistance, in bool shadowFlag) {
                 int geometry_id = 0;
+                // Untransformed triangles (the bulk of any mesh) are tested directly, skipping the generic geometry
+                // dispatch. Their primitive index is their triangle index.
+                // (Without any, the triangle code may not be compiled in, and this branch is never taken.)
                 if (prim_id < uWorldNumUntransformedTriangles)
-                    geometry_id = prim_id + GEOMETRY_TRIANGLE_MIN_INDEX;
+                    return ${(this.WORLD_EDITABLE || this.untransformed_triangles.length) ? `triangleIntersect(r, minDistance, prim_id)` : `minDistance - 1.0`};
                 else {
                     Primitive obj = getPrimitive(prim_id);
                     if (shadowFlag && !obj.castsShadow)
@@ -687,9 +1177,24 @@ class WebGLWorldAdapter {
             // prune the farther child before it's ever visited.
             // Sized exactly to the deepest BVH actually present in this scene (see WebGLWorldAdapter.getBVHStackSize),
             // rather than a conservative guess, since the tree shape can't change without a full shader rebuild anyway.
+            ${this.bvh_node_texture_width ? `
+            // debugFastNodeIndex: the node texture is laid out ${this.bvh_node_texture_width} texels wide (a power of
+            // two, fixed at shader-gen time; see WebGLWorldAdapter.writeShaderData), so index -> texel is mask + shift.
+            ivec4 fetchBVHNodeTexel(in int index) {
+                return texelFetch(uWorldAABBs, ivec2(index & ${this.bvh_node_texture_width - 1}, index >> ${Math.log2(this.bvh_node_texture_width)}), 0);
+            }` : `
+            ivec4 fetchBVHNodeTexel(in int index) {
+                return itexelFetchByIndex(index, uWorldAABBs);
+            }`}
+
+            ${this.bvh_child_boxes ? this.getChildBoxBVHSource(heatmap) : `
             #define BVH_STACK_SIZE ${this.getBVHStackSize()}
             bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
                 bool found_min = false;
+
+                ${WebGLRendererAdapter.debugFastAABB ? `
+                vec3 invD  = 1.0 / r.d.xyz;
+                vec3 oInvD = r.o.xyz * invD;` : ``}
 
                 int stack[BVH_STACK_SIZE];
                 int stackPtr = 0;
@@ -706,7 +1211,7 @@ class WebGLWorldAdapter {
                     // Node i lives at texel i. All node indices are specified relative to the index of the
                     // root node, so an offset of the root index must be included.
                     ${heatmap ? `gHeatmapNodeCount++;` : ``}
-                    ivec4 nodeTexel = itexelFetchByIndex(root_index + node_index, uWorldAABBs);
+                    ivec4 nodeTexel = fetchBVHNodeTexel(root_index + node_index);
 
                     // int->uint on ANGLE/GLSL ES 3.0 is a bit-preserving cast, so unpackHalf2x16 sees the
                     // exact half bits packed on the JS side.
@@ -722,10 +1227,23 @@ class WebGLWorldAdapter {
                     // range of intersections would be useful given the range desired. This is called a 'hit'.
                     // (Center/half-size reconstruction feeds the shared AABBIntersects; fp16 values are exact
                     // in fp32, so this round-trip introduces no error beyond the old float path's own rounding.)
+                    ${WebGLRendererAdapter.debugFastAABB ? `
+                    // Branchless slab test (debugFastAABB). invD/oInvD are hoisted out of the loop, so each node costs
+                    // two multiply-subtracts per axis plus min/max reductions. Clamping the entry/exit to [minT, maxT]
+                    // folds the original range checks into the single tnear <= tfar comparison. Axis-parallel rays rely
+                    // on IEEE inf from 1/0; an origin exactly on a slab plane of such a ray gives 0*inf = NaN, an edge
+                    // case the original's EPSILON branch handled and this version doesn't.
+                    vec3 slab_t0 = aabb_min * invD - oInvD;
+                    vec3 slab_t1 = aabb_max * invD - oInvD;
+                    vec3 slab_near = min(slab_t0, slab_t1), slab_far = max(slab_t0, slab_t1);
+                    float tnear = max(max(slab_near.x, slab_near.y), max(slab_near.z, minT));
+                    float tfar  = min(min(slab_far.x,  slab_far.y),  min(slab_far.z,  maxT));
+                    bool hit_node = tnear <= tfar && (tnear <= min_found_t || min_found_t < minT);` : `
                     vec2 aabb_ts = AABBIntersects(r, vec4(0.5*(aabb_min + aabb_max), 1.0), vec4(0.5*(aabb_max - aabb_min), 0.0), minT, maxT);
-                    bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
+                    bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);`}
 
                     bool descending = false;
+                    ${heatmap ? `if (!hit_node) gHeatmapMissCount++;` : ``}
 
                     if (hit_node) {
 
@@ -800,14 +1318,22 @@ class WebGLWorldAdapter {
                 }
 
                 return found_min;
-            }
+            }`}
 #endif
 
             // ---- Generic World Color ----
-            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal) {
+            // countEmission: whether a light hit directly by this ray contributes its emission. True for camera rays and
+            // exact (mirror/refraction) bounces, false for randomly sampled bounces, whose light was already counted by
+            // direct light sampling at the surface they left (see src/lights.js).
+            vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal, in bool countEmission) {
                 int primID = -1;
                 mat4 ancestorInvTransform = mat4(1.0);
-                ${heatmap ? `gHeatmapNodeCount = 0; gHeatmapPrimCount = 0;` : ``}
+                ${heatmap ? `gHeatmapNodeCount = 0; gHeatmapPrimCount = 0; gHeatmapMissCount = 0;` : ``}
+                ${WebGLRendererAdapter.debugSkipTraversal
+                    // Diagnostic floor: return before any world traversal. intersect_position stays zero, so the
+                    // bounce loop exits after this, and nothing below is reached. What remains is the per-pixel work
+                    // that doesn't depend on the scene: camera ray + jitter, accumulation texture reads/writes.
+                    ? `return uBackgroundColor;` : ``}
 
                 float intersect_time = worldRayCast(in_ray, EPSILON, 1E20, false, primID, ancestorInvTransform);
                 ${heatmap ? `
@@ -816,6 +1342,10 @@ class WebGLWorldAdapter {
                 // and hit are both colorized, since background rays still pay to traverse. worldObjectColor goes
                 // unreferenced, so the whole material/light subtree is dead-code-eliminated as with debugTraversalOnly.
                 {
+                    // Raw counts for CPU readback (see WebGLRendererAdapter.reportHeatmapStats): the normal output is
+                    // otherwise unused in heatmap mode, so it carries (nodes, prims, hit) unscaled and unclamped.
+                    // In 'misses' mode the second channel carries failed-box-test node fetches instead of prim tests.
+                    normal = vec3(float(gHeatmapNodeCount), float(${heatmap === 'misses' ? 'gHeatmapMissCount' : 'gHeatmapPrimCount'}), (primID != -1) ? 1.0 : 0.0);
                     float nodeC = float(gHeatmapNodeCount) / float(${heatNodeScale});
                     float primC = float(gHeatmapPrimCount) / float(${heatPrimScale});
                     ${heatmap === 'nodes' ? `return heatmapRamp(nodeC);`
@@ -826,6 +1356,16 @@ class WebGLWorldAdapter {
                     return uBackgroundColor;
                 
                 intersect_position = in_ray.o + intersect_time * in_ray.d;
+                ${this.WORLD_EDITABLE ? `
+                // A light's stand-in primitive was hit by a sampled bounce: its light is already counted, and lights
+                // don't reflect, so this path ends here with nothing added. (Read from the primitive's data, so the
+                // editable shader doesn't change when lights are added or removed.)
+                if (!countEmission && getPrimitive(primID).isLightEmitter)
+                    return vec3(0.0);` : this.light_emitter_prim_ids.length ? `
+                // A light's stand-in primitive was hit by a sampled bounce: its light is already counted, and lights
+                // don't reflect, so this path ends here with nothing added.
+                if (!countEmission && (${this.light_emitter_prim_ids.map(i => `primID == ${i}`).join(" || ")}))
+                    return vec3(0.0);` : ``}
                 ${WebGLRendererAdapter.debugTraversalOnly
                     // Diagnostic: return a flat color instead of shading. Because worldObjectColor is then never
                     // referenced anywhere, the compiler dead-code-eliminates the entire material/light/scatter
@@ -867,7 +1407,7 @@ class WebGLWorldAdapter {
                 normal = geomatdata.normal.xyz;
                 return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
             }
-            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
+            ${this.editableUnifiedCast() ? this.getEditableUnifiedRayCastSource(heatmap) : `            float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
                 float min_found_t = minT - 1.0;
 
                 for (int root_index = 0; root_index < uWorldNumAggregates; ++root_index) {
@@ -891,7 +1431,7 @@ class WebGLWorldAdapter {
                 }
 
                 return min_found_t;
-            }`;
+            }`}`;
         }
         
         // If this branch is taken, the scene is not editable. This is potentially good news: by only including
@@ -917,7 +1457,7 @@ class WebGLWorldAdapter {
                 const bvhs = [];
                 for (let b of this.bvh_tree_order)
                     for (let i of b.instances)
-                        bvhs.push(i.transformIndex, i.bvhStartIndex, i.indicesStartIndex);
+                        bvhs.push(i.transformIndex, this.bvh_child_boxes ? b.childBoxStart : i.bvhStartIndex, i.indicesStartIndex);
                 ret += `
                 
                 // ---------- BVHs ----------
@@ -1064,6 +1604,17 @@ class WrappedLight extends AbstractWrappedWorldObject {
     getMaterialValues() {
         return { color: this.color_mc };
     }
+    // A light's transforms, as seen by the editor, are its world transforms (it may be nested in aggregates).
+    getTransform()         { return this.instance.getTransform(); }
+    getInvTransform()      { return this.instance.getInvTransform(); }
+    getWorldTransform()    { return this.instance.getTransform(); }
+    getWorldInvTransform() { return this.instance.getInvTransform(); }
+    getBoundingBox() {
+        const box = this.object.getBoundingBox();
+        return this.instance.ancestors.length
+            ? box.getBoundingBox(this.instance.getAncestorTransform(), this.instance.getAncestorInvTransform())
+            : box;
+    }
 }
 
 class WrappedAggregate extends AbstractWrappedWorldObject {
@@ -1093,7 +1644,9 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
         if (this.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE)
             return [this.type_code, this.transformIndex, this.indicesStartIndex, this.indicesList.length];
         else if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
-            return [this.type_code, this.transformIndex, this.bvhStartIndex, this.indicesStartIndex];
+            // With debugChildBoxes the BVH's nodes live at a different offset (see buildChildBoxBVHData).
+            return [this.type_code, this.transformIndex,
+                this.worldadapter.bvh_child_boxes ? this.bvh_tree.childBoxStart : this.bvhStartIndex, this.indicesStartIndex];
         else
             throw "Unsupported aggregate type detected";
     }
@@ -1221,7 +1774,9 @@ class WrappedBVHTree {
         else {
             const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper, true));
             node_data.isSingularLeaf = primitives.length == 1;
-            this.primitives = this.primitives.concat(primitives);
+            // (push, not concat: concat copies the whole list at every leaf, which took ~25 s for the dragon.)
+            for (const p of primitives)
+                this.primitives.push(p);
             for (let p of primitives) {
                 p.notTransformable = true;
                 if (p.index >= this.worldadapter.untransformed_triangles.length)
@@ -1275,7 +1830,7 @@ class WrappedPrimitive extends AbstractWrappedWorldObject {
         this.parents = [];
     }
     getDataVector() {
-        return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
+        return [this.geometryIndex, this.materialIndex, this.transformIndex, WebGLWorldAdapter.primitiveFlags(this.object)];
     }
     toInstance(ancestors) {
         return new WrappedPrimitiveInstance(this, ancestors, this.worldadapter)
@@ -1290,7 +1845,7 @@ class WrappedPrimitiveInstance extends AbstractWrappedWorldObject {
         this.ID = (ancestors.length ? ancestors[ancestors.length-1].ID + ":" : "") + wrapped_primitive.ID;
     }
     getDataVector() {
-        return [this.geometryIndex, this.materialIndex, this.transformIndex, Number(this.object.does_cast_shadow)];
+        return [this.geometryIndex, this.materialIndex, this.transformIndex, WebGLWorldAdapter.primitiveFlags(this.object)];
     }
     getMaterialValues() {
         return this.worldadapter.adapters.materials.getMaterial(this.materialIndex);

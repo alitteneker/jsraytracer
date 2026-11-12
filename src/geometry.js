@@ -326,11 +326,11 @@ class Circle extends SimplePlane {
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints(Circle.getTransformedEdgePoints(transform, inv_transform));
     }
+    // Uniform over the unit disk (radius from the square root of a uniform variable, so area density is constant).
+    // This used to sample the square [-0.5, 0.5]^2, which isn't even the circle's footprint.
     sampleSurface() {
-        return Vec.of(
-            Math.random() - 0.5,
-            Math.random() - 0.5,
-            0, 1);
+        const r = Math.sqrt(Math.random()), theta = 2 * Math.PI * Math.random();
+        return Vec.of(r * Math.cos(theta), r * Math.sin(theta), 0, 1);
     }
 }
 

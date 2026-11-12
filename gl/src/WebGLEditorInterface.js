@@ -151,6 +151,11 @@ class WebGLEditorInterface {
         $("#edit-object-button").on("click", function() { $("#selected-object-controls").dialog("open"); }.bind(this));
         
         $("#deselect-object-button").on("click", function() { this.selectObject(null); }.bind(this));
+        $("#delete-object-button").on("click", function() { this.deleteSelectedObject(); }.bind(this));
+        $("#delete-object-button").button({ icon: "ui-icon-trash", showLabel: false });
+        $("#add-object-type").selectmenu({ width: 'auto' });
+        $("#add-object-button").on("click", function() { this.addObject($("#add-object-type").val()); }.bind(this));
+        $("#world-edit-bar").controlgroup("disable");
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         
@@ -273,6 +278,7 @@ class WebGLEditorInterface {
                 this.initializeRendererControls(adapter);
                 this.initializeCameraControls(adapter);
                 this.initializeWorldControls(adapter);
+                $("#world-edit-bar").controlgroup("enable");
                 
                 this.startDrawLoop();
 
@@ -459,7 +465,7 @@ class WebGLEditorInterface {
             if (WebGLGeometriesAdapter.isTypeTriangle(gid)) geometry_select.val("triangle");
             geometry_select.prop('disabled', true);
         }
-        $('#geometry-type-select').on('change', (function() {
+        $('#geometry-type-select').off('change').on('change', (function() {
             o.changeGeometryType(Number.parseInt(geometry_select.val()));
             const selecttreenode = $.ui.fancytree.getTree("#world-objects").getNodeByKey("o" + o.ID);
             if (selecttreenode)
@@ -489,12 +495,112 @@ class WebGLEditorInterface {
             }).bind(this));
     }
     
+    // ---- Adding and removing objects ----
+    // Structural edits change the CPU world (src/), then ask the renderer to rebuild its data from it
+    // (WebGLRendererAdapter.worldModified). With the editable shader (?worldEditable=true) that takes milliseconds;
+    // with the regular shader it means a recompile.
+    static defaultMaterial() {
+        return new PhongMaterial(Vec.of(0.8, 0.8, 0.8), 0.1, 0.6, 0.3, 50, 0.1);
+    }
+    addObject(kind) {
+        const ra = this.renderer_adapter;
+        if (!ra || ra.rebuildingShaders)
+            return;
+        const world = ra.renderer.world;
+
+        // Place the new object in front of the camera, at roughly the distance of the scene, sized to match.
+        const box = world.getFiniteBoundingBox();
+        const distance = Math.min(50, Math.max(1, box.isFinite() ? ra.getCameraPosition().minus(box.center).norm() : 5));
+        const size = 0.15 * distance;
+        const position = ra.getCameraTransform().times(Vec.of(0, 0, -distance, 1));
+        const T = Mat4.translation(position.to3());
+        const facingCamera = ra.getCameraTransform().times(Mat4.translation(Vec.of(0, 0, -distance)));
+        const brightness = 4 * Math.PI * distance * distance;   // about unit irradiance at the scene
+
+        let obj = null;
+        switch (kind) {
+            case "sphere":      obj = new Primitive(new Sphere(),   WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));     break;
+            case "box":         obj = new Primitive(new UnitBox(),  WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));     break;
+            case "cylinder":    obj = new Primitive(new Cylinder(), WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));     break;
+            case "square":      obj = new Primitive(new Square(),   WebGLEditorInterface.defaultMaterial(), facingCamera.times(Mat4.scale(2 * size))); break;
+            case "circle":      obj = new Primitive(new Circle(),   WebGLEditorInterface.defaultMaterial(), facingCamera.times(Mat4.scale(size)));     break;
+            case "plane":       obj = new Primitive(new Plane(),    WebGLEditorInterface.defaultMaterial(),
+                                    Mat4.translation([0, box.isFinite() ? box.min[1] : 0, 0]).times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)))); break;
+            case "point-light": obj = new SimplePointLight(position, Vec.of(1, 1, 1), brightness);                                      break;
+            case "area-light":  obj = new RandomSampleAreaLight(new Square(), facingCamera.times(Mat4.scale(2 * size)), Vec.of(1, 1, 1), brightness); break;
+            default: return;
+        }
+        world.objects.push(obj);
+        this.rebuildWorld(obj);
+    }
+    // Removes the selected object from the aggregate it sits in. A primitive that can't be moved on its own (one
+    // inside a BVH) takes its whole BVH with it, the same object the transform tools act on.
+    deleteSelectedObject() {
+        const ra = this.renderer_adapter;
+        if (!ra || ra.rebuildingShaders || !this.selectedObject)
+            return;
+        const world = ra.renderer.world;
+        let target = this.selectedObject.worldtype == "light" ? this.selectedObject : (this.transformObject || this.selectedObject);
+
+        // The CPU objects to remove, and the chain of CPU containers above it (outermost first).
+        let obj, containers;
+        if (target.worldtype == "light") {
+            obj = target.light;
+            containers = target.instance.ancestors.slice();
+        }
+        else {
+            obj = target.object.lightEmitterFor || target.object;
+            // The adapter's root aggregate stands for world.objects; it appears in some ancestor lists (objects
+            // picked from the tree) and not others (objects picked in the view).
+            const root = ra.adapters.world.aggregates[0];
+            containers = target.ancestors.filter(a => a !== root).map(a => a.object);
+        }
+        // Can't take a single object out of a built BVH, or out of a TransformedWorldObject: go up a level instead.
+        while (containers.length && (containers[containers.length - 1] instanceof BVHAggregate
+                                  || containers[containers.length - 1] instanceof TransformedWorldObject))
+            obj = containers.pop();
+
+        const list = containers.length ? containers[containers.length - 1].objects : world.objects;
+        const i = list.indexOf(obj);
+        if (i < 0) {
+            myconsole.error("Could not find the selected object in its parent.");
+            return;
+        }
+        list.splice(i, 1);
+        for (const c of containers)
+            c.contentsChanged();
+        this.selectObject(null);
+        this.rebuildWorld(null);
+    }
+    rebuildWorld(selectAfter) {
+        const ra = this.renderer_adapter;
+        this.selectObject(null);
+        ra.worldModified(() => {
+            this.initializeWorldControls(ra);
+            if (!selectAfter)
+                return;
+            try {
+                const wa = ra.adapters.world;
+                if (selectAfter instanceof Light)
+                    this.selectObject(ra.getLights().find(l => l.light === selectAfter) || null);
+                else if (selectAfter.OBJECT_UID in wa.primitive_id_index_map)
+                    this.selectObject(wa.primitives[wa.primitive_id_index_map[selectAfter.OBJECT_UID]].toInstance([]));
+            } catch (e) {
+                this.selectObject(null);
+            }
+        });
+    }
+
     initializeWorldControls(adapter) {
         const fancytree = $.ui.fancytree.getTree("#world-objects");
         
         const objects_root = fancytree.getNodeByKey("_objects");
         objects_root.removeChildren();
-        objects_root.addChildren(adapter.getSceneTree().children.map(o => object_transformer(o, [])));
+        // Lights' stand-in primitives (see WebGLWorldAdapter.makeLightEmitterProxy) are listed under Lights instead.
+        const not_light = o => !(o.object && o.object.lightEmitterFor);
+        objects_root.addChildren(adapter.getSceneTree().children
+            .filter(not_light)
+            .map(o => object_transformer(o, [])));
         
         function object_transformer(o, ancestors) {
             let title = "";
@@ -509,7 +615,7 @@ class WebGLEditorInterface {
                 _worldobj: o,
                 _worldtype: "object",
                 _worldancestors: (o.type == "primitive") ? ancestors : o.ancestors,
-                children: [...(o.children || []).map(c => object_transformer(c, ancestors.concat(o)))],
+                children: [...(o.children || []).filter(not_light).map(c => object_transformer(c, ancestors.concat(o)))],
                 title: `${title} : ${o.object.OBJECT_UID}`
             };
         }
@@ -644,6 +750,10 @@ class WebGLEditorInterface {
                     this.keyMoveDelta[i] += this.keyDirMap[key][i];
     }
     keyDown(e) {
+        if (e.key == "Delete") {
+            this.deleteSelectedObject();
+            return;
+        }
         if (e.key in this.keyTransformModeMap) {
             $('#transform-mode').val(this.keyTransformModeMap[e.key]);
             $('#transform-mode').selectmenu("refresh");

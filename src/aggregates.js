@@ -34,9 +34,14 @@ class BVHAggregate extends Aggregate {
     static build(objects, transform=Mat4.identity(), maxDepth=Infinity, minNodeSize=1, inv_transform=Mat4.inverse(transform)) {
         objects = Array.from(objects);
         
-        for (let i = 0; i < objects.length; ++i)
+        for (let i = 0; i < objects.length; ++i) {
             if (!objects[i].getBoundingBox().isFinite())
                 throw "Infinite objects not allowed in";
+            // Lights are found (and sampled) by walking aggregates' object lists, and the GL BVH layout only holds
+            // primitives, so keep lights out of BVHs: put them in a plain Aggregate alongside instead.
+            if (objects[i] instanceof Light)
+                throw "Lights cannot be placed inside a BVHAggregate";
+        }
         
         return new BVHAggregate(objects, BVHAggregateNode.build(objects, 0, maxDepth, minNodeSize), transform, inv_transform);
     }
@@ -62,6 +67,11 @@ class BVHAggregate extends Aggregate {
 
 class BVHAggregateNode {
     static _NODE_UID_GEN=0;
+    // SAH build tuning (static so experiments can change them before a scene loads). BINS_PER_AXIS is the number of
+    // SAH candidate buckets per axis. With CENTROID_BINNING, buckets span the bounds of the objects' centers rather
+    // than of the objects themselves, so buckets aren't wasted on space only object extents reach.
+    static BINS_PER_AXIS = 8;
+    static CENTROID_BINNING = false;
     static build(objects, depth, maxDepth, minNodeSize) {
         if (depth >= maxDepth || objects.length <= minNodeSize) {
             const aabb = objects.length > 0
@@ -85,18 +95,32 @@ class BVHAggregateNode {
             }
         }
     }
-    static split_objects(objects, binsPerAxis=8) {
+    static split_objects(objects, binsPerAxis=BVHAggregateNode.BINS_PER_AXIS) {
         if (objects.length < 2)
             return null;
 
         const bounds = AABB.hull(objects.map(o => o.getBoundingBox()));
+        // Range the SAH buckets cover: the objects' full bounds, or (CENTROID_BINNING) just their centers' bounds.
+        let binMin = bounds.min, binSize = [0, 1, 2].map(a => 2 * bounds.half_size[a]);
+        if (BVHAggregateNode.CENTROID_BINNING) {
+            const cmin = [Infinity, Infinity, Infinity], cmax = [-Infinity, -Infinity, -Infinity];
+            for (const o of objects) {
+                const c = o.getBoundingBox().center;
+                for (let a = 0; a < 3; ++a) {
+                    cmin[a] = Math.min(cmin[a], c[a]);
+                    cmax[a] = Math.max(cmax[a], c[a]);
+                }
+            }
+            binMin = cmin;
+            binSize = [0, 1, 2].map(a => cmax[a] - cmin[a]);
+        }
 
         let best_axis = -1,
             best_sep_value = Infinity,
             best_cost = Infinity;
         
         for (let axis = 0; axis < 3; ++axis) {
-            if (bounds.half_size[axis] < 0.000001)
+            if (binSize[axis] < 0.000002)
                 continue;
             
             let bins = [];
@@ -107,7 +131,7 @@ class BVHAggregateNode {
                 });
             
             for (let object of objects) {
-                let bin_index = Math.floor(binsPerAxis * ((object.getBoundingBox().center[axis] - bounds.min[axis]) / (2 * bounds.half_size[axis])));
+                let bin_index = Math.floor(binsPerAxis * ((object.getBoundingBox().center[axis] - binMin[axis]) / binSize[axis]));
                 if (bin_index == binsPerAxis) bin_index = binsPerAxis-1;
                 const bin = bins[bin_index];
                 bin.count++;
@@ -134,7 +158,7 @@ class BVHAggregateNode {
                 
                 if (cost < best_cost && count0 > 0 && count1 > 0) {
                     best_axis = axis;
-                    best_sep_value = bounds.min[axis] + ((i+1) / binsPerAxis) * (2 * bounds.half_size[axis]);
+                    best_sep_value = binMin[axis] + ((i+1) / binsPerAxis) * binSize[axis];
                     best_cost = cost;
                 }
             }

@@ -70,6 +70,20 @@
                 <option value="scale"    >Scale    </option>
             </select>
             <button id="edit-object-button">Edit</button>
+            <button id="delete-object-button">Delete</button>
+        </div>
+        <div class="control-group" id="world-edit-bar">
+            <select id="add-object-type">
+                <option value="sphere">Sphere</option>
+                <option value="box">Box</option>
+                <option value="cylinder">Cylinder</option>
+                <option value="square">Square</option>
+                <option value="circle">Circle</option>
+                <option value="plane">Plane</option>
+                <option value="point-light">Point Light</option>
+                <option value="area-light">Area Light</option>
+            </select>
+            <button id="add-object-button">Add</button>
         </div></div>
         <hr>
         <div id="control-panel">
@@ -238,6 +252,7 @@
         <div id="help-dialog">
             <p>This is an interactive ray/path tracer that runs in your browser. To try it out, select a scene from the top dropdown, wait for the shader to finish compiling, then enjoy!</p>
             <p>The camera can be moved with WASD/LMB-click-drag, and scene geometry can be selected by clicking on the viewport. Further geometry and material properties of selected objects can be viewed/modified by opening the Edit menu. Geometry can be simply transformed by first clicking to select, then dragging, with the type of transformation selectable in the drop down.</p>
+            <p>Objects and lights can be added with the Add button below the view (they appear in front of the camera), and the selected object removed with the Delete button or key. Adding or removing is instant when the scene is loaded with <code>?worldEditable=true</code>; otherwise the shader is rebuilt, which takes a few seconds.</p>
             <p>For more information on the technical details behind this project, see the <a href="https://github.com/alitteneker/jsraytracer">github project page</a>.</p>
         </div>
     </body>

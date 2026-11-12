@@ -29,7 +29,7 @@ class WebGLMaterialsAdapter {
     destroy() {
         this.material_colors_texture.destroy();
         this.material_indices_texture.destroy();
-        for (const td of this.textures)
+        for (const td of (this.texture_cache ? this.texture_cache.values() : this.textures))
             td.texture.destroy();
     }
     storeSolidColor(color) {
@@ -62,8 +62,16 @@ class WebGLMaterialsAdapter {
         else if (mc instanceof TextureMaterialColor) {
             if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
                 this.texture_id_map[mc.MATERIALCOLOR_UID] = this.textures.length;
-                const td = { mc: mc };
-                [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
+                // GL textures are kept across reset() (the world can be re-visited after an edit, see
+                // WebGLRendererAdapter.worldModified), so an image is only uploaded once.
+                if (!this.texture_cache)
+                    this.texture_cache = new Map();
+                let td = this.texture_cache.get(mc.MATERIALCOLOR_UID);
+                if (!td) {
+                    td = { mc: mc };
+                    [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
+                    this.texture_cache.set(mc.MATERIALCOLOR_UID, td);
+                }
                 this.textures.push(td);
             }
             const scaleColorData = this.storeSolidColor(scale);
@@ -198,7 +206,7 @@ class WebGLMaterialsAdapter {
         }
         ret += `
             uniform sampler2D umTextures [${ Math.max(1, this.textures.length)       }];
-            uniform ivec3 umSpecialColors[${ Math.max(4, this.special_colors.length) }];
+            uniform ivec3 umSpecialColors[${ sceneEditable ? WebGLWorldAdapter.editableCapacity(this.special_colors.length, 16) : Math.max(4, this.special_colors.length) }];
 
             vec3 getMaterialColor(in int color_index, in vec2 UV) {
                 
@@ -342,14 +350,18 @@ class WebGLMaterialsAdapter {
                 outColor = matParams.diffuse;
                 return true;
             }
+            // outExact is set true when the direction wasn't randomly sampled from a lobe (a perfect mirror or an
+            // infinitely smooth glossy lobe); the next bounce then counts a directly hit light's emission.
             bool samplePhongScatter(in vec4 R, in vec4 N, in PhongMaterialParameters matParams,
-                inout vec4 outDirection, inout vec3 outColor, inout vec2 random_seed)
+                inout vec4 outDirection, inout vec3 outColor, inout bool outExact, inout vec2 random_seed)
             {
                 if (randf(random_seed) < matParams.mirrorProbability) {
                     outDirection = R;
                     outColor = vec3(1.0);
+                    outExact = true;
                     return true;
                 }
+                outExact = false;
 
                 float diffuseProb  = average(matParams.diffuse),
                       specularProb = average(matParams.specular);
@@ -361,6 +373,7 @@ class WebGLMaterialsAdapter {
                 if (randf(random_seed) < (diffuseProb / probSum))
                     return diffuseScatter(N, matParams, outDirection, outColor, random_seed);
                 
+                outExact = isinf(matParams.specularFactor);
                 return glossyScatter(R, N, matParams, outDirection, outColor, random_seed);
             }
             
@@ -409,6 +422,15 @@ class WebGLMaterialsAdapter {
                 vec3 totalColor = matParams.ambient;
                 for (int i = 0; i < uNumLights; ++i) {
                     LightSample lightSample = sampleLight(i, rp, random_seed);
+                    ${WebGLRendererAdapter.debugSkipUnlitShadows ? `
+                    // debugSkipUnlitShadows: phongBRDF below is exactly zero unless (kr > 0 and the light is on the
+                    // reflecting side) or (kr < 1 and it's on the transmitting side), so in every other case the shadow
+                    // ray can't change the result. Skipping it is output-identical (the shadow cast uses no randomness).
+                    {
+                        float shadowLdotN = dot(normalize(lightSample.direction), N);
+                        if (!((kr > 0.0 && shadowLdotN >= 0.0) || (kr < 1.0 && shadowLdotN <= 0.0)))
+                            continue;
+                    }` : ``}
                     ${WebGLRendererAdapter.debugNoShadows ? `` : `
                     float shadowIntersection = worldRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
                     if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
@@ -421,21 +443,21 @@ class WebGLMaterialsAdapter {
                 // reflection
                 if (kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
                     nextRays.reflectionProbability = kr;
-                    if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, random_seed))
+                    if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, nextRays.reflectionExact, random_seed))
                         nextRays.reflectionColor *= matParams.reflectivity;
                 }
                 
                 // refraction
                 if (kr < 1.0 && normSquared(refractionDirection) > EPSILON) {
                     nextRays.transmissionProbability = 1.0 - kr;
-                    if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
+                    if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
                 }
                 
                 // transmission (no refraction)
                 else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
                     nextRays.transmissionProbability = 1.0;
-                    if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, random_seed))
+                    if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
                         nextRays.transmissionColor *= matParams.transmissivity;
                 }
                 

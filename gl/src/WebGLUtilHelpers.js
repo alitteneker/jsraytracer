@@ -55,7 +55,8 @@ class WebGLTransformStore {
             this.data.push(mat);
             return this.data.length - 1;
         }
-        const key = mat.toString();
+        // Most primitives in big meshes have identity transforms; skip building a string key for those.
+        const key = mat.is_identity(0) ? "identity" : mat.toString();
         if (!(key in this.data_map)) {
             this.data_map[key] = this.data.length;
             this.data.push(mat);
@@ -100,15 +101,17 @@ class WebGLHelper {
     createTextureAndUnit(channels=4, type="FLOAT", width=1, height=1, filter=false, data=null) {
         const texture_unit = this.allocateTextureUnit();
         const texture_id = this.createTexture(channels, type, width, height, filter, data);
+        texture_id.texture_unit = texture_unit;
         return [texture_unit, texture_id];
     }
     createDataTexture(channels, type, data=null) {
-        const [square_size, square_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
-        return this.createTexture(channels, type, square_size, square_size, false, square_data);
+        const [width, height, texture_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
+        return this.createTexture(channels, type, width, height, false, texture_data);
     }
     createDataTextureAndUnit(channels, type, data=null) {
         const texture_unit = this.allocateTextureUnit();
         const texture = this.createDataTexture(channels, type, data);
+        texture.texture_unit = texture_unit;
         return [texture_unit, texture];
     }
     
@@ -303,7 +306,11 @@ class WebGLHelper {
         
             // Texel fetch by index functions
             ivec2 computeGenericIndex(in int index, in ivec2 size) {
-                return ivec2(index % size.x, index / size.x);
+                ${WebGLTexture.pow2DataLayout() ? `
+                // Data textures are ${WebGLTexture.DATA_TEXTURE_WIDTH} texels wide (debugPow2DataTextures), so index -> texel
+                // is a mask and a shift rather than an integer % and / by the runtime texture width.
+                return ivec2(index & ${WebGLTexture.DATA_TEXTURE_WIDTH - 1}, index >> ${Math.log2(WebGLTexture.DATA_TEXTURE_WIDTH)});` : `
+                return ivec2(index % size.x, index / size.x);`}
             }
             ivec2  computeGenericIndex(in int index, in  sampler2D texture) { return computeGenericIndex(index, textureSize(texture, 0)); }
             ivec2 icomputeGenericIndex(in int index, in isampler2D texture) { return computeGenericIndex(index, textureSize(texture, 0)); }
@@ -397,14 +404,31 @@ class WebGLTexture {
         "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
         "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: ImageData    },
     };
+    // Data-texture layout. By default a data texture is the smallest square that fits. With
+    // WebGLRendererAdapter.debugPow2DataTextures, every data texture is instead DATA_TEXTURE_WIDTH texels wide (a power of
+    // two) and as tall as needed, so the shader can turn an index into a texel with a mask and shift (see
+    // computeGenericIndex). Both the layout and the shader read the flag, so it must not change between shader
+    // generation and data upload (it's static and only meant to be changed before a scene reload).
+    static DATA_TEXTURE_WIDTH = 2048;
+    static pow2DataLayout() {
+        return (typeof WebGLRendererAdapter !== "undefined") && !!WebGLRendererAdapter.debugPow2DataTextures;
+    }
     static coerceToDataTextureData(channels, type, data) {
         if (!WebGLTexture.channels_map[channels] || !WebGLTexture.type_map[type])
             throw "Invalid texture channels or type passed";
         if (!data)
             data = [];
-        const square_size = Math.max(1, Math.ceil(Math.sqrt(data.length / channels)));
-        const square_data = WebGLTexture.type_map[type].array_type.from(Object.assign(new Array(channels * square_size * square_size).fill(0), data));
-        return [square_size, square_data];
+        const texels = Math.max(1, Math.ceil(data.length / channels));
+        let width, height;
+        if (WebGLTexture.pow2DataLayout()) {
+            width = WebGLTexture.DATA_TEXTURE_WIDTH;
+            height = Math.ceil(texels / width);
+        }
+        else
+            width = height = Math.max(1, Math.ceil(Math.sqrt(texels)));
+        const out = new WebGLTexture.type_map[type].array_type(channels * width * height);
+        out.set(data);
+        return [width, height, out];
     }
     
     constructor(gl, channels=4, type="FLOAT", width=1, height=1, interp=false, data=null) {
@@ -439,6 +463,8 @@ class WebGLTexture {
         this.width = width;
         this.height = height;
         
+        if (this.texture_unit)
+            this.gl.activeTexture(this.texture_unit);   // see modifyPixel
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl[channel_str + type_data.internal_format], width, height, 0,
             this.gl[channel_str + type_data.format], this.gl[type_data.type], data);
@@ -454,8 +480,8 @@ class WebGLTexture {
         }
     }
     setDataPixels(data=null, channels=this.channels, type=this.type) {
-        const [square_size, square_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
-        this.setPixels(square_data, channels, type, square_size, square_size);
+        const [width, height, texture_data] = WebGLTexture.coerceToDataTextureData(channels, type, data);
+        this.setPixels(texture_data, channels, type, width, height);
     }
     setDataPixelsUnit(data=null, texture_unit=null, uniform_name=null, shader_program=null, channels=this.channels, type=this.type) {
         if (texture_unit)
@@ -473,6 +499,11 @@ class WebGLTexture {
         if (new_value && !(new_value instanceof type_data.array_type))
             new_value = type_data.array_type.from(new_value);
         
+        // Bind on this texture's own unit. Binding on whatever unit happens to be active replaces that unit's texture:
+        // after a data upload that can be another data texture, and if the sampler types differ every draw then
+        // fails with INVALID_OPERATION.
+        if (this.texture_unit)
+            this.gl.activeTexture(this.texture_unit);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0,
             x, y, 1, 1, this.gl[channel_str + type_data.format], this.gl[type_data.type], new_value);
