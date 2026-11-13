@@ -41,6 +41,7 @@
         <script src="./src/WebGLWorldAdapter.js" defer></script>
         <script src="./src/WebGLRendererAdapter.js" defer></script>
         <script src="./src/WebGLSDFAdapter.js" defer></script>
+        <script src="./src/WebGLSDFEditor.js" defer></script>
         <script src="./src/WebGLUtilHelpers.js" defer></script>
         
         <!-- <script src="https://greggman.github.io/webgl-lint/webgl-lint.js" defer crossorigin></script> -->
@@ -82,6 +83,7 @@
                 <option value="square">Square</option>
                 <option value="circle">Circle</option>
                 <option value="plane">Plane</option>
+                <option value="sdf">SDF</option>
                 <option value="point-light">Point Light</option>
                 <option value="area-light">Area Light</option>
             </select>
@@ -200,6 +202,18 @@
             </div>
             <div id="object-properties">
                 <h3>Object Properties</h3>
+                <div id="sdf-structure">
+                    <div id="sdf-tree"></div>
+                    <div class="sdf-structure-bar">
+                        <select id="sdf-add-type"></select><button id="sdf-add" title="Add a child to the selected union or intersection">Add Child</button>
+                        <select id="sdf-wrap-type"></select><button id="sdf-wrap" title="Make the selected node the first operand of a new operation">Wrap</button>
+                    </div>
+                    <div class="sdf-structure-bar">
+                        <select id="sdf-replace-type"></select><button id="sdf-replace" title="Replace the selected primitive">Replace</button>
+                        <button id="sdf-unwrap" title="Replace the selected node with its first child">Unwrap</button>
+                        <button id="sdf-delete" title="Delete the selected node and everything under it">Delete</button>
+                    </div>
+                </div>
                 <table class="template-insertion-point control-group"></table>
                 <div class="template-holder">
                     <script type="text/x-template" data-template-type="number">

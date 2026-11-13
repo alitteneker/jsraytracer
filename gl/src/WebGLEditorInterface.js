@@ -167,6 +167,17 @@ class WebGLEditorInterface {
             activate: this.selectObjectTree.bind(this)
         });
 
+        // Editing an SDF's structure (see WebGLSDFEditor and editSDFStructure).
+        const options = o => Object.entries(o).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+        $("#sdf-add-type, #sdf-replace-type").html(options(WebGLSDFEditor.PRIMITIVES));
+        $("#sdf-wrap-type").html(options(WebGLSDFEditor.WRAPPERS));
+        $("#sdf-tree").fancytree({ source: [], activate: (e, d) => this.selectSDFNode(d.node.data._sdf) });
+        $("#sdf-add").on("click",     () => this.editSDFStructure(WebGLSDFEditor.addChild, $("#sdf-add-type").val()));
+        $("#sdf-wrap").on("click",    () => this.editSDFStructure(WebGLSDFEditor.wrap,     $("#sdf-wrap-type").val()));
+        $("#sdf-replace").on("click", () => this.editSDFStructure(WebGLSDFEditor.replace,  $("#sdf-replace-type").val()));
+        $("#sdf-unwrap").on("click",  () => this.editSDFStructure(WebGLSDFEditor.unwrap));
+        $("#sdf-delete").on("click",  () => this.editSDFStructure(WebGLSDFEditor.remove));
+
         $("#geometry-type-select").append(
             WebGLGeometriesAdapter.SWITCHABLE_TYPES.map(t => `<option value="${t}" data-type="normal">${WebGLGeometriesAdapter.TypeStringLabel(t)}</option>`).join("\n"));
         UIProperties.listenToControls($("#object-transform"), "object-transform", { type: "mat" }, (function(name, prop, target, trans, inv_trans) {
@@ -532,7 +543,10 @@ class WebGLEditorInterface {
         }).bind(this));
 
         
-        // Fourth, fill in the object property controls (usually only used for SDFs).
+        // Fourth, fill in the object property controls (usually only used for SDFs). An SDF gets its tree, with the
+        // selected node's properties.
+        if (this.buildSDFControls())
+            return;
         const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
         if (object_properties)
             UIProperties.fillPropertyControls($("#object-properties"), object_properties, (function(name, prop, target, ...value) {
@@ -540,6 +554,60 @@ class WebGLEditorInterface {
             }).bind(this));
     }
     
+    // ---- Editing an SDF's structure ----
+    // The selected object's SDF tree is shown above its properties. Selecting a node there shows that node's
+    // properties; the buttons under it change the tree (WebGLSDFEditor) and then rebuild the renderer from the scene,
+    // which means a recompile, since an SDF's structure is part of the shader.
+    selectedSDFNode = null;
+    selectedSDFGeometry() {
+        const o = this.selectedObject;
+        return (o && o.object && o.object.geometry instanceof SDFGeometry) ? o.object.geometry : null;
+    }
+    buildSDFControls() {
+        const g = this.selectedSDFGeometry();
+        $("#sdf-structure").toggle(!!g);
+        if (!g)
+            return false;
+        if (!this.selectedSDFNode || (this.selectedSDFNode !== g.root_sdf && !SDF.findParent(g.root_sdf, this.selectedSDFNode)))
+            this.selectedSDFNode = g.root_sdf;
+        const tree = $.ui.fancytree.getTree("#sdf-tree"), selected = this.selectedSDFNode;
+        Promise.resolve(tree.reload([WebGLSDFEditor.treeSource(g.root_sdf)])).then(() => {
+            const tree_node = tree.getNodeByKey("sdf" + selected.UID);
+            if (tree_node)
+                tree_node.setActive(true, { noEvents: true });
+        });
+        this.fillSDFNodeControls();
+        return true;
+    }
+    selectSDFNode(node) {
+        this.selectedSDFNode = node;
+        this.fillSDFNodeControls();
+    }
+    fillSDFNodeControls() {
+        const g = this.selectedSDFGeometry(), node = this.selectedSDFNode, ra = this.renderer_adapter;
+        if (!g || !node || !ra)
+            return;
+        for (const [id, can] of [["#sdf-add",     WebGLSDFEditor.canAddChild(g, node)],
+                                 ["#sdf-replace", WebGLSDFEditor.canReplace(g, node)],
+                                 ["#sdf-unwrap",  WebGLSDFEditor.canUnwrap(g, node)],
+                                 ["#sdf-delete",  WebGLSDFEditor.canDelete(g, node)]])
+            $(id).prop("disabled", !can);
+        const sdf_adapter = ra.adapters.world.adapters.geometries.sdf_adapter;
+        const index = sdf_adapter.geometries.indexOf(g);
+        if (index < 0)
+            return;
+        UIProperties.fillPropertyControls($("#object-properties"), sdf_adapter.getMutableObjectProperties(index, ra, node),
+            (name, prop, target, ...value) => prop.modifyFn(prop.key, ...value));
+    }
+    editSDFStructure(edit, kind) {
+        const g = this.selectedSDFGeometry(), ra = this.renderer_adapter;
+        if (!g || !this.selectedSDFNode || !ra || ra.rebuildingShaders)
+            return;
+        this.selectedSDFNode = edit(g, this.selectedSDFNode, kind) || g.root_sdf;
+        myconsole.log("Rebuilding the shader for the SDF's new structure...");
+        this.rebuildWorld(this.selectedObject.object);
+    }
+
     // ---- Adding and removing objects ----
     // Structural edits change the CPU world (src/), then ask the renderer to rebuild its data from it
     // (WebGLRendererAdapter.worldModified). With the editable shader (?worldEditable=true) that takes milliseconds;
@@ -569,6 +637,8 @@ class WebGLEditorInterface {
             case "cylinder":    obj = new Primitive(new Cylinder(), WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));     break;
             case "square":      obj = new Primitive(new Square(),   WebGLEditorInterface.defaultMaterial(), facingCamera.times(Mat4.scale(2 * size))); break;
             case "circle":      obj = new Primitive(new Circle(),   WebGLEditorInterface.defaultMaterial(), facingCamera.times(Mat4.scale(size)));     break;
+            case "sdf":         obj = new Primitive(new SDFGeometry(new SphereSDF(1), 300, 1e-4, 100),
+                                    WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));      break;
             case "plane":       obj = new Primitive(new Plane(),    WebGLEditorInterface.defaultMaterial(),
                                     Mat4.translation([0, box.isFinite() ? box.min[1] : 0, 0]).times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)))); break;
             case "point-light": obj = new SimplePointLight(position, Vec.of(1, 1, 1), brightness);                                      break;

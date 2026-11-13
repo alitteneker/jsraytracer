@@ -133,3 +133,18 @@ table.transform-table {
     margin-right: auto;
     margin-left:  auto;
 }
+/* An SDF object's tree, in the Selected Object dialog (see WebGLSDFEditor). */
+#sdf-tree ul.fancytree-container {
+    max-height: 220px;
+    overflow: auto;
+}
+.sdf-structure-bar {
+    margin: 6px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+}
+.sdf-structure-bar button:disabled {
+    opacity: 0.4;
+}

@@ -37,6 +37,8 @@ class WebGLSDFAdapter {
         
         else if (sdf instanceof TransformSDF)
             adapter_ = new WebGLTransformSDFDecorator(sdf, this);
+        else if (sdf instanceof RoundSDF)
+            adapter_ = new WebGLRoundSDFDecorator(sdf, this);
         else if (sdf instanceof RecursiveTransformUnionSDF)
             adapter_ = new WebGLRecursiveTransformUnionSDFDecorator(sdf, this);
         
@@ -78,14 +80,16 @@ class WebGLSDFAdapter {
         
         return this.transforms[transform.UID] = decorator;
     }
-    getMutableObjectProperties(index, renderer_adapter) {
+    // The marching settings, then the properties of every node of the SDF, or with node given, just that node's.
+    getMutableObjectProperties(index, renderer_adapter, node=null) {
         const g = this.geometries[index], modifyFn = this.modifyGeometryProperty.bind(this, renderer_adapter, index);
         return [
             { title: "max_samples",        key: "max_samples",        value: g.max_samples,        type: "number", step: 1, modifyFn: modifyFn },
             { title: "distance_epsilon",   key: "distance_epsilon",   value: g.distance_epsilon,   type: "number", modifyFn: modifyFn },
             { title: "max_trace_distance", key: "max_trace_distance", value: g.max_trace_distance, type: "number", modifyFn: modifyFn },
             { title: "normal_step_size",   key: "normal_step_size",   value: g.normal_step_size,   type: "number", modifyFn: modifyFn }
-        ].concat(this.sdfs[g.root_sdf.UID].getMutableObjectProperties(renderer_adapter));
+        ].concat(node ? this.sdfs[node.UID].getMutableObjectProperties(renderer_adapter, true)
+                      : this.sdfs[g.root_sdf.UID].getMutableObjectProperties(renderer_adapter));
     }
     modifyGeometryProperty(renderer_adapter, index, key, newvalue) {
         this.geometries[index][key] = newvalue;
@@ -275,8 +279,10 @@ class WebGLSDFDecorator {
     getShaderSource() {
         return "";
     }
-    getMutableObjectProperties(renderer_adapter) {
-        const ret = [], titlebase = `${this.raw.constructor.name} ${this.ID}: `;
+    // With ownOnly, just this node's properties (and its transformer's), not those of the SDFs under it: for
+    // editing one node of the tree (see WebGLSDFEditor).
+    getMutableObjectProperties(renderer_adapter, ownOnly=false) {
+        const ret = [], titlebase = ownOnly ? "" : `${this.raw.constructor.name} ${this.ID}: `;
         for (const [k,v] of Object.entries(this.raw)) {
             if (typeof v === 'number' && k != "UID")
                 ret.push({ title: titlebase + k, key: k, value: v, type: "number", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
@@ -285,11 +291,14 @@ class WebGLSDFDecorator {
             else if (v instanceof Mat)
                 ret.push({ title: titlebase + k, key: k, value: v, type: "mat", modifyFn: this.modifyProperty.bind(this, renderer_adapter) });
         }
+        const include = d => d instanceof WebGLSDFDecorator && (!ownOnly || !(d.raw instanceof SDF));
         for (const [k,v] of Object.entries(this)) {
-            if (v instanceof WebGLSDFDecorator)
-                ret.push(... v.getMutableObjectProperties(renderer_adapter));
+            if (k == "_adapter")
+                continue;
+            if (include(v))
+                ret.push(... v.getMutableObjectProperties(renderer_adapter, ownOnly));
             if (v instanceof Array)
-                ret.push(... v.filter(e => e instanceof WebGLSDFDecorator).map(e => e.getMutableObjectProperties(renderer_adapter)).flat());
+                ret.push(... v.filter(include).map(e => e.getMutableObjectProperties(renderer_adapter, ownOnly)).flat());
         }
         return ret;
     }
@@ -500,6 +509,25 @@ class WebGLTransformSDFDecorator extends WebGLSDFDecorator {
     }
 }
 
+class WebGLRoundSDFDecorator extends WebGLSDFDecorator {
+    constructor(raw, adapter) {
+        super(raw, adapter);
+        this.sdf = adapter.wrapNodeSDF(raw.child_sdf);
+    }
+    getShaderSourceDeclarations() {
+        return this.param("float", `sdf_rounding_${this.ID}`, this.raw.rounding);
+    }
+    getDistanceShaderSource(position_src) {
+        return `(${this.sdf.getDistanceShaderSource(position_src)} - sdf_rounding_${this.ID})`;
+    }
+    getMaterialShaderSource(position_src) {
+        return this.sdf.getMaterialShaderSource(position_src);
+    }
+    writeShaderData(gl, program) {
+        this.writeParam(gl, program, "float", `sdf_rounding_${this.ID}`, this.raw.rounding);
+    }
+}
+
 class WebGLRecursiveTransformUnionSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {
         super(raw, adapter);
@@ -534,7 +562,6 @@ class WebGLRecursiveTransformUnionSDFDecorator extends WebGLSDFDecorator {
     }
 }
 
-// TODO: RoundSDF
 
 class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
     constructor(raw, adapter) {

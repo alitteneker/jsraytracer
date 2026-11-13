@@ -477,3 +477,64 @@ class SDFInfiniteRepetitionTransformer extends SDFTransformer {
     }
 }
 
+
+
+
+// ---- Structure, for editors (see gl/src/WebGLSDFEditor.js) ----
+// The fields of each SDF node that hold its child SDFs. A field holding an array holds a list of children (which can
+// grow and shrink); any other field holds exactly one.
+SDF.CHILD_FIELDS                        = [];
+UnionSDF.CHILD_FIELDS                   = ["children"];
+IntersectionSDF.CHILD_FIELDS            = ["children"];
+DifferenceSDF.CHILD_FIELDS              = ["positive", "negative"];
+SmoothUnionSDF.CHILD_FIELDS             = ["childA", "childB"];
+SmoothIntersectionSDF.CHILD_FIELDS      = ["childA", "childB"];
+SmoothDifferenceSDF.CHILD_FIELDS        = ["positive", "negative"];
+RoundSDF.CHILD_FIELDS                   = ["child_sdf"];
+TransformSDF.CHILD_FIELDS               = ["child_sdf"];
+RecursiveTransformUnionSDF.CHILD_FIELDS = ["sdf"];
+
+SDF.prototype.getChildren = function() {
+    return this.constructor.CHILD_FIELDS.flatMap(f => Array.isArray(this[f]) ? this[f] : [this[f]]);
+};
+// Whether children can be added to (or removed from) this node.
+SDF.prototype.hasChildList = function() {
+    return this.constructor.CHILD_FIELDS.some(f => Array.isArray(this[f]));
+};
+SDF.prototype.addChild = function(child) {
+    const f = this.constructor.CHILD_FIELDS.find(f => Array.isArray(this[f]));
+    if (!f)
+        throw `${this.constructor.name} doesn't hold a list of children`;
+    this[f].push(child);
+};
+SDF.prototype.replaceChild = function(oldChild, newChild) {
+    for (const f of this.constructor.CHILD_FIELDS) {
+        if (Array.isArray(this[f])) {
+            const i = this[f].indexOf(oldChild);
+            if (i >= 0) { this[f][i] = newChild; return true; }
+        }
+        else if (this[f] === oldChild) { this[f] = newChild; return true; }
+    }
+    return false;
+};
+// Removes a child from a list of children. Returns false if the child isn't in one.
+SDF.prototype.removeChild = function(child) {
+    for (const f of this.constructor.CHILD_FIELDS) {
+        if (Array.isArray(this[f]) && this[f].indexOf(child) >= 0) {
+            this[f].splice(this[f].indexOf(child), 1);
+            return true;
+        }
+    }
+    return false;
+};
+// The node whose children include node, or null for the root (or a node not in the tree).
+SDF.findParent = function(root, node) {
+    for (const c of root.getChildren()) {
+        if (c === node)
+            return root;
+        const p = SDF.findParent(c, node);
+        if (p)
+            return p;
+    }
+    return null;
+};
