@@ -271,7 +271,9 @@ class WebGLUnionSDFDecorator extends WebGLSDFDecorator {
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
                 float bestDist = ${cs[0]};
                 GeometricMaterialData ret = ${cm[0]};
-                ${cs.slice(1).map((c,i) => `if (${c} < bestDist) ret = ${cm[i+1]};`).join('\n')}
+                float d;
+                ${cs.slice(1).map((c,i) => `d = ${c};
+                if (d < bestDist) { bestDist = d; ret = ${cm[i+1]}; }`).join('\n')}
                 return ret;
             }`;
     }
@@ -303,7 +305,9 @@ class WebGLIntersectionSDFDecorator extends WebGLSDFDecorator {
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position) {
                 float bestDist = ${cs[0]};
                 GeometricMaterialData ret = ${cm[0]};
-                ${cs.slice(1).map((c,i) => `if (${c} > bestDist) ret = ${cm[i+1]};`).join('\n')}
+                float d;
+                ${cs.slice(1).map((c,i) => `d = ${c};
+                if (d > bestDist) { bestDist = d; ret = ${cm[i+1]}; }`).join('\n')}
                 return ret;
             }`;
     }
