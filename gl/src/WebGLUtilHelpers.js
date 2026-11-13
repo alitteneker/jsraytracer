@@ -467,7 +467,7 @@ class WebGLTexture {
             this.gl.activeTexture(this.texture_unit);   // see modifyPixel
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
         this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl[channel_str + type_data.internal_format], width, height, 0,
-            this.gl[channel_str + type_data.format], this.gl[type_data.type], data);
+            this.gl[(channels == 1 ? "RED" : channel_str) + type_data.format], this.gl[type_data.type], data);
         if (this.interp) {
             if (Math.isPowerOf2(width) && Math.isPowerOf2(height))
                 this.gl.generateMipmap(this.gl.TEXTURE_2D);
@@ -506,7 +506,7 @@ class WebGLTexture {
             this.gl.activeTexture(this.texture_unit);
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture_id);
         this.gl.texSubImage2D(this.gl.TEXTURE_2D, 0,
-            x, y, 1, 1, this.gl[channel_str + type_data.format], this.gl[type_data.type], new_value);
+            x, y, 1, 1, this.gl[(this.channels == 1 ? "RED" : channel_str) + type_data.format], this.gl[type_data.type], new_value);
     }
     modifyDataPixel(index, new_value) {
         this.modifyPixel(index % this.width, Math.floor(index / this.width), new_value);

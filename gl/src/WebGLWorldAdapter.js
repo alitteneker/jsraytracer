@@ -230,8 +230,10 @@ class WebGLWorldAdapter {
         if (!(light instanceof RandomSampleAreaLight))
             return null;
         const scale = light.emittedRadianceScale(world_transform);
-        const proxy = new Primitive(light.surface_geometry,
-            new PhongMaterial(light.color_mc, scale, 0, 0, 5, 0, 0),
+        const material = new PhongMaterial(light.color_mc, scale, 0, 0, 5, 0, 0);
+        // The area lets the path tracer work out how likely light sampling was to find a point it hit (for MIS).
+        material.emitterArea = light.surfaceArea(world_transform);
+        const proxy = new Primitive(light.surface_geometry, material,
             light.getTransform(), light.getInvTransform(), false);
         proxy.lightEmitterFor = light;
         proxy.emitterScale = scale;
@@ -259,6 +261,11 @@ class WebGLWorldAdapter {
         if (light_data) {
             proxy.emitterScale = light.emittedRadianceScale(light_data.instance.getTransform());
             this.syncLightEmitterColor(light);
+            const material_data = this.adapters.materials.getMaterial(this.adapters.materials.visit(proxy.material));
+            if (material_data._area) {
+                proxy.material.emitterArea = light_data.area;
+                this.adapters.materials.modifyScalar(material_data._area._id, light_data.area);
+            }
         }
     }
     // Copies a light's color (as stored for sampling) into its stand-in's emissive color, times the radiance scale.

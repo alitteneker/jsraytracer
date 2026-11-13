@@ -177,6 +177,17 @@ class WebGLRendererAdapter {
         };
     }
     
+    // Path tracing or Whitted-style, as the renderer's integrator option says ("auto": path trace if any material
+    // prefers it), like the CPU renderer (see src/integrators.js). Decided when the shader is generated.
+    get pathTracing() {
+        const integrator = this.renderer.integrator || "auto";
+        if (integrator == "path")
+            return true;
+        if (integrator == "whitted")
+            return false;
+        return this.renderer.world.anyMaterial(m => m.prefersPathTracing);
+    }
+
     static build(gl, canvas, renderer, callback) {
         myconsole.log("Building adapters...");
         const ret = new WebGLRendererAdapter(gl, canvas, renderer);
@@ -475,7 +486,8 @@ class WebGLRendererAdapter {
     }
     
     getShaderSourceDeclarations() {
-        let ret = this.webgl_helper.getShaderSourceDeclarations() + "\n"
+        let ret = (this.pathTracing ? "#define PATH_TRACING\n" : "")
+        + this.webgl_helper.getShaderSourceDeclarations() + "\n"
         +  `
             struct Ray { vec4 o; vec4 d; };
             struct RecursiveNextRays {
@@ -491,7 +503,13 @@ class WebGLRendererAdapter {
                 // the next hit counts a light's emission (see worldRayColorShallow).
                 bool  reflectionExact;
                 bool  transmissionExact;
+
+                // Path tracing: the density the BSDF sampled the reflection direction with (0 for an exact one).
+                float pdf;
             };
+            // Path tracing: the pdf of the bounce that produced the current ray, for MIS when it hits a light (0 for
+            // camera rays and exact bounces, whose light counts fully).
+            float gPrevBsdfPdf = 0.0;
             vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal);
             uniform int uMaxBounceDepth;` + "\n";
         return ret
@@ -567,7 +585,7 @@ class WebGLRendererAdapter {
                 for (;i < uMaxBounceDepth; ++i) {
                     vec4 intersect_position = vec4(0);
                     vec3 intersect_normal = vec3(0);
-                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false);
+                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false, 0.0);
                     vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal, countEmission);
                     ${WebGLRendererAdapter.debugTraversalHeatmap
                         // Heatmap mode returns before setting intersect_position, so the loop breaks before the normal
@@ -607,7 +625,12 @@ class WebGLRendererAdapter {
                         {
                             r = Ray(intersect_position, nextRays.reflectionDirection);
                             attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
+#ifdef PATH_TRACING
+                            // Lights hit by sampled bounces count too, weighted by MIS (see colorForMaterial).
+                            gPrevBsdfPdf = nextRays.reflectionExact ? 0.0 : nextRays.pdf;
+#else
                             countEmission = nextRays.reflectionExact;
+#endif
                             do_next_ray = true;
                         }
                         
@@ -626,6 +649,15 @@ class WebGLRendererAdapter {
                     
                     if (!do_next_ray)
                         break;
+#ifdef PATH_TRACING
+                    // Russian roulette: end dim paths at random, boosting the survivors so the estimate stays unbiased.
+                    if (i + 1 >= 3) {
+                        float q = max(0.05, 1.0 - max(max(attenuation_color.r, attenuation_color.g), attenuation_color.b));
+                        if (randf(random_seed) < q)
+                            break;
+                        attenuation_color /= 1.0 - q;
+                    }
+#endif
                 }
                 ${WebGLRendererAdapter.debugBallastRegisters > 0
                     ? `float ballastSum = 0.0; `
