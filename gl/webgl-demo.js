@@ -90,7 +90,12 @@ $(document).ready(function() {
         for (let o of json.sort())
             $("#test-select").append(`<option value="${o}">${o}</option>`);
         
-        const URLTest = new URLSearchParams(window.location.search).get('test');
+        const URLParams = new URLSearchParams(window.location.search);
+        if (URLParams.get("renderAll")) {
+            renderAllScenes(json.sort(), URLParams);
+            return;
+        }
+        const URLTest = URLParams.get('test');
         if (URLTest) {
             if (json.indexOf(URLTest) >= 0)
                 $("#test-select").val(URLTest);
@@ -119,28 +124,109 @@ $(document).ready(function() {
         loadTest(test);
     });
     
+    // Returns a promise that resolves once the scene is configured (its shader is still to be built), or rejects if
+    // its module can't be loaded.
     function loadTest(test) {
         $(".loading").css('visibility', 'visible');
         
         const start = Date.now();
         myconsole.log(`Loading test ${test}...`);
-        try {
-            import(`../tests/${test}/test.mjs`).then(function(module) {
-                module.configureTest(function(test_data) {
-                    myconsole.log(`Test ${test} successfully loaded in ${(Date.now() - start) / 1000} seconds.`);
-                    window.jsrtLastTest = test_data;
-                    i.changeTest(test_data);
+        return new Promise((resolve, reject) => {
+            try {
+                import(`../tests/${test}/test.mjs`).then(function(module) {
+                    module.configureTest(function(test_data) {
+                        myconsole.log(`Test ${test} successfully loaded in ${(Date.now() - start) / 1000} seconds.`);
+                        window.jsrtLastTest = test_data;
+                        i.changeTest(test_data);
+                        resolve(test_data);
+                    });
+                    document.title = defaultTitle + ": " + test;
+                }, function(e) {
+                    myconsole.error(e);
+                    $(".loading").css('visibility', 'hidden');
+                    reject(e);
                 });
-                document.title = defaultTitle + ": " + test;
-            }, function(e) {
+            }
+            catch(e) {
                 myconsole.error(e);
                 $(".loading").css('visibility', 'hidden');
-            });
+                reject(e);
+            }
+        });
+    }
+
+    // Image harness, ?renderAll=1: renders every scene in tests/list.json in turn and downloads each as <scene>.png.
+    //   samples=N      samples per pixel to stop at (default 2048)
+    //   maxSeconds=S   stop a scene after S seconds of rendering even if it hasn't reached N (default 120)
+    //   loadSeconds=S  give up on a scene that hasn't started rendering after S seconds (default 180)
+    //   only=a,b       just these scenes;  from=name  start at this scene (to resume)
+    //   editable=true  use the editable shader for every scene
+    // Keep the tab visible (browsers pause drawing in hidden tabs), and allow multiple downloads when Chrome asks.
+    async function renderAllScenes(tests, params) {
+        const samples = Number(params.get("samples") || 2048),
+              maxSeconds = Number(params.get("maxSeconds") || 120),
+              loadSeconds = Number(params.get("loadSeconds") || 180);
+        if (params.get("only"))
+            tests = tests.filter(t => params.get("only").split(",").includes(t));
+        if (params.get("from") && tests.includes(params.get("from")))
+            tests = tests.slice(tests.indexOf(params.get("from")));
+        WebGLRendererAdapter.worldEditable = params.get("editable") == "true";
+
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const download = (blob, name) => {
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        };
+        const results = [];
+        myconsole.log(`Rendering ${tests.length} scenes to ${samples} samples each (at most ${maxSeconds} s per scene)...`);
+        for (const test of tests) {
+            const started = performance.now();
+            try {
+                i.stopDrawLoop();
+                $("#test-select").val(test);
+                await Promise.race([loadTest(test), sleep(loadSeconds * 1000).then(() => { throw "timed out loading"; })]);
+
+                // Wait for the shader to compile and drawing to begin.
+                while (!(i.renderer_adapter && i.renderer_adapter.drawCount > 0)) {
+                    if (performance.now() - started > loadSeconds * 1000)
+                        throw "timed out building the shader";
+                    await sleep(100);
+                }
+
+                // Render, raising the samples drawn per frame while frames stay quick, so fast scenes don't sit at
+                // one sample per display refresh.
+                const renderStart = performance.now();
+                i.samplesPerDraw = 1;
+                while (i.renderer_adapter.drawCount < samples && performance.now() - renderStart < maxSeconds * 1000) {
+                    await sleep(500);
+                    const h = i.timeDeltaHistory, frameMs = h.length ? i.timeDeltaHistorySum / h.length : 1000;
+                    if (frameMs < 25 && i.samplesPerDraw < 256)
+                        i.samplesPerDraw *= 2;
+                    else if (frameMs > 60 && i.samplesPerDraw > 1)
+                        i.samplesPerDraw = Math.max(1, i.samplesPerDraw >> 1);
+                    $("#samples-per-draw").val(i.samplesPerDraw);
+                }
+                const reached = i.renderer_adapter.drawCount;
+                download(await i.captureImage(), `${test}.png`);
+                const seconds = ((performance.now() - started) / 1000).toFixed(1);
+                results.push({ test: test, samples: reached, seconds: seconds });
+                myconsole.log(`Saved ${test}.png: ${reached} samples, ${seconds} s` + (reached < samples ? " (stopped at the time limit)" : ""));
+            } catch (e) {
+                results.push({ test: test, error: String(e) });
+                myconsole.error(`Skipped ${test}: ${e}`);
+            }
         }
-        catch(e) {
-            myconsole.error(e);
-            $(".loading").css('visibility', 'hidden');
-        }
+        i.stopDrawLoop();
+        window.jsrtRenderAllResults = results;
+        const failed = results.filter(r => r.error), short = results.filter(r => !r.error && r.samples < samples);
+        myconsole.log(`Done: ${results.length - failed.length} of ${results.length} scenes saved.`
+            + (short.length ? ` Stopped early: ${short.map(r => `${r.test} (${r.samples})`).join(", ")}.` : "")
+            + (failed.length ? ` Skipped: ${failed.map(r => r.test).join(", ")}.` : ""));
     }
 });
 

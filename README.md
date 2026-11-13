@@ -167,6 +167,10 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 - `?bench=4&benchRef=compare&benchRefKey=<name>` runs a timed benchmark and checks the image against a saved
   reference, so an optimization can be proven not to change the picture
 
+- `?renderAll=1` renders every scene in turn and downloads each as `<scene>.png`, for thumbnails and documentation.
+  Options: `samples` (default 2048), `maxSeconds` per scene (default 120), `only=a,b`, `from=<scene>` to resume, and
+  `editable=true`. Keep the tab visible while it runs, and allow multiple downloads when the browser asks.
+
 [Performance.md](Performance.md) covers what was measured, what changed and what didn't help.
 
 ## Roadmap

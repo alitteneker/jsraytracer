@@ -387,6 +387,14 @@ class WebGLEditorInterface {
             // Draw the scene, possibly fetching multiple samples.
             for (let i = 0; i < this.samplesPerDraw; ++i)
                 this.renderer_adapter.drawWorld(currentTimestamp);
+
+            // A WebGL canvas only holds its image until the frame is shown, so captures happen right after drawing.
+            if (this.pendingCaptures.length) {
+                const captures = this.pendingCaptures;
+                this.pendingCaptures = [];
+                for (const resolve of captures)
+                    this.canvas.get(0).toBlob(resolve, "image/png");
+            }
             
             // If any object is selected, draw it's wireframe.
             if (this.transformObject)
@@ -400,6 +408,11 @@ class WebGLEditorInterface {
         
         // reset all intermediary input/timing variables
         this.lastDrawTimestamp = currentTimestamp;
+    }
+    // Resolves with a PNG of the canvas as the next frame draws it (before any selection wireframe).
+    pendingCaptures = [];
+    captureImage() {
+        return new Promise(resolve => this.pendingCaptures.push(resolve));
     }
     drawWireframe(ancestorTransform, aabb, color) {
         if (this.lineShader) {
