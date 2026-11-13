@@ -34,6 +34,8 @@ class Light extends WorldObject {
     buildBoundingBox() {
         throw "Light subclass has not implemented buildBoundingBox";
     }
+    // A point light emitting power Phi equally in every direction has intensity Phi / (4 pi) per steradian, so the
+    // irradiance it delivers to a surface facing it at distance d is Phi / (4 pi d^2).
     static falloff(delta) {
         return 1 / (4 * Math.PI * delta.squarednorm());
     }
@@ -65,6 +67,12 @@ class SimplePointLight extends Light {
             }).times(Light.falloff(delta))
         };
     }
+    // For the path integrator (see sampleLi on RandomSampleAreaLight). A point light is a delta light: there is
+    // exactly one direction to it, so it has no pdf and no MIS.
+    *sampleLi(surface_position, transform=this.transform, inv_transform=this.inv_transform) {
+        for (const s of this.sampleIterator(surface_position, transform, inv_transform))
+            yield { direction: s.direction, value: s.color, delta: true, count: 1 };
+    }
 }
 
 class RandomSampleAreaLight extends Light {
@@ -86,17 +94,20 @@ class RandomSampleAreaLight extends Light {
         Object.defineProperty(this, "_area", { value: undefined, writable: true, enumerable: false, configurable: true });
     }
 
-    // Radiance of the emitting surface when it is hit directly. sampleIterator (below) picks points uniformly on the
-    // surface and weights each by color * |cos| / (4 pi d^2), with no area term. For the visible surface to agree
-    // with the light it casts, its radiance must therefore be color / (4 pi A), with A its world-space area.
+    // Light units. A light's color * intensity is the total power it emits, Phi. An area light emits from both sides
+    // of its surface, uniformly over its area A and equally in every direction (a Lambertian emitter), which makes its
+    // radiance Le = Phi / (2 pi A): integrating Le |cos| over each side's hemisphere gives pi Le per unit area per side.
     // `transform` is the light's world transform (its own unless it is nested inside transformed ancestors).
-    emittedRadianceScale(transform=this.transform) {
+    surfaceArea(transform=this.transform) {
         if (transform !== this.transform)
-            return 1 / (4 * Math.PI * RandomSampleAreaLight.computeSurfaceArea(this.surface_geometry, transform));
+            return RandomSampleAreaLight.computeSurfaceArea(this.surface_geometry, transform);
         if (this._area === undefined)
             Object.defineProperty(this, "_area", { value: RandomSampleAreaLight.computeSurfaceArea(this.surface_geometry, this.transform),
                 writable: true, enumerable: false, configurable: true });
-        return 1 / (4 * Math.PI * this._area);
+        return this._area;
+    }
+    emittedRadianceScale(transform=this.transform) {
+        return 1 / (2 * Math.PI * this.surfaceArea(transform));
     }
     static computeSurfaceArea(geometry, transform) {
         const ax = transform.times(Vec.of(1, 0, 0, 0)).to3(),
@@ -138,18 +149,56 @@ class RandomSampleAreaLight extends Light {
         return this.color_mc.color(material_data).times(this.emittedRadianceScale(world_transform));
     }
 
-    *sampleIterator(surface_position, transform=this.transform, inv_transform=this.inv_transform) {
+    // For the path integrator: samples of the light as seen from surface_position, each with
+    //   direction: the (unnormalized) vector to the sampled point, which is also the shadow ray,
+    //   value:     the radiance arriving along it divided by its pdf (what sampleIterator calls color),
+    //   pdf:       the density of choosing that direction, per unit solid angle, so MIS can compare it with the
+    //              BSDF's density for the same direction,
+    //   count:     how many samples are taken of this light per shading point.
+    // Points are picked uniformly over the surface (density 1 / A per unit area). Converting to solid angle divides
+    // by the projected solid angle each bit of area covers: pdf = d^2 / (A |cos theta_light|).
+    *sampleLi(surface_position, transform=this.transform, inv_transform=this.inv_transform) {
+        const area = this.surfaceArea(transform);
+        for (const s of this.sampleIterator(surface_position, transform, inv_transform, true)) {
+            const d2 = s.direction.squarednorm();
+            s.pdf = s.cosLight > 0 ? d2 / (area * s.cosLight) : Infinity;
+            yield { direction: s.direction, value: s.color, pdf: s.pdf, delta: false, count: this.samples };
+        }
+    }
+    // For the path integrator: the radiance seen along a ray that hit this light, and the solid angle density with
+    // which sampleLi would have picked that point from the ray's origin (for MIS).
+    emissionAt(ray, distance, ancestorInvTransform) {
+        const world_transform = ancestorInvTransform.is_identity()
+            ? this.transform : Mat4.inverse(ancestorInvTransform).times(this.transform);
+        const inv_transform = this.getInvTransform().times(ancestorInvTransform);
+        const local_ray = ray.getTransformed(inv_transform);
+        const material_data = this.surface_geometry.materialData(
+            { ray: ray, distance: distance, position: local_ray.getPoint(distance) }, ray.direction);
+        const area = this.surfaceArea(world_transform), radianceScale = 1 / (2 * Math.PI * area);
+        const n = inv_transform.transposed().times(material_data.normal).to4(0).normalized();
+        const dirLength = ray.direction.norm(), cosLight = Math.abs(n.dot(ray.direction)) / dirLength;
+        const d = distance * dirLength;
+        const Le = this.color_mc.color(material_data).times(radianceScale);
+        return { Le: [Le[0], Le[1], Le[2]], pdf: cosLight > 0 ? d * d / (area * cosLight) : Infinity, count: this.samples };
+    }
+
+    *sampleIterator(surface_position, transform=this.transform, inv_transform=this.inv_transform, withCos=false) {
         for (let i = 0; i < this.samples; ++i) {
             const local_pos = this.surface_geometry.sampleSurface();
             const world_pos = transform.times(local_pos);
 
             const delta = world_pos.minus(surface_position);
             const material_data = this.surface_geometry.materialData({ position: local_pos }, inv_transform.times(delta));
-            yield {
+            const cosLight = Math.abs(delta.normalized().dot(inv_transform.transposed().times(material_data.normal).to4(0).normalized()));
+            // A point picked uniformly (density 1 / A) carries Le |cos_light| / d^2 per unit area, so its estimate of
+            // the radiance arriving, divided by the pdf, is Le A |cos_light| / d^2 = Phi |cos_light| / (2 pi d^2).
+            const sample = {
                 direction: delta,
-                color: this.color_mc.color(material_data).times(Light.falloff(delta)
-                    * Math.abs(delta.normalized().dot(inv_transform.transposed().times(material_data.normal).to4(0).normalized())))
+                color: this.color_mc.color(material_data).times(cosLight / (2 * Math.PI * delta.squarednorm()))
             };
+            if (withCos)
+                sample.cosLight = cosLight;
+            yield sample;
         }
     }
 }
@@ -183,6 +232,11 @@ class LightInstance {
         return this.ancestors.length
             ? this.light.sampleIterator(surface_position, this.getTransform(), this.getInvTransform())
             : this.light.sampleIterator(surface_position);
+    }
+    sampleLi(surface_position) {
+        return this.ancestors.length
+            ? this.light.sampleLi(surface_position, this.getTransform(), this.getInvTransform())
+            : this.light.sampleLi(surface_position);
     }
     // Sets the light's own (local) transform so that its world transform becomes the one given.
     setWorldTransform(transform, inv_transform=Mat4.inverse(transform)) {

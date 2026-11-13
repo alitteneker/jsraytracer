@@ -37,7 +37,7 @@ export function configureTest(callback) {
         lights.push(new RandomSampleAreaLight(
             new Square(),
             bolttransform.times(boltlighttransform),
-            Vec.of(0,1,0), 10, 4
+            Vec.of(0,1,0), 5, 4
         ));
         objs.push(new Primitive(
             new Sphere(),

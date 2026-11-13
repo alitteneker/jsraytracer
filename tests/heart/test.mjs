@@ -15,7 +15,7 @@ export function configureTest(callback) {
         new Sphere(),
         Mat4.translation(Vec.of(-15, 5, 12, 1)),
         Vec.of(1, 1, 1),
-        7000
+        3500
     )];
     
     const objs = [new Primitive(

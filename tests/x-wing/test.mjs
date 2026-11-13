@@ -15,7 +15,7 @@ export function configureTest(callback) {
                 .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
                 .times(Mat4.scale([0.01, 0.01, 1.5]))
                 .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0))),
-            Vec.of(0,1,0), 10, 4
+            Vec.of(0,1,0), 5, 4
         )
     ];
     

@@ -16,14 +16,14 @@ export function configureTest(callback) {
         new SimplePointLight(
             Vec.of(-3, 10, -4, 1),
             Vec.of(1, 1, 1),
-            300
+            940
         ),
         new SimplePointLight(
             Vec.of(3, 10, -20, 1),
             //Vec.of(12, 1, -40, 1),
             Vec.of(1, 1, 1),
             //10000
-            10000
+            31400
         )
     ];
 

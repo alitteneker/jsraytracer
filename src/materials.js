@@ -130,14 +130,24 @@ class TextureMaterialColor extends MaterialColor {
     }
 }
 
-// Materials color an object, and can take MaterialColors as parameters
+// Materials describe a surface: what it emits and how it scatters light (its BSDF, see src/bsdf.js). They don't
+// trace any rays themselves; that's the integrator's job (src/integrators.js). Materials can take MaterialColors as
+// parameters.
+const toRGB = v => [v[0], v[1], v[2]];
+
 class Material {
     static MATERIAL_UID_GEN = 0;
     constructor() {
         Object.defineProperty(this, "MATERIAL_UID", { value: Material.MATERIAL_UID_GEN++, enumerable: false, configurable: false, writable: false });
     }
-    color(data, world, recursionDepth) {
-        throw "Material subclass has not implemented color";
+    // The surface at a hit: { emission: Vec or null, bsdf: BSDF or null (absorbs everything) }. data comes from
+    // Primitive.surfaceData (ray, position, normal, UV, ...).
+    surface(data) {
+        throw "Material subclass has not implemented surface";
+    }
+    // Whether scenes using this material are meant to be path traced (see Integrator.create).
+    get prefersPathTracing() {
+        return false;
     }
 }
 
@@ -150,8 +160,8 @@ class SolidColorMaterial extends Material {
     static deserialize(data) {
         return new SolidColorMaterial(data._color);
     }
-    color(data, world, recursionDepth) {
-        return this._color.color(data);
+    surface(data) {
+        return { emission: this._color.color(data), bsdf: null };
     }
 }
 
@@ -166,10 +176,12 @@ class TransparentMaterial extends Material {
     static deserialize(data) {
         return new TransparentMaterial(data._color, data._opacity);
     }
-    color(data, world, recursionDepth) {
-        return this._color.color(data).times(this._opacity).plus(
-            world.color(new Ray(data.position, data.ray.direction),
-                recursionDepth, 0.0001).times(1-this._opacity));
+    surface(data) {
+        const t = 1 - this._opacity;
+        return {
+            emission: this._color.color(data).times(this._opacity),
+            bsdf: new BSDF(data.normal).add(new PassThroughLobe(), [t, t, t])
+        };
     }
 }
 
@@ -185,13 +197,19 @@ class PositionalUVMaterial extends Material {
     static deserialize(data) {
         return new PositionalUVMaterial(data.baseMaterial, data.origin, data.u_axis, data.v_axis);
     }
-    color(data, world, recursionDepth) {
+    get prefersPathTracing() {
+        return this.baseMaterial.prefersPathTracing;
+    }
+    surface(data) {
         const delta = this.origin.minus(data.position);
         data.UV = Vec.of(this.u_axis.dot(delta), this.v_axis.dot(delta));
-        return this.baseMaterial.color(data, world, recursionDepth);
+        return this.baseMaterial.surface(data);
     }
 }
 
+// The original Phong material. Its ambient term is treated as emission. Its diffuse and specular terms become a
+// Lambertian lobe and a normalized Phong lobe for path tracing, and its reflectivity and transmissivity become a
+// mirror and a straight pass-through. In Whitted mode, direct light uses the original formula (whittedDirect).
 class PhongMaterial extends Material {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=5, reflectivity=0, transmissivity=0) {
         super();
@@ -237,27 +255,7 @@ class PhongMaterial extends Material {
         });
     }
 
-    colorFromLights(data, world) {
-        let ret = data.ambient;
-        
-        // compute contribution from each light in the world on this fragment
-        for (let l of world.lights) {
-            let light_sample_count = 0,
-                light_color = Vec.of(0,0,0);
-            for (const light_sample of l.sampleIterator(data.position)) {
-                ++light_sample_count;
-                // test whether this light sample is shadowed
-                const shadowDist = world.cast(new Ray(data.position, light_sample.direction), 0.0001, 1, false).distance;
-                if (shadowDist > 0 && shadowDist < 1)
-                    continue;
-                light_color = light_color.plus(this.colorFromLightSample(light_sample, data));
-            }
-            if (light_sample_count > 0)
-                ret = ret.plus(light_color.times(1/light_sample_count));
-        }
-        return ret;
-    }
-
+    // Original Whitted-mode response to one light sample (light_sample.color is the light's irradiance-like color).
     colorFromLightSample(light_sample, data) {
         const L = light_sample.direction.normalized();
 
@@ -268,29 +266,33 @@ class PhongMaterial extends Material {
             .plus(light_sample.color.mult_pairs(data.specularity.times(specular)));
     }
 
-    color(data, world, recursionDepth) {
+    // A BSDF whose frame faces the viewer (these materials are two-sided), with this material's legacy Whitted
+    // shading attached.
+    legacyBSDF(data) {
+        const bsdf = new BSDF(data.N);
+        bsdf.whittedDirect = light_sample => this.colorFromLightSample(light_sample, data);
+        return bsdf;
+    }
+    // A Phong lobe for the given world-space axis on the given side, unless the lobe is a perfect mirror.
+    static phongLobe(bsdf, axisW, smoothness, side) {
+        return isFinite(smoothness) ? new PhongLobe(BSDFMath.normalize(bsdf.toLocal(axisW)), smoothness, side) : null;
+    }
+
+    surface(data) {
         this.getBaseFactors(data);
-
-        let surfaceColor = this.colorFromLights(data, world);
-
-        // reflection
-        if (data.reflectivity.squarednorm() > 0) {
-            surfaceColor = surfaceColor.plus(
-                world.color(new Ray(data.position, data.R), recursionDepth, 0.0001)
-                    .mult_pairs(data.reflectivity));
-        }
-        
-        // transmission: partial opacity
-        if (data.transmissivity.squarednorm() > 0) {
-            surfaceColor = surfaceColor.plus(
-                world.color(new Ray(data.position, data.ray.direction.normalized()), recursionDepth, 0.0001)
-                    .mult_pairs(data.transmissivity));
-        }
-        
-        return surfaceColor;
+        const bsdf = this.legacyBSDF(data);
+        bsdf.add(new LambertLobe(), toRGB(data.diffusivity));
+        const phong = PhongMaterial.phongLobe(bsdf, data.R, this.smoothness, 1);
+        if (phong)
+            bsdf.add(phong, toRGB(data.specularity));
+        bsdf.add(new MirrorLobe(), toRGB(data.reflectivity));
+        bsdf.add(new PassThroughLobe(), toRGB(data.transmissivity));
+        return { emission: data.ambient, bsdf: bsdf };
     }
 }
 
+// Phong with a Fresnel-weighted split between reflection and refraction, controlled by refractiveIndexRatio
+// (Infinity for an opaque surface).
 class FresnelPhongMaterial extends PhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=1, reflectivity=1, transmissivity=1) {
         super(baseColor, ambient, diffusivity, specularity, smoothness, reflectivity, transmissivity);
@@ -306,37 +308,40 @@ class FresnelPhongMaterial extends PhongMaterial {
             refractionDirection : this.getRefractionDirection(data)
         });
     }
-    color(data, world, recursionDepth) {
-        this.getBaseFactors(data);
-
-        let surfaceColor = this.colorFromLights(data, world);
-        
-        // reflection
-        if (data.kr > 0) {
-            let [dir, col, exact] = this.scatter(data.R, data.N, data);
-            if (dir)
-                surfaceColor = surfaceColor.plus(
-                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001, exact !== false)
-                        .times(col).times(data.reflectivity).times(data.kr));
-        }
-
-        // refraction
-        if (data.kr < 1) {
-            let [dir, col, exact] = this.scatter(data.refractionDirection, data.N.times(-1), data);
-            if (dir && col)
-                surfaceColor = surfaceColor.plus(
-                    world.color(new Ray(data.position, dir), recursionDepth, 0.0001, exact !== false)
-                        .times(col).times(data.transmissivity).times(1 - data.kr));
-        }
-        
-        return surfaceColor;
+    // The ratio of indices on the viewer's side to the far side, as the dielectric lobes expect it.
+    eta(data) {
+        return data.backside ? this.refractiveIndexRatio : 1 / this.refractiveIndexRatio;
     }
-    
-    // Returns [direction, color weight, exact]. `exact` is true when the direction wasn't randomly sampled from a lobe
-    // (a perfect mirror or refraction), which tells World.color whether a light hit directly should count its own
-    // emission (see lights.js). Omitted (undefined) means exact.
-    scatter(R, N, data) {
-        return [R, Vec.of(1,1,1), true];
+    // The perfectly specular part: Fresnel-split mirror reflection and refraction, tinted.
+    deltaLobe(data) {
+        return isFinite(this.refractiveIndexRatio)
+            ? new SmoothDielectricLobe(this.eta(data), toRGB(data.reflectivity), toRGB(data.transmissivity))
+            : null;
+    }
+    // Diffuse and glossy lobes on both sides, split by kr (the legacy model also scatters around the refracted ray).
+    addRoughLobes(bsdf, data, scale) {
+        const kr = data.kr, s = c => toRGB(c).map(x => x * scale);
+        bsdf.add(new LambertLobe(1), s(data.diffusivity.times(kr)));
+        const phongR = PhongMaterial.phongLobe(bsdf, data.R, this.smoothness, 1);
+        if (phongR)
+            bsdf.add(phongR, s(data.specularity.times(kr)));
+        if (kr < 1 && data.refractionDirection) {
+            bsdf.add(new LambertLobe(-1), s(data.diffusivity.times(1 - kr)));
+            const phongT = PhongMaterial.phongLobe(bsdf, data.refractionDirection, this.smoothness, -1);
+            if (phongT)
+                bsdf.add(phongT, s(data.specularity.times(1 - kr)));
+        }
+    }
+    surface(data) {
+        this.getBaseFactors(data);
+        const bsdf = this.legacyBSDF(data);
+        this.addRoughLobes(bsdf, data, 1);
+        const delta = this.deltaLobe(data);
+        if (delta)
+            bsdf.add(delta, [1, 1, 1]);
+        else
+            bsdf.add(new MirrorLobe(), toRGB(data.reflectivity));
+        return { emission: data.ambient, bsdf: bsdf };
     }
 
     // override this to correspond to the way that light passes through Fresnel materials
@@ -389,6 +394,9 @@ class FresnelPhongMaterial extends PhongMaterial {
     }
 }
 
+// The original path tracing material. Its sampler picked one lobe per bounce: a mirror with probability
+// mirrorProbability, otherwise diffuse or glossy in proportion to their strengths. As a BSDF that's a mixture with
+// those probabilities as weights, on each side of the Fresnel split.
 class PhongPathTracingMaterial extends FresnelPhongMaterial {
     constructor(baseColor, ambient=1, diffusivity=0, specularity=0, smoothness=0, refractiveIndexRatio=Infinity, mirrorProbability=0) {
         super(baseColor, ambient, diffusivity, specularity, smoothness, refractiveIndexRatio, Vec.of(1,1,1), isFinite(refractiveIndexRatio) ? Vec.of(1,1,1) : Vec.of(0,0,0));
@@ -397,88 +405,126 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
     static deserialize(data) {
         return new PhongPathTracingMaterial(data.baseColor, data.ambient, data.diffusivity, data.specularity, data.smoothness, data.refractiveIndexRatio, data.mirrorProbability);
     }
-    
-    scatter(R, N, data) {
-        if (Math.random() < this.mirrorProbability)
-            return [R, Vec.of(1,1,1), true];
-        
-        let diffuseProb = data.diffusivity.average(),
-            specularProb = data.specularity.average();
-        const probSum = diffuseProb + specularProb;
-        if (probSum == 0)
-            return [null, null];
-        
-        if (Math.random() < (diffuseProb / probSum))
-            return [PhongPathTracingMaterial.scatterDiffuse(N), data.diffusivity, false];
-        
-        const specularDir = PhongPathTracingMaterial.scatterSpecular(R, N, data.smoothness);
-        return [specularDir, data.specularity, !isFinite(data.smoothness)];
+    get prefersPathTracing() {
+        return true;
     }
-    
-    static getFurthestAxis(R) {
-        let best_axis = Vec.of(1,0,0,0);
-        let best_score = 1.0 - Math.abs(R.dot(best_axis));
-        for (let i = 1; i < 3; ++i) {
-            const axis = Vec.axis(i, 4);
-            const score = 1.0 - Math.abs(R.dot(axis));
-            if (score > best_score) {
-                best_score = score;
-                best_axis  = axis;
+    // The original path tracer bounced light off these surfaces with a mirror (with mirrorProbability) or, otherwise,
+    // the diffuse and glossy lobes in proportion to their strengths; this BSDF is that mixture. (Its direct lighting
+    // used the full diffuse and glossy lobes regardless, which a single BSDF can't do without gaining energy, so a
+    // surface with a high mirrorProbability now shows less diffuse shading from lights than it used to.)
+    surface(data) {
+        this.getBaseFactors(data);
+        const bsdf = this.legacyBSDF(data);
+        const m = this.mirrorProbability;
+        const pd = data.diffusivity.average(), ps = data.specularity.average(), sum = pd + ps;
+        if (sum > 0 && m < 1) {
+            // Diffuse and glossy share the non-mirror probability in proportion to their strengths.
+            const d = data.diffusivity.times((1 - m) * pd / sum), sp = data.specularity.times((1 - m) * ps / sum);
+            const scaled = Object.assign({}, data, { diffusivity: d, specularity: sp });
+            this.addRoughLobes(bsdf, scaled, 1);
+            // An infinitely smooth glossy lobe is a mirror.
+            if (!isFinite(this.smoothness))
+                bsdf.add(this.deltaLobe(data) || new MirrorLobe(), toRGB(sp));
+        }
+        if (m > 0)
+            bsdf.add(this.deltaLobe(data) || new MirrorLobe(), [m, m, m]);
+        return { emission: data.ambient, bsdf: bsdf };
+    }
+}
+
+// A physically based material in the style of Cycles' Principled BSDF (and close to glTF's metallic-roughness model
+// and OpenPBR), built from microfacet lobes (src/bsdf.js). It's a blend of three materials:
+//   metal       (weight metallic):                                GGX reflection, Fresnel tinted by baseColor
+//   glass       (weight (1 - metallic) * transmission):           GGX reflection and refraction, transmission tinted
+//   dielectric  (weight (1 - metallic) * (1 - transmission)):     GGX specular reflection over a diffuse base
+// Parameters can be numbers, colors, or MaterialColors (textures); scalar parameters read the red channel.
+//   roughness: perceptual roughness in [0, 1]; the GGX alpha is roughness^2, which spreads the visual change evenly.
+//   ior: index of refraction, for the specular layer and glass. 1.5 reflects 4% head on, like most plastics and glass.
+//   emission, emissionStrength: emitted radiance.
+class PrincipledMaterial extends Material {
+    constructor({ baseColor = Vec.of(0.8, 0.8, 0.8), metallic = 0, roughness = 0.5, ior = 1.5, transmission = 0,
+                  emission = Vec.of(0, 0, 0), emissionStrength = 1 } = {}) {
+        super();
+        this.baseColor = MaterialColor.coerce(baseColor);
+        this.metallic = metallic;
+        this.roughness = roughness;
+        this.ior = ior;
+        this.transmission = transmission;
+        this.emission = MaterialColor.coerce(emission);
+        this.emissionStrength = emissionStrength;
+    }
+    static deserialize(data) {
+        return new PrincipledMaterial(data);
+    }
+    get prefersPathTracing() {
+        return true;
+    }
+    static scalar(p, data) {
+        return (typeof p == "number") ? p : MaterialColor.coerce(p).color(data)[0];
+    }
+    // Below this alpha, lobes are treated as perfectly smooth (delta) lobes.
+    static SMOOTH_ALPHA = 1e-3;
+    // Multiple scattering compensation for rough metals (Kulla and Conty). Turn off to see single scattering alone.
+    static MULTISCATTER = true;
+
+    surface(data) {
+        const V = data.ray.direction.normalized().times(-1);
+        let N = data.normal.normalized();
+        const backside = V.dot(N) < 0;
+        if (backside)
+            N = N.times(-1);
+        const mu = Math.min(1, Math.abs(V.dot(N)));
+
+        const base = toRGB(this.baseColor.color(data));
+        const metallic = Math.min(Math.max(PrincipledMaterial.scalar(this.metallic, data), 0), 1);
+        const transmission = Math.min(Math.max(PrincipledMaterial.scalar(this.transmission, data), 0), 1);
+        const roughness = Math.min(Math.max(PrincipledMaterial.scalar(this.roughness, data), 0), 1);
+        const ior = Math.max(PrincipledMaterial.scalar(this.ior, data), 1.0001);
+        const alpha = roughness * roughness, smooth = alpha < PrincipledMaterial.SMOOTH_ALPHA;
+        const ggx = new GGX(alpha);
+
+        const bsdf = new BSDF(N);
+        const wMetal = metallic, wGlass = (1 - metallic) * transmission, wDielectric = (1 - metallic) * (1 - transmission);
+
+        if (wMetal > 0) {
+            if (smooth)
+                bsdf.add(new MirrorLobe(), BSDFMath.fresnelSchlick(mu, base).map(f => f * wMetal));
+            else {
+                bsdf.add(new MicrofacetConductorLobe(ggx, base), [wMetal, wMetal, wMetal]);
+                // Return the energy single scattering loses (see MultiscatterLobe).
+                if (PrincipledMaterial.MULTISCATTER) {
+                    const ms = new MultiscatterLobe(alpha, AlbedoTable.whiteConductor());
+                    const tint = MultiscatterLobe.tint(base, ms.Eavg).map(c => c * wMetal);
+                    bsdf.add(ms, tint, BSDFMath.average(tint) * (1 - ms.E(mu)));
+                }
             }
         }
-        return best_axis;
-    }
-    static getSpaceTransform(R) {
-        let space_transform = Mat4.identity();
-        
-        const i = PhongPathTracingMaterial.getFurthestAxis(R).cross(R).normalized().to4();
-        space_transform.set_col(0, i);
-        space_transform.set_col(1, R);
-        space_transform.set_col(2, R.cross(i).to4());
-        
-        return space_transform;
-    }
-    
-    static scatterDiffuse(N, data) {
-        return N.plus(Vec.spherePick().to4()).normalized();
-    }
-    static scatterSpecular(R, N, smoothness, data) {
-        const EPSILON = 0.00001;
-        
-        // An infinitely smooth lobe is a perfect mirror. (This used to test isFinite, which made every finite-
-        // smoothness glossy surface a mirror on the CPU, unlike the GLSL glossyScatter.)
-        if (!isFinite(smoothness))
-            return R;
-        
-        const space_transform = PhongPathTracingMaterial.getSpaceTransform(R);
-        
-        // spherical coordinates following the PDF for Phong
-        const theta = 2.0 * Math.PI * Math.random();
-        const sin_theta = Math.sin(theta), cos_theta = Math.cos(theta);
-        
-        const forward = space_transform.times(Vec.of(cos_theta, 0,  sin_theta, 0));
-        const right   = space_transform.times(Vec.of(sin_theta, 0, -cos_theta, 0));
-        
-        // right is nearly parallel to N here, and forward (⊥ right) is then also ⊥ N, so it's a valid fallback
-        let phiN = (1.0 - Math.abs(right.dot(N)) > EPSILON) ? N.cross(right).normalized().to4(0) : forward;
-        if (phiN.dot(forward) < -EPSILON)
-            phiN = phiN.times(-1);
-        const maxPhi = Math.acos(Math.max(R.dot(phiN), 0));
-        const minRand = Math.pow(Math.cos(maxPhi - EPSILON), smoothness + 1);
+        if (wGlass > 0) {
+            // Entering from the front the far side is the dense one; from the back it's air.
+            const etap = backside ? 1 / ior : ior;
+            if (smooth)
+                bsdf.add(new SmoothDielectricLobe(1 / etap, [1, 1, 1], base), [wGlass, wGlass, wGlass]);
+            else {
+                // Energy lost to light bouncing between facets is returned by scaling the lobe by 1 / E(mu_o), its
+                // single-scattering albedo from this side (Turquin 2019). It keeps the lobe's shape, but isn't
+                // reciprocal; Kulla and Conty's lobe (used for metals) is, but is much harder to build for refraction.
+                const k = PrincipledMaterial.MULTISCATTER
+                    ? 1 / Math.max(0.05, AlbedoTable.lookup(AlbedoTable.dielectricTotal(etap), mu, alpha)) : 1;
+                bsdf.add(new MicrofacetDielectricLobe(ggx, etap, [1, 1, 1], base), [wGlass * k, wGlass * k, wGlass * k], wGlass);
+            }
+        }
+        if (wDielectric > 0) {
+            // Opaque: treated as two-sided, entering the dense side whichever side is hit.
+            const E = smooth ? BSDFMath.fresnelDielectric(mu, 1 / ior) : AlbedoTable.lookup(AlbedoTable.dielectricSpecular(ior), mu, alpha);
+            if (smooth)
+                bsdf.add(new MirrorLobe(), [E * wDielectric, E * wDielectric, E * wDielectric]);
+            else
+                bsdf.add(new MicrofacetDielectricLobe(ggx, ior, [1, 1, 1], [1, 1, 1], true),
+                    [wDielectric, wDielectric, wDielectric], wDielectric * E);
+            bsdf.add(new LambertLobe(), base.map(c => c * wDielectric * (1 - E)));
+        }
 
-        const phi = Math.acos(Math.pow((1.0-minRand) * Math.random() + minRand, 1.0 / (smoothness + 1)));
-
-        // convert spherical to local Cartesian, then to world space
-        const sin_phi = Math.sin(phi), cos_phi = Math.cos(phi);
-        let ret = space_transform.times(Vec.of(
-            cos_theta * sin_phi,
-                        cos_phi,
-            sin_theta * sin_phi, 0));
-        
-        if (ret.dot(N) < 0)
-            return R;
-        
-        return ret;
+        const emission = this.emission.color(data).times(PrincipledMaterial.scalar(this.emissionStrength, data));
+        return { emission: (emission[0] || emission[1] || emission[2]) ? emission : null, bsdf: bsdf };
     }
-    
 }

@@ -27,8 +27,12 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 - **Signed distance fields.** Build shapes from functional operators (unions, intersections, repetition,
   fractals like the Menger sponge and Sierpinski tetrahedron) and render them by ray marching, mixed freely with
   ordinary geometry.
-- **Path tracing or Whitted-style.** Choose classic Phong shading with exact reflection and refraction, or full
-  path tracing over an approximate Phong BRDF with Fresnel effects.
+- **Physically based materials.** A Principled-style material (base color, metallic,
+  roughness, IOR, transmission) built from GGX microfacet lobes, with multiple scattering compensation so rough
+  metals and glass keep their energy, as in Cycles. See [Materials.md](Materials.md).
+- **Path tracing or Whitted-style.** Unbiased path tracing with next-event estimation and multiple importance
+  sampling, or classic Whitted shading with exact reflection and refraction. Materials only describe surfaces (a
+  BSDF); the integrator decides how light is transported.
 - **Real assets.** Loads OBJ and MTL files with textures. Scenes can be serialized to JSON or MessagePack.
 
 ## The two renderers
@@ -55,12 +59,17 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
   skipped when a light can't contribute
 
 **Shading**
-- Phong materials with reflection, refraction and transmission
-- Fresnel effects and path tracing over an approximate Phong BRDF, with diffuse, glossy and mirror lobes
+- Materials return a BSDF (lobes with `eval`, `sample` and `pdf`); integrators do the transport
+- `PrincipledMaterial`: GGX metals, rough and smooth glass, and plastics (specular over diffuse), with Kulla-Conty
+  and Turquin energy compensation
+- The original Phong materials, with reflection, refraction and transmission, rendered exactly as before in Whitted
+  mode
+- Path tracing with next-event estimation, multiple importance sampling and Russian roulette, on both renderers
 - Solid, checkerboard and texture-mapped material colors
 
 **Lights**
 - Point lights, and area lights in any supported shape (square, circle, sphere and more), sampled by area
+- Physical units: a light's color times intensity is the power it emits
 - Lights are scene objects: they can be hit by rays, picked and edited in the GPU editor, and placed inside groups
 - Direct light sampling combined with visible emission, without counting any light twice
 
@@ -94,6 +103,7 @@ The `tests/` folder holds more than thirty scenes, listed in [`tests/list.json`]
 | `ASimpleScene` | The basic geometry types under a single point light |
 | `refraction`, `diamond`, `bottle` | Glass and refraction |
 | `cornell_box_path` | Path-traced global illumination from an area light |
+| `pbr_materials` | Principled materials: plastic, gold and glass from smooth to rough |
 | `BoxBall_DOF` | Depth of field |
 | `bunny`, `dragon` | Large triangle meshes in a BVH |
 | `starwars` | Instanced meshes, glowing laser bolts and depth of field together |
@@ -135,8 +145,8 @@ export function configureTest(callback) {
 ## Under the hood
 
 ```
-src/        The scene model and CPU tracer: math, geometry, materials, lights, cameras, aggregates (BVH),
-            SDFs, OBJ loading, serialization, and the Web Worker renderer.
+src/        The scene model and CPU tracer: math, geometry, materials, BSDFs, integrators, lights, cameras,
+            aggregates (BVH), SDFs, OBJ loading, serialization, and the Web Worker renderer.
 gl/         The GPU renderer: adapters that walk the scene graph and generate GLSL for it, plus the editor UI.
 tests/      Example scenes, one folder each.
 assets/     Models and textures used by the scenes.
@@ -159,10 +169,11 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 
 ## Roadmap
 
+- Principled materials in the editor's Add menu
+- Normal maps, tangents and glTF loading
+- Clearcoat, sheen and the F82 metal Fresnel model
 - Adding meshes and grouping objects from the editor
-- Russian roulette path termination
 - Solid angle sampling for area lights
-- A Disney principled BSDF
 - Adaptive multisampling
 
 ## License

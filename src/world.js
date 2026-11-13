@@ -66,18 +66,22 @@ class World {
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
         return World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);
     }
-    // countEmission: whether a light hit directly by this ray should contribute its emission. See the comment at the
-    // top of lights.js: true for camera rays and exact (mirror/refraction) bounces, false for sampled bounces.
-    color(ray, recursionDepth, minDistance = 0, countEmission = true) {
-        if (!recursionDepth)
-            return Vec.of(0,0,0);
-        const intersection = this.cast(ray, minDistance);
-        if (intersection.object == null)
-            return this.bg_color;
-        let ancestorInvTransform = Mat4.identity();
-        for (let i = 0; i < intersection.ancestors.length; ++i)
-            ancestorInvTransform = intersection.ancestors[i].getInvTransform().times(ancestorInvTransform);
-        return intersection.object.color(ray, intersection.distance, ancestorInvTransform, this, recursionDepth - 1, countEmission);
+    // Whitted-style color along a ray. Kept for convenience; renderers use an Integrator (see src/integrators.js).
+    color(ray, recursionDepth, minDistance = 0) {
+        return new WhittedIntegrator(this).radiance(ray, recursionDepth, minDistance);
+    }
+    // Whether any material reachable from this world's objects satisfies pred.
+    anyMaterial(pred) {
+        const seen = new Set();
+        const visit = o => {
+            if (!o || seen.has(o)) return false;
+            seen.add(o);
+            if (o instanceof Primitive) return !!(o.material && pred(o.material));
+            if (o instanceof TransformedWorldObject) return visit(o.object);
+            if (o instanceof Aggregate) return o.objects.some(visit);
+            return false;
+        };
+        return this.objects.some(visit);
     }
 }
 
@@ -162,7 +166,9 @@ class Primitive extends WorldObject {
             object: this
         };
     }
-    color(ray, distance, ancestorInvTransform, world, recursionDepth) {
+    // Everything a material needs about a hit: the ray, the world-space position and normal, and the geometry's
+    // own data (UV, vertex colors, ...).
+    surfaceData(ray, distance, ancestorInvTransform) {
         const inv_transform = this.getInvTransform().times(ancestorInvTransform);
         let base_data = {
             ray: ray,
@@ -173,7 +179,7 @@ class Primitive extends WorldObject {
         if ('normal' in material_data)
             material_data.normal = inv_transform.transposed().times(material_data.normal).to4(0).normalized();
         material_data.position = ray.getPoint(distance);
-        return this.material.color(material_data, world, recursionDepth);
+        return material_data;
     }
     buildBoundingBox() {
         return this.geometry.getBoundingBox(this.getTransform(), this.getInvTransform());
