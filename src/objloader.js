@@ -10,9 +10,16 @@ function makeMaterial(data, isPath) {
     const ambient  = makeMaterialColor(data.map_Ka, data.Ka),
           diffuse  = makeMaterialColor(data.map_Kd, data.Kd),
           specular = makeMaterialColor(data.map_Ks, data.Ks),
-          smoothness      = data.Ns || 0,
-          refractionIndex = data.Ni || Infinity;
-    // TODO: add support for illum, Tr/Tf, bump?
+          smoothness      = data.Ns || 0;
+    // Ni (optical density) only matters for a transparent material: one whose illumination model has refraction
+    // (illum 4, 6, 7 or 9) or that is partly dissolved (d < 1, or Tr > 0). Exporters write Ni for every material
+    // (Tie_Fighter.mtl has Ni 1.0 on its opaque illum 2 hull), so treating any Ni as an index of refraction makes opaque
+    // surfaces fully transmissive: with Ni = 1 there is no Fresnel reflection at all, and the camera sees straight
+    // through them.
+    const dissolve    = data.d !== undefined ? data.d : (data.Tr !== undefined ? 1 - data.Tr : 1),
+          transparent = [4, 6, 7, 9].includes(data.illum) || dissolve < 1,
+          refractionIndex = (transparent && data.Ni > 0) ? data.Ni : Infinity;
+    // TODO: add support for Tf, partial dissolve, bump?
     if (isPath || isFinite(refractionIndex))
         return new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
             Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);
