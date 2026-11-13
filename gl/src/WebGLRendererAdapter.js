@@ -232,6 +232,7 @@ class WebGLRendererAdapter {
             canvasWidth      : { label: "Canvas Width",       value: this.canvas.width,     type: "number", step: 1, min: 0 },
             canvasHeight     : { label: "Canvas Height",      value: this.canvas.height,    type: "number", step: 1, min: 0 },
             
+            worldEditable    : { label: "Editable Shader",    value: !!this.adapters.world.WORLD_EDITABLE, type: "bool" },
             doRandomSample   : { label: "Do Random Sample",   value: this.doRandomSample,   type: "bool"  },
             colorLogScale    : { label: "Color Log Scale",    value: this.colorLogScale,    type: "number", step: 0.1, min: 0 },
             maxBounceDepth   : { label: "Max Bounce Depth",   value: this.maxBounceDepth,   type: "number", step: 1,   min: 0 },
@@ -246,6 +247,8 @@ class WebGLRendererAdapter {
     }
     
     rendererParameterModified(name, value) {
+        if (name == "worldEditable")
+            return;   // needs a new adapter; see WebGLEditorInterface.setWorldEditable
         if (name == "canvasWidth" || name == "canvasHeight")
             this.resizeCanvas(name == "canvasWidth"  ? value : this.canvas.width,
                               name == "canvasHeight" ? value : this.canvas.height);

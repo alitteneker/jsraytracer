@@ -109,7 +109,9 @@ $(document).ready(function() {
         
         const test = $("#test-select").val();
         
-        window.history.pushState({ test: test }, test, test ? ("?test=" + test) : "");
+        // Keep the shader mode (?worldEditable=true) across scene changes.
+        const params = test ? "?test=" + test + (WebGLRendererAdapter.worldEditable ? "&worldEditable=true" : "") : "";
+        window.history.pushState({ test: test }, test, params);
         
         if (test === "")
             return;

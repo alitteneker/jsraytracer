@@ -254,7 +254,8 @@ class WebGLEditorInterface {
     }
     
     renderer_adapter = null;
-    changeTest(test) {
+    // beforeControls(adapter), if given, runs once the new adapter is built, before the controls are filled in.
+    changeTest(test, beforeControls=null) {
         if (this.renderer_adapter) {
             if (this.selectedObject)
                 this.selectObject(null);
@@ -273,6 +274,8 @@ class WebGLEditorInterface {
 
             WebGLRendererAdapter.build(this.gl, this.canvas.get(0), test.renderer, function(adapter) {
                 this.renderer_adapter = adapter;
+                if (beforeControls)
+                    beforeControls(adapter);
                 
                 // Set the initial values for the controls
                 this.initializeRendererControls(adapter);
@@ -312,8 +315,37 @@ class WebGLEditorInterface {
     }
     
     
+    // Switches to or from the editable shader (?worldEditable=true) by rebuilding the renderer around the same scene
+    // and camera. Both hold every edit made so far (the adapters write edits back into them), so nothing is lost;
+    // display settings carry over too. Takes as long as loading the scene's shader does.
+    setWorldEditable(editable) {
+        const ra = this.renderer_adapter;
+        editable = !!editable;
+        if (!ra || !!ra.adapters.world.WORLD_EDITABLE == editable)
+            return;
+        WebGLRendererAdapter.worldEditable = editable;
+        const url = new URL(window.location.href);
+        if (editable)
+            url.searchParams.set("worldEditable", "true");
+        else
+            url.searchParams.delete("worldEditable");
+        window.history.replaceState(window.history.state, "", url);
+
+        const settings = ra.getMutableRendererParameters(), samples = this.samplesPerDraw;
+        this.stopDrawLoop();
+        $(".loading").css('visibility', 'visible');
+        myconsole.log(`Switching to the ${editable ? "editable" : "scene-specific"} shader...`);
+        this.changeTest({ renderer: ra.renderer, width: ra.canvas.width, height: ra.canvas.height }, adapter => {
+            for (const [name, p] of Object.entries(settings))
+                if (!["canvasWidth", "canvasHeight", "worldEditable"].includes(name))
+                    adapter.rendererParameterModified(name, p.value);
+            $("#samples-per-draw").val(this.samplesPerDraw = samples);
+        });
+    }
     initializeRendererControls(renderer_adapter) {
         UIProperties.fillPropertyControls($('#renderer-controls'), renderer_adapter.getMutableRendererParameters(),  (function(name, prop, target, value) {
+            if (name == "worldEditable")
+                return this.setWorldEditable(value);
             if (this.renderer_adapter)
                 this.renderer_adapter.rendererParameterModified(name, value);
         }).bind(this));

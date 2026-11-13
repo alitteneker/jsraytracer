@@ -91,8 +91,10 @@ On Windows, `host.bat` does the same thing. Then open:
 - `http://localhost:8000/` for the CPU renderer
 
 Pick a scene from the dropdown, or jump straight to one with `?test=<name>`, for example
-`http://localhost:8000/gl/?test=dragon`. Add `&worldEditable=true` to build the editable shader, which reads the scene
-from textures instead of compiling it in. It renders a little slower, but adding and removing objects is then instant.
+`http://localhost:8000/gl/?test=dragon`. The **Editable Shader** checkbox in the Renderer panel (or
+`&worldEditable=true` in the URL) switches to a shader that reads the scene from textures instead of compiling it in.
+It renders a little slower, but adding and removing objects is then instant. Switching keeps the scene, the camera and
+every edit made so far.
 
 ### Scenes
 
