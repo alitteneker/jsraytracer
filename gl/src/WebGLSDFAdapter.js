@@ -95,6 +95,9 @@ class WebGLSDFAdapter {
         renderer_adapter.resetDrawCount();
     }
     getShaderSourceDeclarations(sceneEditable) {
+        // Bake SDF parameters into the scene-specific shader as constants (see WebGLSDFDecorator.param). The
+        // editable shader keeps uniforms, so that editing them stays instant.
+        this.useConstants = WebGLRendererAdapter.sdfConstants && !sceneEditable && !this.forceUniforms;
         return `
             // =============== SDF ===============
             float sdfIntersect(in Ray r, in float minDistance, in int sdfID);
@@ -150,15 +153,30 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
             uniform float sdf_${i}_distance_epsilon;
             uniform float sdf_${i}_max_trace_distance;
             uniform float sdf_${i}_normal_step_size;
+            uniform vec3 sdf_${i}_aabb_min;
+            uniform vec3 sdf_${i}_aabb_max;
         
             float sdfGeometryDistance_${i}(in vec4 position) {
                 return ${this.sdfs[g.root_sdf.UID].getDistanceShaderSource("position")};
             }
             float sdfIntersect_${i}(in Ray r, in float minDistance) {
-                float t = minDistance;
                 float rd_norm = length(r.d);
+                float t = minDistance, tEnd = minDistance + sdf_${i}_max_trace_distance / rd_norm;${WebGLRendererAdapter.debugSDFBounds ? `
+                // March only inside the SDF's bounding box (a slab test, in the SDF's own space): start where the
+                // ray enters it and stop where it leaves. Rays that miss it entirely cost nothing.
+                {
+                    vec3 invD = 1.0 / r.d.xyz;
+                    vec3 t0 = (sdf_${i}_aabb_min - r.o.xyz) * invD, t1 = (sdf_${i}_aabb_max - r.o.xyz) * invD;
+                    vec3 tn = min(t0, t1), tf = max(t0, t1);
+                    float tEnter = max(max(tn.x, tn.y), tn.z), tExit = min(min(tf.x, tf.y), tf.z);
+                    if (tExit < tEnter || tExit < minDistance)
+                        return minDistance - 1.0;
+                    if (!isnan(tEnter) && !isnan(tExit)) {
+                        t = max(t, tEnter);
+                        tEnd = min(tEnd, tExit + sdf_${i}_distance_epsilon / rd_norm);
+                    }
+                }` : ``}
                 for (int i = 0; i < sdf_${i}_max_samples; ++i) {
-                    vec4 p = r.o + t * r.d;
                     float distance = sdfGeometryDistance_${i}(r.o + t * r.d);
                     
                     if (isinf(distance) || isnan(distance))
@@ -168,7 +186,7 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
                         return t;
                     
                     t += distance / rd_norm;
-                    if (t < minDistance || (t - minDistance) * rd_norm > sdf_${i}_max_trace_distance)
+                    if (t < minDistance || t > tEnd)
                         break;
                 }
                 return minDistance - 1.0;
@@ -187,10 +205,16 @@ ${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialD
     }
     writeGeometryShaderData(gl, program, i) {
         const g = this.geometries[i];
+        // Editing an SDF's parameters can change its extent, so the bounds are recomputed on every write.
+        g.aabb = g.root_sdf.getBoundingBox(Mat4.identity(), Mat4.identity());
         gl.uniform1i(gl.getUniformLocation(program, `sdf_${i}_max_samples`),        g.max_samples);
         gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_distance_epsilon`),   g.distance_epsilon);
         gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_max_trace_distance`), g.max_trace_distance);
         gl.uniform1f(gl.getUniformLocation(program, `sdf_${i}_normal_step_size`),   g.normal_step_size);
+        // Infinite bounds (repetition) are clamped to a large finite value; the slab test then never clips.
+        const finite = v => [0, 1, 2].map(k => Math.max(-1e30, Math.min(1e30, v[k])));
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_${i}_aabb_min`), finite(g.aabb.min));
+        gl.uniform3fv(gl.getUniformLocation(program, `sdf_${i}_aabb_max`), finite(g.aabb.max));
     }
     writeShaderData(gl, program) {
         for (let i = 0; i < this.geometries.length; ++i)
@@ -209,6 +233,42 @@ class WebGLSDFDecorator {
         this.ID = adapter.ID_GEN++;
     }
     writeShaderData(gl, program) {}
+
+    // An SDF parameter is either a uniform, written by writeShaderData, or a constant baked into the shader, which
+    // lets the compiler fold it: zeros in a matrix, infinite box sizes, fixed loop counts. See
+    // WebGLRendererAdapter.sdfConstants and modifyProperty.
+    get constants() { return !!this._adapter.useConstants; }
+    static glslFloat(x) {
+        if (!isFinite(x))
+            return x > 0 ? "1e30" : "-1e30";
+        const s = String(Number(x));
+        return /[.e]/.test(s) ? s : s + ".0";
+    }
+    static glslLiteral(type, value) {
+        const F = WebGLSDFDecorator.glslFloat;
+        if (type == "float") return F(value);
+        if (type == "int")   return String(Math.round(value));
+        if (type == "vec3")  return `vec3(${[0, 1, 2].map(i => F(value[i])).join(", ")})`;
+        if (type == "vec4")  return `vec4(${[0, 1, 2, 3].map(i => F(value[i])).join(", ")})`;
+        // mat4 values are row-major (as uploaded with transpose = true); GLSL's constructor takes columns.
+        if (type == "mat4")  return `mat4(${[0, 1, 2, 3].map(c => [0, 1, 2, 3].map(r => F(value[r * 4 + c]))).flat().join(", ")})`;
+        throw "Unsupported SDF parameter type " + type;
+    }
+    param(type, name, value) {
+        return this.constants
+            ? `const ${type} ${name} = ${WebGLSDFDecorator.glslLiteral(type, value)};`
+            : `uniform ${type} ${name};`;
+    }
+    writeParam(gl, program, type, name, value) {
+        if (this.constants)
+            return;
+        const loc = gl.getUniformLocation(program, name);
+        if (type == "float")     gl.uniform1f(loc, value);
+        else if (type == "int")  gl.uniform1i(loc, value);
+        else if (type == "vec3") gl.uniform3fv(loc, value.slice(0, 3));
+        else if (type == "vec4") gl.uniform4fv(loc, value.slice(0, 4));
+        else if (type == "mat4") gl.uniformMatrix4fv(loc, true, value);
+    }
     getShaderSourceDeclarations() {
         return "";
     }
@@ -235,9 +295,20 @@ class WebGLSDFDecorator {
     }
     modifyProperty(renderer_adapter, key, newvalue) {
         this.raw[key] = newvalue;
+        if (this.constants) {
+            // The value was compiled into the shader. Rebuild it once with uniforms, so that this and later edits
+            // (dragging a value, say) don't each need a recompile.
+            myconsole.log("Editing an SDF: rebuilding the shader with SDF parameters as uniforms...");
+            this._adapter.forceUniforms = true;
+            renderer_adapter.worldModified();
+            return;
+        }
         
         renderer_adapter.useTracerProgram();
         this.writeShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram);
+        // The edit may have changed the SDF's bounds.
+        for (let i = 0; i < this._adapter.geometries.length; ++i)
+            this._adapter.writeGeometryShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram, i);
         renderer_adapter.resetDrawCount();
     }
     getDistanceShaderSource(position_src) {
@@ -351,7 +422,7 @@ class WebGLSmoothUnionSDFDecorator extends WebGLSDFDecorator {
         this.childB = adapter.wrapNodeSDF(raw.childB);
     }
     getShaderSourceDeclarations() {
-        return `uniform float sdf_smoothK_${this.ID};`;
+        return `${this.param("float", `sdf_smoothK_${this.ID}`, this.raw.k)}`;
     }
     getDistanceShaderSource(position_src) {
         return `sdfSmoothMin(${this.childA.getDistanceShaderSource(position_src)}, ${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
@@ -360,7 +431,7 @@ class WebGLSmoothUnionSDFDecorator extends WebGLSDFDecorator {
         return `sdfBlendMaterialData(sdfSmoothMinBlend(${this.childA.getDistanceShaderSource(position_src)}, ${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.childA.getMaterialShaderSource(position_src)}, ${this.childB.getMaterialShaderSource(position_src)})`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
+        this.writeParam(gl, program, "float", `sdf_smoothK_${this.ID}`, this.raw.k);
     }
 }
 
@@ -371,7 +442,7 @@ class WebGLSmoothIntersectionSDFDecorator extends WebGLSDFDecorator {
         this.childB = adapter.wrapNodeSDF(raw.childB);
     }
     getShaderSourceDeclarations() {
-        return `uniform float sdf_smoothK_${this.ID};`;
+        return `${this.param("float", `sdf_smoothK_${this.ID}`, this.raw.k)}`;
     }
     getDistanceShaderSource(position_src) {
         return `-sdfSmoothMin(-${this.childA.getDistanceShaderSource(position_src)}, -${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
@@ -380,7 +451,7 @@ class WebGLSmoothIntersectionSDFDecorator extends WebGLSDFDecorator {
         return `sdfBlendMaterialData(1.0-sdfSmoothMinBlend(-${this.childA.getDistanceShaderSource(position_src)}, -${this.childB.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.childA.getMaterialShaderSource(position_src)}, ${this.childB.getMaterialShaderSource(position_src)})`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
+        this.writeParam(gl, program, "float", `sdf_smoothK_${this.ID}`, this.raw.k);
     }
 }
 
@@ -391,7 +462,7 @@ class WebGLSmoothDifferenceSDFDecorator extends WebGLSDFDecorator {
         this.negative = adapter.wrapNodeSDF(raw.negative);
     }
     getShaderSourceDeclarations() {
-        return `uniform float sdf_smoothK_${this.ID};`;
+        return `${this.param("float", `sdf_smoothK_${this.ID}`, this.raw.k)}`;
     }
     getDistanceShaderSource(position_src) {
         return `-sdfSmoothMin(-${this.positive.getDistanceShaderSource(position_src)}, ${this.negative.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID})`;
@@ -400,7 +471,7 @@ class WebGLSmoothDifferenceSDFDecorator extends WebGLSDFDecorator {
         return `sdfBlendMaterialData(sdfSmoothMinBlend(-${this.positive.getDistanceShaderSource(position_src)}, ${this.negative.getDistanceShaderSource(position_src)}, sdf_smoothK_${this.ID}), ${this.positive.getMaterialShaderSource(position_src)}, ${this.negative.getMaterialShaderSource(position_src)})`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_smoothK_${this.ID}`), this.raw.k);
+        this.writeParam(gl, program, "float", `sdf_smoothK_${this.ID}`, this.raw.k);
     }
 }
 
@@ -437,11 +508,11 @@ class WebGLRecursiveTransformUnionSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform int sdf_recursiveUnionIterations_${this.ID};
+            ${this.param("int", `sdf_recursiveUnionIterations_${this.ID}`, this.raw.iterations)}
             float sdf_recursiveUnionDistance_${this.ID}(in vec4 position);`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1i(gl.getUniformLocation(program, `sdf_recursiveUnionIterations_${this.ID}`), this.raw.iterations);
+        this.writeParam(gl, program, "int", `sdf_recursiveUnionIterations_${this.ID}`, this.raw.iterations);
     }
     getShaderSource() {
         return `
@@ -471,8 +542,8 @@ class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform float sdf_radius_${this.ID};
-            uniform vec3 sdf_basecolor_${this.ID};
+            ${this.param("float", `sdf_radius_${this.ID}`, this.raw.radius)}
+            ${this.param("vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1))}
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
     }
     getShaderSource() {
@@ -487,8 +558,8 @@ class WebGLSphereSDFDecorator extends WebGLSDFDecorator {
             }`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_radius_${this.ID}`), this.raw.radius)
-        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
+        this.writeParam(gl, program, "float", `sdf_radius_${this.ID}`, this.raw.radius);
+        this.writeParam(gl, program, "vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `(length(${position_src}.xyz) - sdf_radius_${this.ID})`;
@@ -504,8 +575,8 @@ class WebGLBoxSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec4 sdf_boxsize_${this.ID};
-            uniform vec3 sdf_basecolor_${this.ID};
+            ${this.param("vec4", `sdf_boxsize_${this.ID}`, this.raw.size)}
+            ${this.param("vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1))}
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
     }
     getShaderSource() {
@@ -517,8 +588,8 @@ class WebGLBoxSDFDecorator extends WebGLSDFDecorator {
             }`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_boxsize_${this.ID}`), this.raw.size);
-        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
+        this.writeParam(gl, program, "vec4", `sdf_boxsize_${this.ID}`, this.raw.size);
+        this.writeParam(gl, program, "vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `sdfBoxDistance(${position_src}, sdf_boxsize_${this.ID})`;
@@ -534,9 +605,9 @@ class WebGLPlaneSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec4 sdf_planenormal_${this.ID};
-            uniform float sdf_planedelta_${this.ID};
-            uniform vec3 sdf_basecolor_${this.ID};
+            ${this.param("vec4", `sdf_planenormal_${this.ID}`, this.raw.normal)}
+            ${this.param("float", `sdf_planedelta_${this.ID}`, this.raw.delta)}
+            ${this.param("vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1))}
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
     }
     getShaderSource() {
@@ -549,9 +620,9 @@ class WebGLPlaneSDFDecorator extends WebGLSDFDecorator {
             }`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_planenormal_${this.ID}`), this.raw.normal);
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_planedelta_${this.ID}`), this.raw.delta);
-        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
+        this.writeParam(gl, program, "vec4", `sdf_planenormal_${this.ID}`, this.raw.normal);
+        this.writeParam(gl, program, "float", `sdf_planedelta_${this.ID}`, this.raw.delta);
+        this.writeParam(gl, program, "vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `(dot(${position_src}, sdf_planenormal_${this.ID}) + sdf_planedelta_${this.ID})`;
@@ -567,7 +638,7 @@ class WebGLTetrahedronSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec3 sdf_basecolor_${this.ID};
+            ${this.param("vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1))}
             GeometricMaterialData sdfMaterialData_${this.ID}(in vec4 position);`;
     }
     getShaderSource() {
@@ -579,7 +650,7 @@ class WebGLTetrahedronSDFDecorator extends WebGLSDFDecorator {
             }`;
     }
     writeShaderData(gl, program) {
-        gl.uniform3fv(gl.getUniformLocation(program, `sdf_basecolor_${this.ID}`), this.raw.basecolor || Vec.of(1,1,1));
+        this.writeParam(gl, program, "vec3", `sdf_basecolor_${this.ID}`, this.raw.basecolor || Vec.of(1,1,1));
     }
     getDistanceShaderSource(position_src) {
         return `sdfUnitTetrahedronDistance(${position_src})`;
@@ -597,13 +668,13 @@ class WebGLMatrixTransformSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform mat4  sdf_transform_invmatrix_${this.ID};
-            uniform float sdf_transform_scale_${this.ID};
+            ${this.param("mat4", `sdf_transform_invmatrix_${this.ID}`, this.raw._inv_transform.flat())}
+            ${this.param("float", `sdf_transform_scale_${this.ID}`, this.raw._scale)}
             vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
     }
     writeShaderData(gl, program) {
-        gl.uniformMatrix4fv(gl.getUniformLocation(program, `sdf_transform_invmatrix_${this.ID}`), true, this.raw._inv_transform.flat());
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_scale_${this.ID}`), this.raw._scale);
+        this.writeParam(gl, program, "mat4", `sdf_transform_invmatrix_${this.ID}`, this.raw._inv_transform.flat());
+        this.writeParam(gl, program, "float", `sdf_transform_scale_${this.ID}`, this.raw._scale);
     }
     getMutableObjectProperties(renderer_adapter) {
         return super.getMutableObjectProperties(renderer_adapter).filter(x => x.key == "_transform");
@@ -655,13 +726,13 @@ class WebGLSDFReflectionTransformerSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec4  sdf_transform_normal_${this.ID};
-            uniform float sdf_transform_delta_${this.ID};
+            ${this.param("vec4", `sdf_transform_normal_${this.ID}`, this.raw.normal)}
+            ${this.param("float", `sdf_transform_delta_${this.ID}`, this.raw.delta)}
             vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
     }
     writeShaderData(gl, program) {
-        gl.uniform4fv(gl.getUniformLocation(program, `sdf_transform_normal_${this.ID}`), this.raw.normal);
-        gl.uniform1f(gl.getUniformLocation(program, `sdf_transform_delta_${this.ID}`), this.raw.delta);
+        this.writeParam(gl, program, "vec4", `sdf_transform_normal_${this.ID}`, this.raw.normal);
+        this.writeParam(gl, program, "float", `sdf_transform_delta_${this.ID}`, this.raw.delta);
     }
     getShaderSource() {
         return `
@@ -682,11 +753,11 @@ class WebGLSDFRecursiveTransformerSDFDecorator extends WebGLSDFDecorator {
     }
     getShaderSourceDeclarations() {
         return `
-            uniform int sdf_transform_iterations_${this.ID};
+            ${this.param("int", `sdf_transform_iterations_${this.ID}`, this.raw.iterations)}
             vec4 sdf_transform_${this.ID}(in vec4 position, inout float scale);`;
     }
     writeShaderData(gl, program) {
-        gl.uniform1i(gl.getUniformLocation(program, `sdf_transform_iterations_${this.ID}`), this.raw.iterations);
+        this.writeParam(gl, program, "int", `sdf_transform_iterations_${this.ID}`, this.raw.iterations);
     }
     getShaderSource() {
         return `
@@ -707,11 +778,11 @@ class WebGLSDFInfiniteRepetitionTransformerSDFDecorator extends WebGLSDFDecorato
     }
     getShaderSourceDeclarations() {
         return `
-            uniform vec3 sdf_transform_sizes_${this.ID};
+            ${this.param("vec3", `sdf_transform_sizes_${this.ID}`, this.raw.sizes.to3())}
             vec4 sdf_transform_${this.ID}(in vec4 position);`;
     }
     writeShaderData(gl, program) {
-        gl.uniform3fv(gl.getUniformLocation(program, `sdf_transform_sizes_${this.ID}`), this.raw.sizes.to3());
+        this.writeParam(gl, program, "vec3", `sdf_transform_sizes_${this.ID}`, this.raw.sizes.to3());
     }
     getShaderSource() {
         return `

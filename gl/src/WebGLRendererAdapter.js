@@ -98,6 +98,10 @@ class WebGLRendererAdapter {
     // passthrough/denoise pass, CPU work, and vsync waits) is collected and summarized to the console every
     // debugGPUTimerIntervalMs. Results arrive a few frames late (queries are asynchronous) and are discarded whenever
     // the GPU reports a disjoint event (e.g. a power-state change), so the first report after enabling may be sparse.
+    // SDF ray marching: clip the march to the SDF's bounding box; and bake SDF parameters into the scene-specific
+    // shader as constants (until one is edited). See Performance.md.
+    static debugSDFBounds = true;
+    static sdfConstants = true;
     static debugGPUTimer = false;
     static debugGPUTimerIntervalMs = 1000;
 

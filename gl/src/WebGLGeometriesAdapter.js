@@ -365,7 +365,7 @@ class WebGLGeometriesAdapter {
             ret += `
             float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
             vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);`;
-        return ret + "\n\n" + this.sdf_adapter.getShaderSourceDeclarations();
+        return ret + "\n\n" + this.sdf_adapter.getShaderSourceDeclarations(sceneEditable);
     }
     getShaderSource(sceneEditable, needs_generics) {
         let ret = `
