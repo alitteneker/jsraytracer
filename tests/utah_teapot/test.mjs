@@ -3,7 +3,6 @@ export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
         Mat4.translation([0,1.5,1])
             .times(Mat4.rotation(-0.4, Vec.of(1,0,0))));
-    const world = new World();
 
     const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
