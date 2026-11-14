@@ -60,9 +60,8 @@ class WebGLRendererAdapter {
     // Lay out every generic data texture (triangles, world data, materials, BVH nodes unless debugFastNodeIndex) at a
     // fixed power-of-two width, so texelFetchByIndex is a mask + shift everywhere. See WebGLTexture.coerceToDataTextureData.
     static debugPow2DataTextures = true;
-    // Skip the shadow ray for a light whose contribution phongBRDF would zero anyway (e.g. a light behind an opaque
-    // surface). Output-identical; see computePhongMaterialColor.
-    static debugSkipUnlitShadows = true;
+    // (debugSkipUnlitShadows, which skipped the shadow ray for a light the surface wouldn't reflect anyway, is now
+    // how the integrator always works: see rendererDirectLight in renderer.glsl.)
     // BVH layout with each internal node holding its two children's boxes (see WebGLWorldAdapter.buildChildBoxBVHData),
     // so nodes the ray misses are never fetched. Used by editable shaders too.
     static debugChildBoxes = true;
@@ -371,7 +370,6 @@ class WebGLRendererAdapter {
             DEBUG_POW2_DATA_TEXTURES: WebGLTexture.pow2DataLayout(),
             DEBUG_TRAVERSAL_HEATMAP:  !!R.debugTraversalHeatmap,
             DEBUG_CONST_MATERIAL_PARAMS: !!R.debugConstMaterialParams,
-            DEBUG_SKIP_UNLIT_SHADOWS: !!R.debugSkipUnlitShadows,
             DEBUG_NO_SHADOWS:         !!R.debugNoShadows,
             DEBUG_FAST_TRIANGLE:      !!R.debugFastTriangle,
             DEBUG_INLINE_TRIANGLE_VERTS: !!R.debugInlineTriangleVerts,

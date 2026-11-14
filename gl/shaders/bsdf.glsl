@@ -448,81 +448,82 @@ void buildPrincipledBSDF(in ivec4 m0, in ivec4 m1, in ivec4 m2, in vec4 rd, in v
     bsdfFinish(f);
 }
 
-// Power heuristic MIS weight, f^2 / (f^2 + g^2), written so huge densities can't overflow to inf / inf.
-float powerHeuristic(in float f, in float g) {
-    if (f >= g) {
-        float r = g / f;
-        return 1.0 / (1.0 + r * r);
-    }
-    float r = f / g;
-    return r * r / (1.0 + r * r);
-}
+// ---- Generic: the surface interface (see materials.glsl) when BSDFs are compiled in ----
+// In path tracing every material is a BSDF: the integrator samples lights directly (with MIS), and the BSDF
+// chooses one direction to continue the path. In Whitted mode the legacy Phong materials keep their original
+// shading (PhongSurface), and other BSDFs get direct light plus their delta directions.
+#define SURFACE_NONE  0
+#define SURFACE_PHONG 1
+#define SURFACE_BSDF  2
+int gSurfaceKind = SURFACE_NONE;
+PhongSurface gPhongSurface;
+BSDF gBSDF;
+float gSurfaceEmitterPdf = 0.0;
 
-// Direct light from every light. With mis (path tracing), each light sample is weighed against the chance
-// that BSDF sampling would have found the same light; without (Whitted mode), it counts fully.
-vec3 bsdfDirectLight(in BSDF f, in vec4 rp, in bool mis, inout vec2 random_seed) {
-    vec3 L = vec3(0.0);
-    if (!f.hasNonDelta)
-        return L;
-    for (int i = 0; i < uNumLights; ++i) {
-        LightSample ls = sampleLight(i, rp, random_seed);
-        vec3 wi = normalize(ls.direction.xyz);
-        float pdf;
-        vec3 fv = bsdfEval(f, wi, pdf);
-        if (max(max(fv.r, fv.g), fv.b) <= 0.0)
-            continue;
-        float shadowIntersection = worldRayCast(Ray(rp, ls.direction), EPSILON, 1.0, true);
-        if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
-            continue;
-        float w = (mis && ls.pdf > 0.0) ? powerHeuristic(ls.pdf, pdf) : 1.0;
-        L += fv * ls.color * abs(dot(f.n, wi)) * w;
-    }
-    return L;
-}
-
-// ---- Generic ----
-// In path tracing every material is a BSDF: light sampled directly (with MIS), plus one direction chosen
-// by the BSDF to continue the path. In Whitted mode the legacy Phong materials keep their original
-// shading (computePhongMaterialColor), and other BSDFs get direct light plus their delta directions.
-vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata,
-    inout vec2 random_seed, inout RecursiveNextRays nextRays)
-{
+vec3 materialSurface(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata) {
     ivec4 m0, m1, m2;
     getMaterialIndices(materialID, m0, m1, m2);
     int type = m0[0];
-    BSDF f;
     vec3 emission;
     if (type == MATERIAL_TYPE_PRINCIPLED)
-        buildPrincipledBSDF(m0, m1, m2, r.d, geodata.normal, geodata.UV, f, emission);
+        buildPrincipledBSDF(m0, m1, m2, r.d, geodata.normal, geodata.UV, gBSDF, emission);
     else {
         PhongMaterialParameters matParams;
         getPhongMaterialParameters(materialID, geodata, matParams);
 #ifdef PATH_TRACING
         if (type == MATERIAL_TYPE_EMITTER) {
-            // A light's surface. If the path got here by sampling a BSDF, light sampling at the surface it
-            // left could have found this light too, so MIS splits the credit (see sampleLight's pdf).
-            vec3 Le = matParams.ambient;
-            if (gPrevBsdfPdf > 0.0) {
-                vec3 delta = rp.xyz - r.o.xyz;
-                float cosLight = abs(dot(normalize(r.d.xyz), normalize(geodata.normal.xyz)));
-                float area = getMaterialColor(m2[1], geodata.UV).r;
-                float lightPdf = cosLight > 0.0 ? dot(delta, delta) / (area * cosLight) : 1e30;
-                Le *= powerHeuristic(gPrevBsdfPdf, lightPdf);
-            }
-            return Le;
+            // A light's surface: it emits, and reflects nothing. Light sampling (sampleLight) picks points on it
+            // uniformly by area; the integrator needs that density, per solid angle from r's origin, for MIS.
+            vec3 delta = rp.xyz - r.o.xyz;
+            float cosLight = abs(dot(normalize(r.d.xyz), normalize(geodata.normal.xyz)));
+            float area = getMaterialColor(m2[1], geodata.UV).r;
+            gSurfaceEmitterPdf = cosLight > 0.0 ? dot(delta, delta) / (area * cosLight) : 1e30;
+            return matParams.ambient;
         }
-        buildPhongBSDF(type, matParams, r.d, geodata.normal, f);
+        buildPhongBSDF(type, matParams, r.d, geodata.normal, gBSDF);
         emission = matParams.ambient;
 #else
-        return computePhongMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
+        gPhongSurface = phongSurface(matParams, r.d, geodata.normal);
+        gSurfaceKind = SURFACE_PHONG;
+        return matParams.ambient;
 #endif
     }
+    gSurfaceKind = SURFACE_BSDF;
+    return emission;
+}
+void surfaceClear() {
+    gSurfaceKind = SURFACE_NONE;
+    gSurfaceEmitterPdf = 0.0;
+}
+float surfaceEmitterPdf() {
+    return gSurfaceEmitterPdf;
+}
+// A BSDF made only of delta lobes (a mirror, smooth glass) can't reflect a light sample: it only ever sees
+// lights through the rays it chooses.
+bool surfaceWantsDirectLight() {
+    return gSurfaceKind == SURFACE_PHONG || (gSurfaceKind == SURFACE_BSDF && gBSDF.hasNonDelta);
+}
+vec3 surfaceEval(in vec4 lightDirection, out float pdf, out float cosFactor) {
+    if (gSurfaceKind == SURFACE_PHONG) {
+        pdf = 0.0;
+        cosFactor = 1.0;
+        return phongEval(gPhongSurface, lightDirection);
+    }
+    vec3 wi = normalize(lightDirection.xyz);
+    cosFactor = abs(dot(gBSDF.n, wi));
+    return bsdfEval(gBSDF, wi, pdf);
+}
+void surfaceSampleNextRays(inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+    if (gSurfaceKind == SURFACE_PHONG) {
+        phongSampleNextRays(gPhongSurface, random_seed, nextRays);
+        return;
+    }
+    if (gSurfaceKind != SURFACE_BSDF)
+        return;
 #ifdef PATH_TRACING
-    vec3 color = emission + bsdfDirectLight(f, rp, true, random_seed);
-    BSDFSample s = bsdfSample(f, random_seed, false);
+    BSDFSample s = bsdfSample(gBSDF, random_seed, false);
 #else
-    vec3 color = emission + bsdfDirectLight(f, rp, false, random_seed);
-    BSDFSample s = bsdfSample(f, random_seed, true);
+    BSDFSample s = bsdfSample(gBSDF, random_seed, true);
 #endif
     if (s.ok) {
         nextRays.reflectionProbability = 1.0;
@@ -531,5 +532,4 @@ vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMater
         nextRays.reflectionExact = s.delta;
         nextRays.pdf = s.pdf;
     }
-    return color;
 }

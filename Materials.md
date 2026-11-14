@@ -157,13 +157,20 @@ specular layer of a plastic), and the delta lobes (mirror, pass-through, smooth 
 slots (`buildPhongBSDF`, `buildPrincipledBSDF`), so `bsdfEval` and `bsdfSample` each have a single call site whatever
 the scene contains, which keeps compile times in check.
 
+- **The surface interface.** As on the CPU, materials never cast rays. At a hit, `materialSurface` (in
+  `materials.glsl`) sets up the current surface and returns what it emits. The integrator in `renderer.glsl` then
+  asks it `surfaceWantsDirectLight`, `surfaceEval` toward each light sample (casting the shadow ray itself, and only
+  when the answer is nonzero), and `surfaceSampleNextRays` for the bounce. A Phong-only shader implements the
+  interface with Phong alone; `bsdf.glsl` implements it for Phong and BSDF surfaces together.
 - **Integrators.** The renderer's `integrator` option picks the mode when the shader is generated
   (`WebGLRendererAdapter.pathTracing`, which defines `PATH_TRACING`). Path tracing does next-event estimation with
-  MIS at every hit, continues along one BSDF sample, and uses Russian roulette after three bounces. When a sampled
-  bounce hits a light's surface, its emission is weighted by MIS too: the light's stand-in material carries the
-  light's area, so the shader can work out how likely light sampling was to pick that point.
-- **Whitted mode** keeps the original Phong shading code untouched, so scenes without `PrincipledMaterial` compile
-  to the same shader as before. A Principled material in Whitted mode gets direct light plus its delta directions.
+  MIS at every hit (`rendererDirectLight`), continues along one BSDF sample, and uses Russian roulette after three
+  bounces. When a sampled bounce hits a light's surface, its emission is weighted by MIS too: the light's stand-in
+  material carries the light's area, `surfaceEmitterPdf` turns that into the density light sampling would have
+  picked the point with, and the integrator weighs it against the pdf of the bounce that got there.
+- **Whitted mode** keeps the original Phong shading math (`phongBRDF`), so Phong scenes render as before (bit for
+  bit in most scenes, within float rounding on refraction). A Principled material in Whitted mode gets direct light
+  plus its delta directions.
 - **Material data.** Every material is three `ivec4`s: a type, then indices of its parameters.
 - **Albedo tables** are built on the CPU (`AlbedoTable`), exactly as for the CPU renderer, and uploaded together in
   one single-channel float texture. Editing a Principled material's `ior` in the editor rebuilds its tables.

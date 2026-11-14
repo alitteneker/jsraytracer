@@ -23,9 +23,7 @@ struct RecursiveNextRays {
     // Path tracing: the density the BSDF sampled the reflection direction with (0 for an exact one).
     float pdf;
 };
-// Path tracing: the pdf of the bounce that produced the current ray, for MIS when it hits a light (0 for
-// camera rays and exact bounces, whose light counts fully).
-float gPrevBsdfPdf = 0.0;
+float powerHeuristic(in float f, in float g);
 vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal);
 uniform int uMaxBounceDepth;
 
@@ -82,6 +80,45 @@ void main() {
         outSampleVariance = sampleVariance + (delta * delta2);
     }
 }
+// Power heuristic MIS weight, f^2 / (f^2 + g^2), written so huge densities can't overflow to inf / inf.
+float powerHeuristic(in float f, in float g) {
+    if (f >= g) {
+        float r = g / f;
+        return 1.0 / (1.0 + r * r);
+    }
+    float r = f / g;
+    return r * r / (1.0 + r * r);
+}
+
+// Direct light at the current surface (see materialSurface) from every light: one sample on each, a shadow ray
+// to it, and the surface's response. In path tracing (MIS), each light sample is weighed against the chance that
+// sampling the BSDF would have found the same light; in Whitted mode it counts fully.
+vec3 rendererDirectLight(in vec4 rp, inout vec2 random_seed) {
+    vec3 L = vec3(0.0);
+    for (int i = 0; i < uNumLights; ++i) {
+        LightSample ls = sampleLight(i, rp, random_seed);
+        float pdf, cosFactor;
+        vec3 f = surfaceEval(ls.direction, pdf, cosFactor);
+        // The surface reflects none of this light, so its shadow ray can't change anything.
+        if (max(max(f.r, f.g), f.b) <= 0.0)
+            continue;
+#if !DEBUG_NO_SHADOWS
+        float shadowIntersection = worldRayCast(Ray(rp, ls.direction), EPSILON, 1.0, true);
+        if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
+            continue;
+#endif
+#ifdef PATH_TRACING
+        float w = ls.pdf > 0.0 ? powerHeuristic(ls.pdf, pdf) : 1.0;
+#else
+        float w = 1.0;
+#endif
+        L += f * ls.color * cosFactor * w;
+    }
+    return L;
+}
+
+// The integrator: follows a path from the camera, adding at each hit its emission and the direct light it reflects,
+// then continuing in a direction the surface chooses.
 vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal) {
     vec3 total_color = vec3(0.0);
     float initial_intersection_distance = 1E20;
@@ -92,13 +129,29 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
 
     // Camera rays see lights directly; after that, only exact bounces do (see worldRayColorShallow).
     bool countEmission = true;
+    // Path tracing: the pdf of the bounce that produced the current ray, for MIS when it hits a light (0 for
+    // camera rays and exact bounces, whose light counts fully).
+    float prevBsdfPdf = 0.0;
 
     int i = 0;
     for (;i < uMaxBounceDepth; ++i) {
         vec4 intersect_position = vec4(0);
         vec3 intersect_normal = vec3(0);
         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false, 0.0);
-        vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal, countEmission);
+        surfaceClear();
+        vec3 surface_color = worldRayColorShallow(r, intersect_position, intersect_normal, countEmission);
+#ifdef PATH_TRACING
+        // A light reached by sampling a BSDF: light sampling at the surface the path left could have found it
+        // too, so MIS splits the credit.
+        if (prevBsdfPdf > 0.0 && surfaceEmitterPdf() > 0.0)
+            surface_color *= powerHeuristic(prevBsdfPdf, surfaceEmitterPdf());
+#endif
+#if !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
+        if (surfaceWantsDirectLight())
+            surface_color += rendererDirectLight(intersect_position, random_seed);
+        surfaceSampleNextRays(random_seed, nextRays);
+#endif
+        vec3 contribution = attenuation_color * surface_color;
 #if DEBUG_TRAVERSAL_HEATMAP
         // Heatmap mode returns before setting intersect_position, so the loop breaks before the normal
         // is normally recorded. Record it here instead: it holds raw (nodes, prims, hit) counts.
@@ -138,8 +191,8 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
                 r = Ray(intersect_position, nextRays.reflectionDirection);
                 attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
 #ifdef PATH_TRACING
-                // Lights hit by sampled bounces count too, weighted by MIS (see colorForMaterial).
-                gPrevBsdfPdf = nextRays.reflectionExact ? 0.0 : nextRays.pdf;
+                // Lights hit by sampled bounces count too, weighted by MIS (see materialSurface).
+                prevBsdfPdf = nextRays.reflectionExact ? 0.0 : nextRays.pdf;
 #else
                 countEmission = nextRays.reflectionExact;
 #endif

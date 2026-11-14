@@ -860,7 +860,7 @@ class WebGLWorldAdapter {
             }
             
             
-            vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal) {
+            vec3 worldObjectSurface(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec3 normal) {
                 int materialID = 0;
                 mat4 inverseTransform = mat4(1.0);
                 GeometricMaterialData geomatdata;
@@ -893,7 +893,7 @@ class WebGLWorldAdapter {
             ret += `
                 }
                 normal = geomatdata.normal.xyz;
-                return colorForMaterial(materialID, rp, r, geomatdata, random_seed, nextRays);
+                return materialSurface(materialID, rp, r, geomatdata);
             }`;
         }
         return ret

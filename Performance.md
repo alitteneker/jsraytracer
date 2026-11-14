@@ -49,7 +49,7 @@ reload the scene to compare.
 |---|---|---|---|
 | `debugFastAABB` | off | 6.05 -> 4.79 ms | Branchless slab test with `1/dir` computed once per ray. Superseded by `debugChildBoxes`, which has its own slab test. |
 | `debugPow2DataTextures` | **on** | 4.79 -> 4.39 ms | Every data texture is 2048 texels wide, so `texelFetchByIndex` uses a mask and shift instead of integer `%` and `/`. Integer division is expensive on GPUs. |
-| `debugSkipUnlitShadows` | **on** | 4.39 -> 3.79 ms | Skips a shadow ray when `phongBRDF` would return exactly zero for that light (for example, a light behind an opaque surface). The image is identical. |
+| `debugSkipUnlitShadows` | (removed) | 4.39 -> 3.79 ms | Skips a shadow ray when the surface would reflect none of that light (for example, a light behind an opaque surface). The image is identical. Now always on: the integrator (`rendererDirectLight`) asks the surface first and casts the shadow ray only if the answer is nonzero, for BSDF surfaces too. |
 | `debugChildBoxes` | **on** | see below | Each internal node stores its two children's boxes (2 texels per node), so a node the ray misses is never fetched. Children are visited nearest-first by entry distance. Non-editable shaders only. |
 | `debugFastTriangle` | **on** | see below | Moller-Trumbore triangle test: one reciprocal, no normalize, versus plane intersection plus a barycentric check. |
 | `debugInlineTriangleVerts` | **on** | 3.01 -> 2.67 ms | Each triangle's three positions are duplicated into their own texture, so intersection does three independent fetches instead of an index fetch followed by three dependent ones. Costs about 48 bytes per triangle of extra memory. |
@@ -239,10 +239,11 @@ binding.
 
 - **Russian roulette** for path-traced scenes (bigger effect at depth 8 than at depth 4). It changes the noise, so
   check it with mean-color comparisons rather than RMSE.
-- **Shadow rays in transmissive scenes** don't benefit from `debugSkipUnlitShadows`.
+- **Shadow rays in transmissive scenes** still get cast for lights behind the surface, since a transmissive surface
+  reflects some of that light (skipping unlit shadow rays is now part of the integrator).
 - **The editable shader is still 1.2 to 1.7 times slower than the regular one.** The remaining cost is in reading
   every primitive's data from textures and in the generic geometry and material dispatch. Shading untransformed
-  triangles directly (as `worldObjectColor` does in the regular shader) is the next obvious step. Flat lists of
+  triangles directly (as `worldObjectSurface` does in the regular shader) is the next obvious step. Flat lists of
   primitives might be better served by wrapping them in a BVH.
 - **More structural edits.** Adding meshes (OBJ files), grouping objects into aggregates, and moving objects between
   them would all fit the same `worldModified` path. Deleting one primitive from inside a BVH would need the BVH

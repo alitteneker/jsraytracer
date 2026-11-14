@@ -13,8 +13,8 @@
 
 float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag);
 float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform);
-vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal);
-vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal, in bool countEmission);
+vec3 worldObjectSurface(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec3 normal);
+vec3 worldRayColorShallow(in Ray in_ray, inout vec4 intersect_position, inout vec3 normal, in bool countEmission);
 
 //#section source
 
@@ -221,10 +221,12 @@ ${bvhTraversal}
 #endif
 
 // ---- Generic World Color ----
+// Finds what in_ray hits and sets up its surface for the integrator (see materialSurface in materials.glsl).
+// Returns the light that reaches in_ray's origin straight from the hit (its emission) or from the background.
 // countEmission: whether a light hit directly by this ray contributes its emission. True for camera rays and
 // exact (mirror/refraction) bounces, false for randomly sampled bounces, whose light was already counted by
 // direct light sampling at the surface they left (see src/lights.js).
-vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 intersect_position, inout RecursiveNextRays nextRays, inout vec3 normal, in bool countEmission) {
+vec3 worldRayColorShallow(in Ray in_ray, inout vec4 intersect_position, inout vec3 normal, in bool countEmission) {
     int primID = -1;
     mat4 ancestorInvTransform = mat4(1.0);
 #if DEBUG_TRAVERSAL_HEATMAP
@@ -241,7 +243,7 @@ vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 inte
 #if DEBUG_TRAVERSAL_HEATMAP
     // Diagnostic: colorize the primary ray's traversal work instead of shading. Returning here leaves
     // nextRays zero (no shadow/secondary rays), so the counts reflect exactly one primary-ray cast. Miss
-    // and hit are both colorized, since background rays still pay to traverse. worldObjectColor goes
+    // and hit are both colorized, since background rays still pay to traverse. worldObjectSurface goes
     // unreferenced, so the whole material/light subtree is dead-code-eliminated as with debugTraversalOnly.
     {
         // Raw counts for CPU readback (see WebGLRendererAdapter.reportHeatmapStats): the normal output is
@@ -265,14 +267,14 @@ vec3 worldRayColorShallow(in Ray in_ray, inout vec2 random_seed, inout vec4 inte
     intersect_position = in_ray.o + intersect_time * in_ray.d;
     ${lightEmitterTest}
 #if DEBUG_TRAVERSAL_ONLY
-    // Diagnostic: return a flat color instead of shading. Because worldObjectColor is then never
+    // Diagnostic: return a flat color instead of shading. Because worldObjectSurface is then never
     // referenced anywhere, the compiler dead-code-eliminates the entire material/light/scatter
     // subtree, so this measures traversal cost with shading's register footprint actually removed
     // (a runtime branch would leave that code compiled in and occupancy unchanged). nextRays stays
     // zero, so no secondary rays are spawned and only primary-ray traversal is exercised.
     return vec3(0.7);
 #else
-    return worldObjectColor(primID, intersect_position, in_ray, ancestorInvTransform, random_seed, nextRays, normal);
+    return worldObjectSurface(primID, intersect_position, in_ray, ancestorInvTransform, normal);
 #endif
 }
 
@@ -596,13 +598,13 @@ bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in floa
 #define WORLD_NODE_AGGREGATE_TYPE    ${aggregateType}
 #define WORLD_NODE_BVH_TYPE          ${bvhType}
 
-vec3 worldObjectColor(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec2 random_seed, inout RecursiveNextRays nextRays, inout vec3 normal) {
+vec3 worldObjectSurface(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec3 normal) {
     Primitive ids = getPrimitive(primID);
     mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
     GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
     geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
     normal = geomatdata.normal.xyz;
-    return colorForMaterial(ids.material_id, rp, r, geomatdata, random_seed, nextRays);
+    return materialSurface(ids.material_id, rp, r, geomatdata);
 }
 
 //#section editable.unified

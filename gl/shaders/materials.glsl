@@ -1,5 +1,13 @@
 // Materials: where the shader finds each material's parameters and colors, the legacy Phong shading model, and the
-// entry point colorForMaterial. Path tracing, and materials other than the Phong ones, also use bsdf.glsl.
+// surface interface the integrator (rendererRayColor, in renderer.glsl) shades with. Path tracing, and materials
+// other than the Phong ones, also use bsdf.glsl, which then provides the surface interface instead (sections
+// generic and bsdf.glsl:source are alternatives).
+//
+// The surface interface: at each hit, worldObjectSurface calls materialSurface, which sets up the current surface
+// and returns the light it emits. The integrator then asks the surface how much light it reflects toward each light
+// (surfaceEval), casts the shadow rays itself, and has the surface choose the next ray (surfaceSampleNextRays). For
+// MIS on a light hit by a sampled ray, surfaceEmitterPdf gives the density light sampling would have picked the same
+// point with. Materials never cast rays, and know nothing of the path that reached them.
 // Rendered by WebGLMaterialsAdapter. Holes:
 //   declarations: the type numbers (WebGLMaterialsAdapter.SPECIAL_COLOR_* and TYPE_*).
 //   storage.uniforms: colorCount, indexCount, the sizes of the parameter arrays when they fit in uniforms.
@@ -18,8 +26,12 @@
 #define MATERIAL_TYPE_EMITTER              ${typeEmitter}
 void getMaterialIndices(in int materialID, out ivec4 mat_ind_0, out ivec4 mat_ind_1, out ivec4 mat_ind_2);
 vec3 getMaterialColor(in int color_index, in vec2 UV);
-vec3 colorForMaterial(in int materialID, in vec4 intersect_position, in Ray r, in GeometricMaterialData data,
-    inout vec2 random_seed, inout RecursiveNextRays nextRays);
+vec3 materialSurface(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData data);
+void surfaceClear();
+float surfaceEmitterPdf();
+bool surfaceWantsDirectLight();
+vec3 surfaceEval(in vec4 lightDirection, out float pdf, out float cosFactor);
+void surfaceSampleNextRays(inout vec2 random_seed, inout RecursiveNextRays nextRays);
 
 //#section parameters
 
@@ -261,9 +273,20 @@ vec3 phongBRDF(in vec4 N, in vec4 R, in vec4 lightDir, in float kr, in vec4 refr
     return diffuse * matParams.diffuse + specular * matParams.specular;
 }
 
-vec3 computePhongMaterialColor(in PhongMaterialParameters matParams, in vec4 rp, in vec4 rd, in vec4 normal,
-    inout vec2 random_seed, inout RecursiveNextRays nextRays)
-{
+// A legacy Phong material at a hit, ready to shade: the view-dependent parts (the reflected direction, and the
+// Fresnel split kr and refraction direction for a refractive material) are worked out once, for every light.
+struct PhongSurface {
+    PhongMaterialParameters params;
+    vec4 rd;
+    vec4 N;
+    vec4 R;
+    float kr;
+    vec4 refractionDirection;
+};
+PhongSurface phongSurface(in PhongMaterialParameters matParams, in vec4 rd, in vec4 normal) {
+    PhongSurface s;
+    s.params = matParams;
+    s.rd = rd;
 
     // standardize geometry data
     vec4 V = normalize(-rd);
@@ -277,69 +300,73 @@ vec3 computePhongMaterialColor(in PhongMaterialParameters matParams, in vec4 rp,
         vdotn = -vdotn;
         backside = true;
     }
-
-    vec4 R = normalize((2.0 * vdotn * N) - V);
+    s.N = N;
+    s.R = normalize((2.0 * vdotn * N) - V);
 
     // Deal with refraction parameters
-    float kr;
-    vec4 refractionDirection;
-    computeRefractionParameters(V, N, vdotn, matParams.refractiveIndexRatio, backside, refractionDirection, kr);
-
-    // compute direct illumination
-    vec3 totalColor = matParams.ambient;
-    for (int i = 0; i < uNumLights; ++i) {
-        LightSample lightSample = sampleLight(i, rp, random_seed);
-#if DEBUG_SKIP_UNLIT_SHADOWS
-        // debugSkipUnlitShadows: phongBRDF below is exactly zero unless (kr > 0 and the light is on the
-        // reflecting side) or (kr < 1 and it's on the transmitting side), so in every other case the shadow
-        // ray can't change the result. Skipping it is output-identical (the shadow cast uses no randomness).
-        {
-            float shadowLdotN = dot(normalize(lightSample.direction), N);
-            if (!((kr > 0.0 && shadowLdotN >= 0.0) || (kr < 1.0 && shadowLdotN <= 0.0)))
-                continue;
-        }
-#endif
-#if !DEBUG_NO_SHADOWS
-        float shadowIntersection = worldRayCast(Ray(rp, lightSample.direction), EPSILON, 1.0, true);
-        if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
-            continue;
-#endif
-        totalColor += lightSample.color * phongBRDF(N, R, lightSample.direction, kr, refractionDirection, matParams);
-    }
-
+    computeRefractionParameters(V, N, vdotn, matParams.refractiveIndexRatio, backside, s.refractionDirection, s.kr);
+    return s;
+}
+// The light reflected toward the viewer from a light in direction lightDir, per unit of the light's color. Zero
+// unless the light is on a side the material reflects (kr > 0) or transmits (kr < 1) toward.
+vec3 phongEval(in PhongSurface s, in vec4 lightDir) {
+    return phongBRDF(s.N, s.R, lightDir, s.kr, s.refractionDirection, s.params);
+}
+void phongSampleNextRays(in PhongSurface s, inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+    PhongMaterialParameters matParams = s.params;
 
     // reflection
-    if (kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
-        nextRays.reflectionProbability = kr;
-        if (samplePhongScatter(R, N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, nextRays.reflectionExact, random_seed))
+    if (s.kr > 0.0 && normSquared(matParams.reflectivity) > 0.0) {
+        nextRays.reflectionProbability = s.kr;
+        if (samplePhongScatter(s.R, s.N, matParams, nextRays.reflectionDirection, nextRays.reflectionColor, nextRays.reflectionExact, random_seed))
             nextRays.reflectionColor *= matParams.reflectivity;
     }
 
     // refraction
-    if (kr < 1.0 && normSquared(refractionDirection) > EPSILON) {
-        nextRays.transmissionProbability = 1.0 - kr;
-        if (samplePhongScatter(refractionDirection, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
+    if (s.kr < 1.0 && normSquared(s.refractionDirection) > EPSILON) {
+        nextRays.transmissionProbability = 1.0 - s.kr;
+        if (samplePhongScatter(s.refractionDirection, s.N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
             nextRays.transmissionColor *= matParams.transmissivity;
     }
 
     // transmission (no refraction)
     else if (isinf(matParams.refractiveIndexRatio) && normSquared(matParams.transmissivity) > 0.0) {
         nextRays.transmissionProbability = 1.0;
-        if (samplePhongScatter(rd, N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
+        if (samplePhongScatter(s.rd, s.N, matParams, nextRays.transmissionDirection, nextRays.transmissionColor, nextRays.transmissionExact, random_seed))
             nextRays.transmissionColor *= matParams.transmissivity;
     }
-
-
-    return totalColor;
 }
 
 //#section generic
 
-// ---- Generic ----
-vec3 colorForMaterial(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata,
-    inout vec2 random_seed, inout RecursiveNextRays nextRays)
-{
+// ---- Generic: the surface interface when every material is a legacy Phong one (no BSDFs compiled in) ----
+#define SURFACE_NONE  0
+#define SURFACE_PHONG 1
+int gSurfaceKind = SURFACE_NONE;
+PhongSurface gPhongSurface;
+
+vec3 materialSurface(in int materialID, in vec4 rp, in Ray r, in GeometricMaterialData geodata) {
     PhongMaterialParameters matParams;
     getPhongMaterialParameters(materialID, geodata, matParams);
-    return computePhongMaterialColor(matParams, rp, r.d, geodata.normal, random_seed, nextRays);
+    gPhongSurface = phongSurface(matParams, r.d, geodata.normal);
+    gSurfaceKind = SURFACE_PHONG;
+    return matParams.ambient;
+}
+void surfaceClear() {
+    gSurfaceKind = SURFACE_NONE;
+}
+float surfaceEmitterPdf() {
+    return 0.0;
+}
+bool surfaceWantsDirectLight() {
+    return gSurfaceKind != SURFACE_NONE;
+}
+vec3 surfaceEval(in vec4 lightDirection, out float pdf, out float cosFactor) {
+    pdf = 0.0;
+    cosFactor = 1.0;
+    return phongEval(gPhongSurface, lightDirection);
+}
+void surfaceSampleNextRays(inout vec2 random_seed, inout RecursiveNextRays nextRays) {
+    if (gSurfaceKind == SURFACE_PHONG)
+        phongSampleNextRays(gPhongSurface, random_seed, nextRays);
 }

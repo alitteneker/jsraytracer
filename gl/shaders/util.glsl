@@ -31,6 +31,8 @@ vec2 rand2f(inout vec2 seed);
 vec2 randomGaussian(inout vec2 seed);
 vec2 randomCirclePoint(inout vec2 seed);
 vec3 randomSpherePoint(inout vec2 seed);
+vec3 randomHemispherePoint(in vec3 N, inout vec2 seed);
+mat4 transformToAlignY(in vec4 R);
 
 float safePow(in float x, in float y);
 
