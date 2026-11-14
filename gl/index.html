@@ -34,6 +34,7 @@
         <script src="../src/serializer.js" defer></script>
         
         <script src="./src/ShaderLibrary.js" defer></script>
+        <script src="./src/ScenePicker.js" defer></script>
         <script src="./src/WebGLEditorInterface.js" defer></script>
         <script src="./src/WebGLCameraAdapter.js" defer></script>
         <script src="./src/WebGLGeometriesAdapter.js" defer></script>
@@ -50,14 +51,20 @@
 
     <body>
         <div id="controls">
-            <label for="test-select" style="font-family: arial">Select a scene:</label>
-            <select id="test-select">
-                <option value="">--Select--</option>
-            </select>
+            <button id="scene-button" title="Choose a scene">Choose a scene</button>
             <img id="loading-img" class="loading" src="../assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
             <button id="help-button">Help</button>
         </div>
         
+        <dialog id="scene-picker" aria-label="Choose a scene">
+            <div class="scene-picker-header">
+                <h2>Choose a scene</h2>
+                <input class="scene-picker-search" type="search" placeholder="Filter scenes" aria-label="Filter scenes">
+                <button class="scene-picker-close" type="button" aria-label="Close">&times;</button>
+            </div>
+            <div class="scene-picker-groups"></div>
+        </dialog>
+
         <hr>
         <div id="progress">
             <div id="fps-display"></div>
@@ -267,7 +274,7 @@
             </div>
         </div>
         <div id="help-dialog">
-            <p>This is an interactive ray/path tracer that runs in your browser. To try it out, select a scene from the top dropdown, wait for the shader to finish compiling, then enjoy!</p>
+            <p>This is an interactive ray/path tracer that runs in your browser. To try it out, choose a scene with the button at the top left, wait for the shader to finish compiling, then enjoy!</p>
             <p>The camera can be moved with WASD/LMB-click-drag, and scene geometry can be selected by clicking on the viewport. Further geometry and material properties of selected objects can be viewed/modified by opening the Edit menu. Geometry can be simply transformed by first clicking to select, then dragging, with the type of transformation selectable in the drop down.</p>
             <p>Objects and lights can be added with the Add button below the view (they appear in front of the camera), and the selected object removed with the Delete button or key. Adding or removing is instant when the scene is loaded with <code>?worldEditable=true</code>; otherwise the shader is rebuilt, which takes a few seconds.</p>
             <p>For more information on the technical details behind this project, see the <a href="https://github.com/alitteneker/jsraytracer">github project page</a>.</p>

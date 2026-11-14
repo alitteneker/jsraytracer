@@ -3,6 +3,9 @@
 How surfaces are described and rendered: the split between BSDFs and integrators, the physically based
 `PrincipledMaterial`, the microfacet theory behind it, the GPU port, and how all of it is tested.
 
+<p align="center"><img src="tests/pbr_materials/preview.jpg" width="600" alt="Rows of plastic, gold and glass spheres, from smooth to rough"></p>
+<p align="center"><sub><code>tests/pbr_materials</code> on the GPU: plastic, gold and glass, roughness increasing to the right.</sub></p>
+
 ## Materials describe; integrators transport
 
 A material answers one question: at this hit, what does the surface emit, and how does it scatter light?

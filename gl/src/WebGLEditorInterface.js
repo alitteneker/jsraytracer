@@ -403,8 +403,8 @@ class WebGLEditorInterface {
             if (this.pendingCaptures.length) {
                 const captures = this.pendingCaptures;
                 this.pendingCaptures = [];
-                for (const resolve of captures)
-                    this.canvas.get(0).toBlob(resolve, "image/png");
+                for (const [resolve, type, quality] of captures)
+                    this.canvas.get(0).toBlob(resolve, type, quality);
             }
             
             // If any object is selected, draw it's wireframe.
@@ -420,10 +420,11 @@ class WebGLEditorInterface {
         // reset all intermediary input/timing variables
         this.lastDrawTimestamp = currentTimestamp;
     }
-    // Resolves with a PNG of the canvas as the next frame draws it (before any selection wireframe).
+    // Resolves with an image of the canvas (a PNG, or e.g. "image/jpeg" with a quality from 0 to 1) as the next frame
+    // draws it, before any selection wireframe.
     pendingCaptures = [];
-    captureImage() {
-        return new Promise(resolve => this.pendingCaptures.push(resolve));
+    captureImage(type="image/png", quality=undefined) {
+        return new Promise(resolve => this.pendingCaptures.push([resolve, type, quality]));
     }
     drawWireframe(ancestorTransform, aabb, color) {
         if (this.lineShader) {

@@ -1,5 +1,5 @@
 // Principled (microfacet) materials: roughness 0 to 1 from left to right, for a dielectric (plastic), a metal (gold)
-// and glass. Path traced on the CPU; the GPU renderer doesn't support PrincipledMaterial yet.
+// and glass, path traced.
 export function configureTest(callback) {
     const objects = [];
     objects.push(new Primitive(new Plane(),

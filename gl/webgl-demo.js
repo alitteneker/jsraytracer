@@ -86,9 +86,10 @@ $(document).ready(function() {
     
     
     // The scene list, and the GLSL files the tracer's shaders are built from (see ShaderLibrary), both before any scene loads.
+    let scenePicker = null;
     Promise.all([fetch("../tests/list.json").then(response => response.json()), ShaderLibrary.load()]).then(function([json]) {
-        for (let o of json.sort())
-            $("#test-select").append(`<option value="${o}">${o}</option>`);
+        scenePicker = new ScenePicker(document.getElementById("scene-picker"), json.slice().sort(), chooseTest);
+        $("#scene-button").button({ icon: "ui-icon-triangle-1-s", iconPosition: "end" }).on("click", () => scenePicker.open());
         
         const URLParams = new URLSearchParams(window.location.search);
         if (URLParams.get("renderAll")) {
@@ -96,11 +97,10 @@ $(document).ready(function() {
             return;
         }
         const URLTest = URLParams.get('test');
-        if (URLTest) {
-            if (json.indexOf(URLTest) >= 0)
-                $("#test-select").val(URLTest);
+        if (URLTest)
             loadTest(URLTest);
-        }
+        else
+            scenePicker.open();
     }).catch(e => myconsole.error(e));
     
     window.onpopstate = function(e) {
@@ -109,25 +109,25 @@ $(document).ready(function() {
     }
     
     const defaultTitle = document.title;
-    $("#test-select").on("change", function() {
+    // A scene chosen in the scene picker.
+    function chooseTest(test) {
         i.stopDrawLoop();
         
-        const test = $("#test-select").val();
-        
         // Keep the shader mode (?worldEditable=true) across scene changes.
-        const params = test ? "?test=" + test + (WebGLRendererAdapter.worldEditable ? "&worldEditable=true" : "") : "";
+        const params = "?test=" + test + (WebGLRendererAdapter.worldEditable ? "&worldEditable=true" : "");
         window.history.pushState({ test: test }, test, params);
         
-        if (test === "")
-            return;
-        
         loadTest(test);
-    });
+    }
     
     // Returns a promise that resolves once the scene is configured (its shader is still to be built), or rejects if
     // its module can't be loaded.
     function loadTest(test) {
         $(".loading").css('visibility', 'visible');
+        if (scenePicker) {
+            $("#scene-button").button("option", "label", test);
+            scenePicker.setCurrent(test);
+        }
         
         const start = Date.now();
         myconsole.log(`Loading test ${test}...`);
@@ -161,6 +161,8 @@ $(document).ready(function() {
     //   loadSeconds=S  give up on a scene that hasn't started rendering after S seconds (default 180)
     //   only=a,b       just these scenes;  from=name  start at this scene (to resume)
     //   editable=true  use the editable shader for every scene
+    //   previews=true  save each as <scene>.preview.jpg instead, ready to go in tests/<scene>/preview.jpg (the image
+    //                  the scene picker shows)
     // Keep the tab visible (browsers pause drawing in hidden tabs), and allow multiple downloads when Chrome asks.
     async function renderAllScenes(tests, params) {
         const samples = Number(params.get("samples") || 2048),
@@ -188,7 +190,6 @@ $(document).ready(function() {
             const started = performance.now();
             try {
                 i.stopDrawLoop();
-                $("#test-select").val(test);
                 await Promise.race([loadTest(test), sleep(loadSeconds * 1000).then(() => { throw "timed out loading"; })]);
 
                 // Wait for the shader to compile and drawing to begin.
@@ -212,10 +213,13 @@ $(document).ready(function() {
                     $("#samples-per-draw").val(i.samplesPerDraw);
                 }
                 const reached = i.renderer_adapter.drawCount;
-                download(await i.captureImage(), `${test}.png`);
+                if (params.get("previews") == "true")
+                    download(await i.captureImage("image/jpeg", 0.88), `${test}.preview.jpg`);
+                else
+                    download(await i.captureImage(), `${test}.png`);
                 const seconds = ((performance.now() - started) / 1000).toFixed(1);
                 results.push({ test: test, samples: reached, seconds: seconds });
-                myconsole.log(`Saved ${test}.png: ${reached} samples, ${seconds} s` + (reached < samples ? " (stopped at the time limit)" : ""));
+                myconsole.log(`Saved ${test}: ${reached} samples, ${seconds} s` + (reached < samples ? " (stopped at the time limit)" : ""));
             } catch (e) {
                 results.push({ test: test, error: String(e) });
                 myconsole.error(`Skipped ${test}: ${e}`);

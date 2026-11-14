@@ -9,6 +9,19 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 **[Try the GPU demo](https://alitteneker.github.io/jsraytracer/gl)** &nbsp;|&nbsp;
 **[Try the CPU demo](https://alitteneker.github.io/jsraytracer/)**
 
+<p align="center">
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=cornell_box_path"><img src="tests/cornell_box_path/preview.jpg" width="24%" alt="Path-traced Cornell box" title="cornell_box_path"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=dragon"><img src="tests/dragon/preview.jpg" width="24%" alt="100,000-triangle dragon" title="dragon"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=refraction_path"><img src="tests/refraction_path/preview.jpg" width="24%" alt="Path-traced glass" title="refraction_path"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=SDF_Combinations"><img src="tests/SDF_Combinations/preview.jpg" width="24%" alt="SDF operators" title="SDF_Combinations"></a>
+  <br>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=starwars"><img src="tests/starwars/preview.jpg" width="24%" alt="Star Wars, with laser bolts as area lights" title="starwars"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=SDF_Menger"><img src="tests/SDF_Menger/preview.jpg" width="24%" alt="Menger sponge SDF" title="SDF_Menger"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=bunny"><img src="tests/bunny/preview.jpg" width="24%" alt="Glass bunny" title="bunny"></a>
+  <a href="https://alitteneker.github.io/jsraytracer/gl/?test=tie_fighter"><img src="tests/tie_fighter/preview.jpg" width="24%" alt="TIE fighter" title="tie_fighter"></a>
+</p>
+<p align="center"><sub>Rendered on the GPU from scenes in <code>tests/</code>. Click one to open it in the demo.</sub></p>
+
 ---
 
 ## Highlights
@@ -90,7 +103,7 @@ On Windows, `host.bat` does the same thing. Then open:
 - `http://localhost:8000/gl/` for the GPU renderer and editor
 - `http://localhost:8000/` for the CPU renderer
 
-Pick a scene from the dropdown, or jump straight to one with `?test=<name>`, for example
+Pick a scene from the scene picker, or jump straight to one with `?test=<name>`, for example
 `http://localhost:8000/gl/?test=dragon`. The **Editable Shader** checkbox in the Renderer panel (or
 `&worldEditable=true` in the URL) switches to a shader that reads the scene from textures instead of compiling it in.
 It renders a little slower, but adding and removing objects is then instant. Switching keeps the scene, the camera and
@@ -118,7 +131,8 @@ repository. Generate them first with `cd tests && node test_to_json.js dragon` (
 ## Writing a scene
 
 A scene is a module in `tests/<name>/test.mjs` that hands back a renderer. Add its name to `tests/list.json` and it
-appears in the dropdown.
+appears in the scene picker. The picker shows `tests/<name>/preview.jpg` if there is one: render it with
+`?renderAll=1&only=<name>&previews=true` (see below).
 
 ```js
 export function configureTest(callback) {
@@ -176,8 +190,9 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
   reference, so an optimization can be proven not to change the picture
 
 - `?renderAll=1` renders every scene in turn and downloads each as `<scene>.png`, for thumbnails and documentation.
-  Options: `samples` (default 2048), `maxSeconds` per scene (default 120), `only=a,b`, `from=<scene>` to resume, and
-  `editable=true`. Keep the tab visible while it runs, and allow multiple downloads when the browser asks.
+  Options: `samples` (default 2048), `maxSeconds` per scene (default 120), `only=a,b`, `from=<scene>` to resume,
+  `editable=true`, and `previews=true` to save `<scene>.preview.jpg` files for the scene picker instead (they go in
+  `tests/<scene>/preview.jpg`). Keep the tab visible while it runs, and allow multiple downloads when the browser asks.
 
 [Performance.md](Performance.md) covers what was measured, what changed and what didn't help.
 
