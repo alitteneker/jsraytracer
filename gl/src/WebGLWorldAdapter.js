@@ -745,7 +745,7 @@ class WebGLWorldAdapter {
                 DEBUG_WIDE_BVH:        this.bvh_child_boxes && W != 2,
                 DEBUG_STACK_TNEAR:     tnearStack,
                 DEBUG_STACK_TOP_CACHE: this.bvh_child_boxes && !!WebGLRendererAdapter.debugStackTopCache && !tnearStack && W == 2
-            }),
+            }, "world-debug"),
             transformCount: this.shader_transform_max_size,
             untransformedTriangleIntersect: (this.WORLD_EDITABLE || this.untransformed_triangles.length)
                 ? `triangleIntersect(r, minDistance, prim_id)` : `minDistance - 1.0`,

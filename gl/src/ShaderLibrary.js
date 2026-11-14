@@ -62,8 +62,17 @@ class ShaderLibrary {
         return Object.fromEntries(Object.entries(sections).map(([k, lines]) => [k, lines.join("\n")]));
     }
 
+    // When true, render() wraps each section it returns in /*@begin file:section*/ ... /*@end*/ comments, so a built
+    // shader can be traced back to the sections it came from (see ShaderGraph). Text a hole receives stays inside
+    // the section around it; generated text outside any section is left unmarked.
+    static trace = false;
+
     // The text of section `section` of file `name`, with each ${hole} replaced by String(values[hole]).
     static render(name, section, values={}) {
+        const text = ShaderLibrary.renderText(name, section, values);
+        return ShaderLibrary.trace ? `/*@begin ${name}:${section}*/\n${text}\n/*@end*/` : text;
+    }
+    static renderText(name, section, values) {
         if (!ShaderLibrary.files)
             throw new Error("ShaderLibrary.render called before ShaderLibrary.load finished");
         const file = ShaderLibrary.files[name];
@@ -78,9 +87,11 @@ class ShaderLibrary {
         });
     }
 
-    // Preprocessor lines for an object of macros. Booleans become 1 or 0, so files test them with #if.
-    static defines(macros) {
-        return Object.entries(macros).map(([k, v]) =>
+    // Preprocessor lines for an object of macros. Booleans become 1 or 0, so files test them with #if. The label
+    // names them when tracing (as "macros:<label>").
+    static defines(macros, label="macros") {
+        const text = Object.entries(macros).map(([k, v]) =>
             `#define ${k} ${typeof v === "boolean" ? Number(v) : v}\n`).join("");
+        return ShaderLibrary.trace ? `/*@begin macros:${label}*/\n${text}/*@end*/\n` : text;
     }
 }

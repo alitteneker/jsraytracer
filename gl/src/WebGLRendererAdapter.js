@@ -384,7 +384,7 @@ class WebGLRendererAdapter {
         };
     }
     getShaderSourceDeclarations() {
-        let ret = ShaderLibrary.defines(this.shaderDebugDefines())
+        let ret = ShaderLibrary.defines(this.shaderDebugDefines(), "debug")
         + (this.pathTracing ? "#define PATH_TRACING\n" : "")
         + this.webgl_helper.getShaderSourceDeclarations() + "\n"
         + ShaderLibrary.render("renderer.glsl", "declarations") + "\n";

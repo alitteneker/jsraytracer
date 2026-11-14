@@ -178,7 +178,9 @@ into sections (`//#section name`), and an adapter renders a section with the few
 of two ways, whichever reads better where it's used: `${name}` holes for generated code and array sizes, or
 preprocessor macros tested with `#if` (the renderer's debug flags arrive as `DEBUG_*` macros this way). The code that
 really is per-scene, such as the unrolled ray cast and each SDF's distance function, is still generated in the
-adapters.
+adapters. `gl/src/ShaderGraph.js` derives the dependency graph between sections from the GLSL itself: with a
+scene loaded, `ShaderGraph.report(jsrtEditor.renderer_adapter)` in the console lists which sections use which, and
+the cycles that only prototypes break.
 
 ### Performance tooling
 
