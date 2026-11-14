@@ -147,12 +147,12 @@ fixed stratified pattern (about 60 ms each), and interpolated.
 
 ## On the GPU
 
-`gl/src/WebGLMaterialsAdapter.js` ports the same design to GLSL (`BSDF_SHADER_SOURCE`). Instead of a list of lobe
-objects, a GLSL `BSDF` is a fixed set of lobe slots with weights: Lambertian (both sides), normalized Phong (both
-sides), GGX conductor, Kulla-Conty multiple scattering, two rough dielectrics (glass, and the reflect-only specular
-layer of a plastic), and the delta lobes (mirror, pass-through, smooth dielectric). Each material only fills slots
-(`buildPhongBSDF`, `buildPrincipledBSDF`), so `bsdfEval` and `bsdfSample` each have a single call site whatever the
-scene contains, which keeps compile times in check.
+`gl/shaders/bsdf.glsl` ports the same design to GLSL (rendered by `gl/src/WebGLMaterialsAdapter.js`). Instead of a
+list of lobe objects, a GLSL `BSDF` is a fixed set of lobe slots with weights: Lambertian (both sides), normalized
+Phong (both sides), GGX conductor, Kulla-Conty multiple scattering, two rough dielectrics (glass, and the reflect-only
+specular layer of a plastic), and the delta lobes (mirror, pass-through, smooth dielectric). Each material only fills
+slots (`buildPhongBSDF`, `buildPrincipledBSDF`), so `bsdfEval` and `bsdfSample` each have a single call site whatever
+the scene contains, which keeps compile times in check.
 
 - **Integrators.** The renderer's `integrator` option picks the mode when the shader is generated
   (`WebGLRendererAdapter.pathTracing`, which defines `PATH_TRACING`). Path tracing does next-event estimation with

@@ -85,8 +85,8 @@ $(document).ready(function() {
     window.jsrtEditor = i;
     
     
-    // Populate the list of worlds with the default test list
-    fetch("../tests/list.json").then(response => response.json()).then(function(json) {
+    // The scene list, and the GLSL files the tracer's shaders are built from (see ShaderLibrary), both before any scene loads.
+    Promise.all([fetch("../tests/list.json").then(response => response.json()), ShaderLibrary.load()]).then(function([json]) {
         for (let o of json.sort())
             $("#test-select").append(`<option value="${o}">${o}</option>`);
         
@@ -101,7 +101,7 @@ $(document).ready(function() {
                 $("#test-select").val(URLTest);
             loadTest(URLTest);
         }
-    });
+    }).catch(e => myconsole.error(e));
     
     window.onpopstate = function(e) {
         if (e.state && e.state.test)

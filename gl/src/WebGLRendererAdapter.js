@@ -310,142 +310,13 @@ class WebGLRendererAdapter {
         WebGLHelper.compileMultipleShaderProgramsFromSources(gl,
             // Compile and link shader program for the tracer
             [{
-                vertex: `#version 300 es
-                    precision highp float;
-                    in vec4 vertexPosition;
-                    void main() {
-                        gl_Position = vertexPosition;
-                    }`,
-            
+                vertex:   ShaderLibrary.render("renderer.glsl", "tracer.vertex"),
                 fragment: fsSource
             },
-            
             // Because we're rendering to a texture, we also need a simple pass-through shader
             {
-                vertex: `#version 300 es
-                    precision highp float;
-                    in vec4 vertexPosition;
-                    out vec2 textureCoord;
-                    void main() {
-                        textureCoord = (vertexPosition.xy+1.0)/2.0;
-                        gl_Position = vertexPosition;
-                    }`,
-                    
-                fragment: `#version 300 es
-                    precision mediump float;
-                    #define EPSILON 0.0001
-                    
-                    #define INV_SQRT_OF_2PI 0.39894228040143267793994605993439  // 1.0/SQRT_OF_2PI
-                    #define INV_PI          0.31830988618379067153776752674503
-                    
-                    uniform sampler2D uSampleSumTexture;
-                    uniform sampler2D uVarianceTexture;
-                    uniform sampler2D uNormalSumTexture;
-					uniform int uSampleCount;
-                    in vec2 textureCoord;
-                    
-                    uniform float uMaxDepth;
-                    uniform float uColorLogScale;
-                    
-                    uniform bool uDoDenoise;
-                    uniform float uDenoiseThreshold;
-                    uniform float uDenoiseSigma;
-                    uniform float uDenoiseKSigma;
-                    uniform float uDenoiseNormalPower;
-
-                    // The following function is modified from https://github.com/BrutPitt/glslSmartDeNoise/tree/master
-                    // Parameters:
-                    //      sampler2D tex             - sampler image / texture
-                    //      vec2 uv                   - actual fragment coord
-                    //      float texture_factor      - multiplier for values from render texture
-                    //      float uDenoiseSigma  >  0 - sigma Standard Deviation
-                    //      float uDenoiseKSigma >= 0 - sigma coefficient
-                    //          uDenoiseKSigma * uDenoiseSigma  -->  radius of the circular kernel
-                    //      float uDenoiseThreshold   - edge sharpening threshold
-                    vec4 smartDeNoise(in sampler2D tex, in sampler2D var, in sampler2D norm, in vec2 uv, in float texture_factor) {
-                        float radius = round(uDenoiseKSigma * uDenoiseSigma);
-                        float radQ = radius * radius;
-
-                        float invSigmaQx2 = .5 / (uDenoiseSigma * uDenoiseSigma);      // 1.0 / (uDenoiseSigma^2 * 2.0)
-                        float invSigmaQx2PI = INV_PI * invSigmaQx2;                    // // 1/(2 * PI * uDenoiseSigma^2)
-
-                        float invThresholdSqx2 = .5 / (uDenoiseThreshold * uDenoiseThreshold);     // 1.0 / (uDenoiseSigma^2 * 2.0)
-                        float invThresholdSqrt2PI = INV_SQRT_OF_2PI / uDenoiseThreshold;           // 1.0 / (sqrt(2*PI) * uDenoiseSigma)
-
-                        vec4 centerPx = texture(tex, uv) * texture_factor;
-                        vec4 centerStd = sqrt(max(texture(var, uv), 0.0) * texture_factor);
-
-                        // The accumulated normal buffer isn't unit length (it's a sum across samples), and is exactly
-                        // zero wherever every sample was a background miss, so guard the normalize rather than risk NaN.
-                        vec3 centerNormalRaw = texture(norm, uv).xyz;
-                        float centerNormalLen = length(centerNormalRaw);
-                        bool centerNormalValid = centerNormalLen > EPSILON;
-                        vec3 centerNormal = centerNormalValid ? (centerNormalRaw / centerNormalLen) : vec3(0.0);
-
-                        vec4 zBuff = vec4(0.0);
-                        vec4 aBuff = vec4(0.0);
-                        vec2 size = vec2(textureSize(tex, 0));
-
-                        vec2 d;
-                        for (d.x=-radius; d.x <= radius; d.x++) {
-                            float pt = sqrt(radQ-d.x*d.x);       // pt = yRadius: have circular trend
-                            for (d.y=-pt; d.y <= pt; d.y++) {
-                                vec2 coord = max(min(uv + d / size, 1.0), 0.0);
-                                vec4 px_color =          texture(tex, coord)       * texture_factor;
-                                vec4 px_std   = sqrt(max(texture(var, coord), 0.0) * texture_factor);
-
-                                vec4 std_diff = px_std - centerStd;
-
-                                float spatialW = exp( -dot(d , d) * invSigmaQx2 ) * invSigmaQx2PI;
-                                vec4  stdDiffW = invThresholdSqrt2PI / (1.0 + exp( -std_diff * invThresholdSqx2));
-                                float depthW = exp(-abs(px_color.w - centerPx.w) * 50.0);
-
-                                // Normal-based edge stopping: pixels facing similar directions to the center pixel
-                                // are likely the same surface, so blend them freely; a surface next to background,
-                                // or two differently-oriented surfaces, should not bleed into each other. When both
-                                // the center and sample are background (no accumulated normal), fall back to 1.0 so
-                                // background regions still blend on spatial/variance/depth terms alone.
-                                vec3 px_normalRaw = texture(norm, coord).xyz;
-                                float px_normalLen = length(px_normalRaw);
-                                bool px_normalValid = px_normalLen > EPSILON;
-                                float normalW = 1.0;
-                                if (centerNormalValid || px_normalValid)
-                                    normalW = (centerNormalValid && px_normalValid)
-                                        ? pow(max(dot(centerNormal, px_normalRaw / px_normalLen), 0.0), uDenoiseNormalPower)
-                                        : 0.0;
-
-                                vec4 deltaFactor = spatialW * stdDiffW * depthW * normalW;
-
-                                zBuff += deltaFactor;
-                                aBuff += deltaFactor * px_color;
-                            }
-                        }
-                        return vec4((aBuff / zBuff).xyz, centerPx.w);
-                    }
-                    
-                    out vec4 outTexelColor;
-                    void main() {
-                        float texture_factor = 1.0 / float(max(uSampleCount + 1, 1));
-                        
-                        vec4 sampleColor;
-                        if (uDoDenoise)
-                            sampleColor = smartDeNoise(uSampleSumTexture, uVarianceTexture, uNormalSumTexture, textureCoord, texture_factor);
-                        else
-                            sampleColor = texture(uSampleSumTexture, textureCoord) * texture_factor;
-                        
-                        if (any(isnan(sampleColor)))
-                            sampleColor = vec4(1.0, 0.0, 0.5, 1.0);
-                        if (any(isinf(sampleColor)))
-                            sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
-                        if (any(lessThan(sampleColor.rgb, vec3(0.0))))
-                            sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
-                        
-                        if (uColorLogScale > 0.0)
-                            sampleColor = vec4(log(sampleColor.rgb + 1.0) / uColorLogScale, sampleColor.a);
-                        
-                        outTexelColor = vec4(sampleColor.rgb, 1.0);
-                        gl_FragDepth = min(sampleColor.a / uMaxDepth, 1.0-EPSILON);
-                    }`
+                vertex:   ShaderLibrary.render("renderer.glsl", "display.vertex"),
+                fragment: ShaderLibrary.render("renderer.glsl", "display.fragment")
             }], 
             ([tracerShaderProgram, passthroughShaderProgram]) => {
                 this.tracerShaderProgram = tracerShaderProgram;
@@ -492,190 +363,45 @@ class WebGLRendererAdapter {
             });
     }
     
+    // The debug and experiment flags (the static flags above) that the GLSL files test with #if, as macros prepended
+    // to the tracer shader. Flags that change the scene data's layout too are decided by the adapter that owns it.
+    shaderDebugDefines() {
+        const R = WebGLRendererAdapter;
+        return {
+            DEBUG_POW2_DATA_TEXTURES: WebGLTexture.pow2DataLayout(),
+            DEBUG_TRAVERSAL_HEATMAP:  !!R.debugTraversalHeatmap,
+            DEBUG_CONST_MATERIAL_PARAMS: !!R.debugConstMaterialParams,
+            DEBUG_SKIP_UNLIT_SHADOWS: !!R.debugSkipUnlitShadows,
+            DEBUG_NO_SHADOWS:         !!R.debugNoShadows,
+            DEBUG_FAST_TRIANGLE:      !!R.debugFastTriangle,
+            DEBUG_INLINE_TRIANGLE_VERTS: !!R.debugInlineTriangleVerts,
+            DEBUG_SDF_BOUNDS:         !!R.debugSDFBounds,
+            DEBUG_FAST_AABB:          !!R.debugFastAABB,
+            DEBUG_SKIP_TRAVERSAL:     !!R.debugSkipTraversal,
+            DEBUG_TRAVERSAL_ONLY:     !!R.debugTraversalOnly,
+            // The heatmap's color: 1 for node visits, 2 for primitive tests, 3 for both (see debugTraversalHeatmap).
+            DEBUG_HEATMAP_MODE:       R.debugTraversalHeatmap === "nodes" ? 1 : R.debugTraversalHeatmap === "prims" ? 2 : 3,
+        };
+    }
     getShaderSourceDeclarations() {
-        let ret = (this.pathTracing ? "#define PATH_TRACING\n" : "")
+        let ret = ShaderLibrary.defines(this.shaderDebugDefines())
+        + (this.pathTracing ? "#define PATH_TRACING\n" : "")
         + this.webgl_helper.getShaderSourceDeclarations() + "\n"
-        +  `
-            struct Ray { vec4 o; vec4 d; };
-            struct RecursiveNextRays {
-                float reflectionProbability;
-                vec4  reflectionDirection;
-                vec3  reflectionColor;
-                
-                float transmissionProbability;
-                vec4  transmissionDirection;
-                vec3  transmissionColor;
-
-                // Whether each direction was exact (mirror/refraction) rather than randomly sampled; decides whether
-                // the next hit counts a light's emission (see worldRayColorShallow).
-                bool  reflectionExact;
-                bool  transmissionExact;
-
-                // Path tracing: the density the BSDF sampled the reflection direction with (0 for an exact one).
-                float pdf;
-            };
-            // Path tracing: the pdf of the bounce that produced the current ray, for MIS when it hits a light (0 for
-            // camera rays and exact bounces, whose light counts fully).
-            float gPrevBsdfPdf = 0.0;
-            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal);
-            uniform int uMaxBounceDepth;` + "\n";
+        + ShaderLibrary.render("renderer.glsl", "declarations") + "\n";
         return ret
             + this.adapters.world.getShaderSourceDeclarations()  + "\n"
             + this.adapters.camera.getShaderSourceDeclarations() + "\n";
     }
     getShaderSource() {
-        let ret = `
-            uniform sampler2D uSampleSumTexture;
-            uniform sampler2D uNormalSumTexture;
-            uniform sampler2D uVarianceTexture;
-    
-            uniform bool uRendererRandomMultisample;
-            uniform int uSampleCount;
-            uniform float uRandomSeed;
-            uniform float uFireflyClamp;
-
-            uniform vec2 uCanvasSize;
-            
-            layout(location=0) out vec4 outSampleSum;
-            layout(location=1) out vec4 outNormalSum;
-            layout(location=2) out vec4 outSampleVariance;
-
-
-            void main() {
-                vec2 canvasCoord = 2.0 * (gl_FragCoord.xy / uCanvasSize) - vec2(1.0);
-                vec2 pixelSize = 2.0 / uCanvasSize;
-                
-                vec2 random_seed = gl_FragCoord.xy + vec2(uRandomSeed);
-                
-                if (uRendererRandomMultisample)
-                    // canvasCoord += pixelSize * (rand2f(random_seed) - vec2(0.5)); // box filter
-                    canvasCoord += 0.5 * pixelSize * randomGaussian(random_seed); // gaussian filter
-                
-                Ray r = computeCameraRayForTexel(canvasCoord, pixelSize, random_seed);
-                
-                vec4 firstHitNormal = vec4(0.0);
-                vec4 sampleColor = rendererRayColor(r, random_seed, firstHitNormal);
-
-                if (uSampleCount == 0) {
-                    outSampleSum = sampleColor;
-                    outNormalSum = firstHitNormal;
-                    outSampleVariance = vec4(0.0);
-                }
-                else {
-                    vec4 sumSampleColor  = texture(uSampleSumTexture,   gl_FragCoord.xy / uCanvasSize);
-                    vec4 sumSampleNormal = texture(uNormalSumTexture,   gl_FragCoord.xy / uCanvasSize);
-                    vec4 sampleVariance  = texture(uVarianceTexture,    gl_FragCoord.xy / uCanvasSize);
-
-                    outSampleSum = sumSampleColor + sampleColor;
-                    outNormalSum = sumSampleNormal + firstHitNormal;
-                    
-                    float count1 = float(uSampleCount + 1);
-                    vec4 mean = sumSampleColor / count1;
-                    vec4 delta = sampleColor - mean;
-                    vec4 delta2 = sampleColor - ((delta / count1) + mean);
-                    outSampleVariance = sampleVariance + (delta * delta2);
-                }
-            }
-            vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hit_normal) {
-                vec3 total_color = vec3(0.0);
-                float initial_intersection_distance = 1E20;
-                
-                Ray r = in_ray;
-                vec3 attenuation_color = vec3(1);
-                ${Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
-                    `vec4 ballast${b} = vec4(uRandomSeed + ${(b + 0.123).toFixed(3)});`).join("\n                ")}
-
-                // Camera rays see lights directly; after that, only exact bounces do (see worldRayColorShallow).
-                bool countEmission = true;
-
-                int i = 0;
-                for (;i < uMaxBounceDepth; ++i) {
-                    vec4 intersect_position = vec4(0);
-                    vec3 intersect_normal = vec3(0);
-                    RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false, 0.0);
-                    vec3 contribution = attenuation_color * worldRayColorShallow(r, random_seed, intersect_position, nextRays, intersect_normal, countEmission);
-                    ${WebGLRendererAdapter.debugTraversalHeatmap
-                        // Heatmap mode returns before setting intersect_position, so the loop breaks before the normal
-                        // is normally recorded. Record it here instead: it holds raw (nodes, prims, hit) counts.
-                        ? `if (i == 0) first_hit_normal.xyz = intersect_normal;` : ``}
-
-                    // Firefly clamp: cap the luminance of INDIRECT contributions (bounce >= 1) only. Directly
-                    // visible surfaces and emitters (i == 0) are never clamped, so bright lights render at full
-                    // intensity; only rare bright outliers from deeper bounces (the actual fireflies) are tamed.
-                    if (i > 0 && uFireflyClamp > 0.0) {
-                        float lum = max(max(contribution.r, contribution.g), contribution.b);
-                        if (lum > uFireflyClamp)
-                            contribution *= uFireflyClamp / lum;
-                    }
-                    total_color += contribution;
-                    ${Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
-                        `ballast${b} += intersect_position + float(i);`).join("\n                    ")}
-
-                    if (intersect_position.w == 0.0)
-                        break;
-                    
-                    if (i == 0) {
-                        initial_intersection_distance = length(r.o - intersect_position);
-                        first_hit_normal.xyz = intersect_normal;
-                    }
-                    
-                    bool do_next_ray = false;
-                    
-                    float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.transmissionProbability;
-                    if (next_ray_probability_sum > 0.0) {
-                    
-                        float next_ray_probability_sample = randf(random_seed) * max(next_ray_probability_sum, 1.0);
-                        
-                        next_ray_probability_sample -= nextRays.reflectionProbability;
-                        if (next_ray_probability_sample <= 0.0
-                            && normSquared(nextRays.reflectionDirection) > EPSILON)
-                        {
-                            r = Ray(intersect_position, nextRays.reflectionDirection);
-                            attenuation_color *= nextRays.reflectionColor * max(next_ray_probability_sum, 1.0);
-#ifdef PATH_TRACING
-                            // Lights hit by sampled bounces count too, weighted by MIS (see colorForMaterial).
-                            gPrevBsdfPdf = nextRays.reflectionExact ? 0.0 : nextRays.pdf;
-#else
-                            countEmission = nextRays.reflectionExact;
-#endif
-                            do_next_ray = true;
-                        }
-                        
-                        else {
-                            next_ray_probability_sample -= nextRays.transmissionProbability;
-                            if (next_ray_probability_sample <= 0.0
-                                && normSquared(nextRays.transmissionDirection) > EPSILON)
-                            {
-                                r = Ray(intersect_position, nextRays.transmissionDirection);
-                                attenuation_color *= nextRays.transmissionColor * max(next_ray_probability_sum, 1.0);
-                                countEmission = nextRays.transmissionExact;
-                                do_next_ray = true;
-                            }
-                        }
-                    }
-                    
-                    if (!do_next_ray)
-                        break;
-#ifdef PATH_TRACING
-                    // Russian roulette: end dim paths at random, boosting the survivors so the estimate stays unbiased.
-                    if (i + 1 >= 3) {
-                        float q = max(0.05, 1.0 - max(max(attenuation_color.r, attenuation_color.g), attenuation_color.b));
-                        if (randf(random_seed) < q)
-                            break;
-                        attenuation_color /= 1.0 - q;
-                    }
-#endif
-                }
-                ${WebGLRendererAdapter.debugBallastRegisters > 0
-                    ? `float ballastSum = 0.0; `
-                        + Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) =>
-                            `ballastSum += dot(ballast${b}, vec4(1.0));`).join(" ")
-                        + ` total_color += vec3(ballastSum * 1e-30);`
-                    : ``}
-
-                first_hit_normal.w = float(i);
-                return vec4(total_color, initial_intersection_distance);
-            }`;
+        const ballast = Array.from({length: WebGLRendererAdapter.debugBallastRegisters}, (_, b) => b);
+        let ret = ShaderLibrary.render("renderer.glsl", "source", {
+            ballastDeclarations: ballast.map(b => `vec4 ballast${b} = vec4(uRandomSeed + ${(b + 0.123).toFixed(3)});`).join("\n    "),
+            ballastAccumulate:   ballast.map(b => `ballast${b} += intersect_position + float(i);`).join("\n        "),
+            ballastSum: ballast.length
+                ? `float ballastSum = 0.0; ` + ballast.map(b => `ballastSum += dot(ballast${b}, vec4(1.0));`).join(" ")
+                    + ` total_color += vec3(ballastSum * 1e-30);`
+                : ``
+        });
         return ret
             + this.webgl_helper.getShaderSource()
             + this.adapters.world.getShaderSource()

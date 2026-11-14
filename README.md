@@ -150,6 +150,7 @@ export function configureTest(callback) {
 src/        The scene model and CPU tracer: math, geometry, materials, BSDFs, integrators, lights, cameras,
             aggregates (BVH), SDFs, OBJ loading, serialization, and the Web Worker renderer.
 gl/         The GPU renderer: adapters that walk the scene graph and generate GLSL for it, plus the editor UI.
+gl/shaders/ The GLSL the adapters build each scene's shader from.
 tests/      Example scenes, one folder each.
 assets/     Models and textures used by the scenes.
 ```
@@ -157,6 +158,13 @@ assets/     Models and textures used by the scenes.
 The GPU side does not interpret the scene at runtime. Each adapter in `gl/src/` (world, geometries, materials,
 lights) visits its part of the scene graph, packs the data into uniforms and data textures, and emits the GLSL that
 reads it. For scenes that aren't being restructured, the generated shader is unrolled for that specific scene.
+
+The fixed parts of that GLSL live in `gl/shaders/*.glsl`, loaded once by `gl/src/ShaderLibrary.js`. A file is split
+into sections (`//#section name`), and an adapter renders a section with the few values only the scene knows, in one
+of two ways, whichever reads better where it's used: `${name}` holes for generated code and array sizes, or
+preprocessor macros tested with `#if` (the renderer's debug flags arrive as `DEBUG_*` macros this way). The code that
+really is per-scene, such as the unrolled ray cast and each SDF's distance function, is still generated in the
+adapters.
 
 ### Performance tooling
 

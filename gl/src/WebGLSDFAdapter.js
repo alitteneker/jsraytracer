@@ -102,108 +102,24 @@ class WebGLSDFAdapter {
         // Bake SDF parameters into the scene-specific shader as constants (see WebGLSDFDecorator.param). The
         // editable shader keeps uniforms, so that editing them stays instant.
         this.useConstants = WebGLRendererAdapter.sdfConstants && !sceneEditable && !this.forceUniforms;
-        return `
-            // =============== SDF ===============
-            float sdfIntersect(in Ray r, in float minDistance, in int sdfID);
-            void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID);`
-        + this.geometries.map((g, i) => `
-            float sdfIntersect_${i}(in Ray r, in float minDistance);
-            void sdfMaterialData_${i}(in vec4 position, inout GeometricMaterialData data);`).join("\n")
+        return ShaderLibrary.render("sdf.glsl", "declarations")
+        + this.geometries.map((g, i) => ShaderLibrary.render("sdf.glsl", "declarations.geometry", { id: i })).join("\n")
         + Object.values(this.sdfs).map(d => d.getShaderSourceDeclarations()).join("\n")
         + Object.values(this.transforms).map(d => d.getShaderSourceDeclarations()).join("\n");
     }
     getShaderSource(sceneEditable) {
         if (Object.keys(this.sdfs).length == 0)
-            return `
-            // =============== SDF ===============
-            float sdfIntersect(in Ray r, in float minDistance, in int sdfID) { return minDistance - 1.0; }
-            void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID) {}`;
-        return `
-            // =============== SDF ===============
-            float sdfBoxDistance(in vec4 p, in vec4 size) {
-                p = abs(p) - size;
-                return length(max(p.xyz, vec3(0.0))) + min(max(p[0], max(p[1], p[2])), 0.0);
-            }
-            float sdfUnitTetrahedronDistance(in vec4 p) {
-                return (max(abs(p[0] + p[1]) - p[2],
-                            abs(p[0] - p[1]) + p[2]) - 1.0) / sqrt(3.0);
-            }
-            float sdfSmoothMin(in float a, in float b, in float k) {
-                float h = max( k - abs( a - b ), 0.0 ) / k;
-                return min( a, b ) - h * h * h * k * (1.0 / 6.0);
-            }
-            float sdfSmoothMinBlend(in float a, in float b, in float k) {
-                float h = max( k - abs( a - b ), 0.0 ) / k;
-                float m = h * h * h * 0.5;
-                return (a < b) ? m : (1.0 - m);
-            }
-            GeometricMaterialData sdfBlendMaterialData(in float mix_factor, in GeometricMaterialData data_a, in GeometricMaterialData data_b) {
-                if      (mix_factor <= 0.0) return data_a;
-                else if (mix_factor >= 1.0) return data_b;
-                GeometricMaterialData ret;
-                ret.baseColor = mix(data_a.baseColor, data_b.baseColor, mix_factor);
-                ret.UV = mix(data_a.UV, data_b.UV, mix_factor);
-                return ret;
-            }
-            float sdfIntersect(in Ray r, in float minDistance, in int sdfID) {
-${this.geometries.map((g, i) => `                if (sdfID == ${i}) return sdfIntersect_${i}(r, minDistance);`).join("\n")}
-                return minDistance - 1.0;
-            }
-            void sdfMaterialData(in vec4 position, inout GeometricMaterialData data, in int sdfID) {
-${this.geometries.map((g, i) => `                if (sdfID == ${i}) sdfMaterialData_${i}(position, data);`).join("\n")}
-            }`
-        + this.geometries.map((g, i) => `
-            uniform int sdf_${i}_max_samples;
-            uniform float sdf_${i}_distance_epsilon;
-            uniform float sdf_${i}_max_trace_distance;
-            uniform float sdf_${i}_normal_step_size;
-            uniform vec3 sdf_${i}_aabb_min;
-            uniform vec3 sdf_${i}_aabb_max;
-        
-            float sdfGeometryDistance_${i}(in vec4 position) {
-                return ${this.sdfs[g.root_sdf.UID].getDistanceShaderSource("position")};
-            }
-            float sdfIntersect_${i}(in Ray r, in float minDistance) {
-                float rd_norm = length(r.d);
-                float t = minDistance, tEnd = minDistance + sdf_${i}_max_trace_distance / rd_norm;${WebGLRendererAdapter.debugSDFBounds ? `
-                // March only inside the SDF's bounding box (a slab test, in the SDF's own space): start where the
-                // ray enters it and stop where it leaves. Rays that miss it entirely cost nothing.
-                {
-                    vec3 invD = 1.0 / r.d.xyz;
-                    vec3 t0 = (sdf_${i}_aabb_min - r.o.xyz) * invD, t1 = (sdf_${i}_aabb_max - r.o.xyz) * invD;
-                    vec3 tn = min(t0, t1), tf = max(t0, t1);
-                    float tEnter = max(max(tn.x, tn.y), tn.z), tExit = min(min(tf.x, tf.y), tf.z);
-                    if (tExit < tEnter || tExit < minDistance)
-                        return minDistance - 1.0;
-                    if (!isnan(tEnter) && !isnan(tExit)) {
-                        t = max(t, tEnter);
-                        tEnd = min(tEnd, tExit + sdf_${i}_distance_epsilon / rd_norm);
-                    }
-                }` : ``}
-                for (int i = 0; i < sdf_${i}_max_samples; ++i) {
-                    float distance = sdfGeometryDistance_${i}(r.o + t * r.d);
-                    
-                    if (isinf(distance) || isnan(distance))
-                        break;
-                    
-                    if (distance <= sdf_${i}_distance_epsilon)
-                        return t;
-                    
-                    t += distance / rd_norm;
-                    if (t < minDistance || t > tEnd)
-                        break;
-                }
-                return minDistance - 1.0;
-            }
-            void sdfMaterialData_${i}(in vec4 position, inout GeometricMaterialData data) {
-                float distance = sdfGeometryDistance_${i}(position);
-                for (int i = 0; i < 3; ++i)
-                    data.normal[i] = (sdfGeometryDistance_${i}(position + sdf_${i}_normal_step_size * unitAxis4(i)) - distance) / sdf_${i}_normal_step_size;
-                
-                GeometricMaterialData sdf_data = ${this.sdfs[g.root_sdf.UID].getMaterialShaderSource("position")};
-                data.UV = sdf_data.UV;
-                data.baseColor = sdf_data.baseColor;
-            }`).join("\n")
+            return ShaderLibrary.render("sdf.glsl", "none");
+        const dispatch = section => this.geometries.map((g, i) => ShaderLibrary.render("sdf.glsl", section, { id: i })).join("\n");
+        return ShaderLibrary.render("sdf.glsl", "source", {
+            intersectDispatch: dispatch("dispatch.intersect"),
+            materialDispatch:  dispatch("dispatch.material")
+        })
+        + this.geometries.map((g, i) => ShaderLibrary.render("sdf.glsl", "geometry", {
+            id: i,
+            distance: this.sdfs[g.root_sdf.UID].getDistanceShaderSource("position"),
+            material: this.sdfs[g.root_sdf.UID].getMaterialShaderSource("position")
+        })).join("\n")
         + Object.values(this.sdfs).map(d => d.getShaderSource()).join("\n")
         + Object.values(this.transforms).map(d => d.getShaderSource()).join("\n");
     }
