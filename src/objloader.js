@@ -86,7 +86,7 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
 
             if (t[0] == "newmtl") {
                 if (curr)
-                    ret[name] = makeMaterial(curr, isPath);
+                    ret[name] = Object.assign(makeMaterial(curr, isPath), { name: name });
                 name = t[1];
                 curr = {};
                 continue;
@@ -116,7 +116,7 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
         }
 
         if (curr)
-            ret[name] = makeMaterial(curr, isPath);
+            ret[name] = Object.assign(makeMaterial(curr, isPath), { name: name });
 
         callback(ret);
     });

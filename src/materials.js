@@ -138,7 +138,17 @@ const toRGB = v => [v[0], v[1], v[2]];
 class Material {
     static MATERIAL_UID_GEN = 0;
     constructor() {
-        Object.defineProperty(this, "MATERIAL_UID", { value: Material.MATERIAL_UID_GEN++, enumerable: false, configurable: false, writable: false });
+        Material.assignUID(this);
+    }
+    static assignUID(material) {
+        Object.defineProperty(material, "MATERIAL_UID", { value: Material.MATERIAL_UID_GEN++, enumerable: false, configurable: false, writable: false });
+    }
+    // A new material with the same parameters (and the same MaterialColor objects, which edits replace rather than
+    // change), so it can be edited separately. An optional `name` is just a label for the editor (OBJ files' newmtl).
+    copy() {
+        const copy = Object.assign(Object.create(Object.getPrototypeOf(this)), this);
+        Material.assignUID(copy);
+        return copy;
     }
     // The surface at a hit: { emission: Vec or null, bsdf: BSDF or null (absorbs everything) }. data comes from
     // Primitive.surfaceData (ray, position, normal, UV, ...).
