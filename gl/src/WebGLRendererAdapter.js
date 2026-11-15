@@ -41,51 +41,14 @@ class WebGLRendererAdapter {
     // console (see reportHeatmapStats). readPixels stalls the GPU pipeline, so keep this coarse. 0 disables.
     static debugHeatmapStatsIntervalMs = 1000;
 
-    // Per-node-visit cost ablations for worldRayCastBVH (read at shader-gen time like the flags above; reload the
-    // scene after changing). Each replaces one piece of the per-node work with a cheaper equivalent:
-    //   debugFastAABB      - precompute 1/r.d once per ray and use a branchless slab test (min/max) on the node's
-    //                        min/max directly, instead of the looping, branching, dividing AABBIntersects with its
-    //                        center/half-size reconstruction.
-    //   debugFastNodeIndex - lay the BVH node texture out with a power-of-two width baked into the shader, so the node
-    //                        index -> texel coordinate is a mask and a shift, instead of textureSize() + integer % and /.
-    // Traversal optimizations, Nov 2026. Measured on dragon (full 4-bounce render, GPU tracer-pass p50, same machine):
-    // baseline 6.05 ms -> 2.67 ms with debugChildBoxes + debugPow2DataTextures + debugSkipUnlitShadows +
-    // debugFastTriangle + debugInlineTriangleVerts, which are now ON by default (starwars 5.73 -> 2.91 ms,
-    // AMultipleBVH 0.70 -> 0.35 ms; images match the baseline within sampling noise). Set any of them false
-    // (console, or URL parameter e.g. ?debugChildBoxes=false) and reload the scene to A/B.
-    // Measured and NOT adopted: debugFastNodeIndex (superseded by debugPow2DataTextures), debugStackTNear (slower),
-    // debugStackTopCache (no change), debugWideBVH (slightly slower than binary on top of the others).
-    static debugFastAABB = false;
-    static debugFastNodeIndex = false;
-    // Lay out every generic data texture (triangles, world data, materials, BVH nodes unless debugFastNodeIndex) at a
-    // fixed power-of-two width, so texelFetchByIndex is a mask + shift everywhere. See WebGLTexture.coerceToDataTextureData.
-    static debugPow2DataTextures = true;
-    // (debugSkipUnlitShadows, which skipped the shadow ray for a light the surface wouldn't reflect anyway, is now
-    // how the integrator always works: see rendererDirectLight in renderer.glsl.)
-    // BVH layout with each internal node holding its two children's boxes (see WebGLWorldAdapter.buildChildBoxBVHData),
-    // so nodes the ray misses are never fetched. Used by editable shaders too.
-    static debugChildBoxes = true;
+    // The traversal optimizations of Nov 2026 (child boxes, power-of-two data textures, Moller-Trumbore triangles,
+    // inlined triangle vertices, skipping unlit shadow rays) and the experiments that didn't help are written up in
+    // Performance.md. The adopted ones are now simply how the renderer works; their flags and the old paths are gone.
+
     // Build the editable ("interpreter") shader: aggregate and primitive data is read from data textures at run time
     // instead of being unrolled into the source for this scene, so the scene's structure could change without a
     // recompile. Read when the adapters are created; reload the scene after changing it.
     static worldEditable = false;
-    // Editable shader only: cast rays with a single loop over roots, BVH nodes and primitive lists, so the generic
-    // primitive intersection is compiled once per ray cast instead of three times (see
-    // WebGLWorldAdapter.getEditableUnifiedRayCastSource).
-    static editableUnifiedCast = true;
-    // With debugChildBoxes: also keep each stacked node's box-entry distance, and drop stacked nodes that a closer hit
-    // found after they were pushed has made unreachable, without fetching them.
-    static debugStackTNear = false;
-    // With debugChildBoxes: keep the top stack entry in a register, so most push/pop pairs skip the dynamically
-    // indexed stack array (which ANGLE may place in slow indexable memory).
-    static debugStackTopCache = false;
-    // Moller-Trumbore triangle test in place of plane intersection + barycentric check.
-    static debugFastTriangle = true;
-    // Duplicate each triangle's positions into their own texture so intersection skips the vertex index lookup.
-    static debugInlineTriangleVerts = true;
-    // With debugChildBoxes: collapse the binary BVH into a 4-wide one (4 child boxes per node), roughly halving the
-    // number of loop iterations and stack operations per ray. See WebGLWorldAdapter.buildChildBoxBVHData.
-    static debugWideBVH = false;
 
     // Floor measurement: worldRayColorShallow returns the background color before casting any ray into the world, so
     // the tracer pass contains only scene-independent per-pixel work (camera ray and jitter, accumulation reads and
@@ -97,14 +60,10 @@ class WebGLRendererAdapter {
     // passthrough/denoise pass, CPU work, and vsync waits) is collected and summarized to the console every
     // debugGPUTimerIntervalMs. Results arrive a few frames late (queries are asynchronous) and are discarded whenever
     // the GPU reports a disjoint event (e.g. a power-state change), so the first report after enabling may be sparse.
-    // SDF ray marching: clip the march to the SDF's bounding box; and bake SDF parameters into the scene-specific
-    // shader as constants (until one is edited). See Performance.md.
-    static debugSDFBounds = true;
-    static sdfConstants = true;
     static debugGPUTimer = false;
     static debugGPUTimerIntervalMs = 1000;
 
-    // Benchmark harness (normally set from URL parameters by webgl-demo.js, e.g. ?test=dragon&bench=5&debugFastAABB=1).
+    // Benchmark harness (normally set from URL parameters by webgl-demo.js, e.g. ?test=dragon&bench=5&debugNoShadows=1).
     // bench > 0: after benchWarmupMs of drawing, collect GPU tracer-pass times for `bench` seconds, then publish a
     // summary as window.benchResult and log it as one "BENCH_RESULT {json}" line. The summary also records every
     // debug flag, compile time, shader size, NaN count, and (in heatmap mode) the last heatmap stats.
@@ -367,14 +326,9 @@ class WebGLRendererAdapter {
     shaderDebugDefines() {
         const R = WebGLRendererAdapter;
         return {
-            DEBUG_POW2_DATA_TEXTURES: WebGLTexture.pow2DataLayout(),
             DEBUG_TRAVERSAL_HEATMAP:  !!R.debugTraversalHeatmap,
             DEBUG_CONST_MATERIAL_PARAMS: !!R.debugConstMaterialParams,
             DEBUG_NO_SHADOWS:         !!R.debugNoShadows,
-            DEBUG_FAST_TRIANGLE:      !!R.debugFastTriangle,
-            DEBUG_INLINE_TRIANGLE_VERTS: !!R.debugInlineTriangleVerts,
-            DEBUG_SDF_BOUNDS:         !!R.debugSDFBounds,
-            DEBUG_FAST_AABB:          !!R.debugFastAABB,
             DEBUG_SKIP_TRAVERSAL:     !!R.debugSkipTraversal,
             DEBUG_TRAVERSAL_ONLY:     !!R.debugTraversalOnly,
             // The heatmap's color: 1 for node visits, 2 for primitive tests, 3 for both (see debugTraversalHeatmap).

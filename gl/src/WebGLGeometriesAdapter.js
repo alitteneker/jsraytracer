@@ -43,7 +43,7 @@ class WebGLGeometriesAdapter {
     constructor(webgl_helper) {
         [this.triangle_data_texture_unit,    this.triangle_data_texture]    = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         [this.triangle_indices_texture_unit, this.triangle_indices_texture] = webgl_helper.createDataTextureAndUnit(3, "INTEGER");
-        // debugInlineTriangleVerts: positions duplicated per triangle (3 consecutive RGB32F texels), for intersection.
+        // Positions duplicated per triangle (3 consecutive RGB32F texels), for intersection without an index lookup.
         [this.triangle_verts_texture_unit,   this.triangle_verts_texture]   = webgl_helper.createDataTextureAndUnit(3, "FLOAT");
         
         this.sdf_adapter = new WebGLSDFAdapter();
@@ -184,7 +184,6 @@ class WebGLGeometriesAdapter {
         // right data for this program, so only the sampler uniforms are set.
         const unchanged = this.uploaded && this.uploaded.program === program
             && this.uploaded.dataSize === this.triangle_data.size()
-            && this.uploaded.inlineVerts === WebGLTriangleGeometryShaderSource.inlineVertsActive
             && this.uploaded.triangles.length === this.triangles.length
             && this.triangles.every((t, i) => t === this.uploaded.triangles[i]);
         if (unchanged) {
@@ -197,15 +196,10 @@ class WebGLGeometriesAdapter {
             this.triangle_indices_texture.setDataPixelsUnit(
                 this.triangles.map(t => [...t.vertex_indices, ...t.normal_indices, ...t.uv_indices]).flat(),
                 this.triangle_indices_texture_unit, "tTriangleIndices", program);
-            // Only uploaded when the shader was generated to read it (decided in getShaderSource).
-            if (WebGLTriangleGeometryShaderSource.inlineVertsActive)
-                this.triangle_verts_texture.setDataPixelsUnit(
-                    this.triangles.map(t => t.positions).flat(2),
-                    this.triangle_verts_texture_unit, "tTriangleVerts", program);
-            else
-                this.triangle_verts_texture.setDataPixelsUnit([0, 0, 0], this.triangle_verts_texture_unit, "tTriangleVerts", program);
-            this.uploaded = { program: program, dataSize: this.triangle_data.size(), triangles: this.triangles.slice(),
-                              inlineVerts: WebGLTriangleGeometryShaderSource.inlineVertsActive };
+            this.triangle_verts_texture.setDataPixelsUnit(
+                this.triangles.map(t => t.positions).flat(2),
+                this.triangle_verts_texture_unit, "tTriangleVerts", program);
+            this.uploaded = { program: program, dataSize: this.triangle_data.size(), triangles: this.triangles.slice() };
         }
         this.sdf_adapter.writeShaderData(gl, program, webgl_helper);
     }
@@ -356,8 +350,6 @@ class WebGLSDFGeometryShaderSource extends WebGLAbstractGeometryShaderSource  {
 }
 
 class WebGLTriangleGeometryShaderSource extends WebGLAbstractGeometryShaderSource  {
-    // Set when the shader source is generated, read when data is uploaded (always afterward).
-    static inlineVertsActive = false;
     canIntersect() {
         return true;
     }
@@ -365,8 +357,6 @@ class WebGLTriangleGeometryShaderSource extends WebGLAbstractGeometryShaderSourc
         return ShaderLibrary.render("geometries.glsl", "triangle.declarations");
     }
     getShaderSource(include_intersect, include_sample) {
-        // Decides the data layout too: writeShaderData uploads tTriangleVerts to match (DEBUG_INLINE_TRIANGLE_VERTS).
-        WebGLTriangleGeometryShaderSource.inlineVertsActive = !!WebGLRendererAdapter.debugInlineTriangleVerts;
         return ShaderLibrary.render("geometries.glsl", "triangle.source");
     }
     getIntersectShaderSource(geometryID, ray_src, minDist_src) {

@@ -101,7 +101,7 @@ class WebGLSDFAdapter {
     getShaderSourceDeclarations(sceneEditable) {
         // Bake SDF parameters into the scene-specific shader as constants (see WebGLSDFDecorator.param). The
         // editable shader keeps uniforms, so that editing them stays instant.
-        this.useConstants = WebGLRendererAdapter.sdfConstants && !sceneEditable && !this.forceUniforms;
+        this.useConstants = !sceneEditable && !this.forceUniforms;
         return ShaderLibrary.render("sdf.glsl", "declarations")
         + this.geometries.map((g, i) => ShaderLibrary.render("sdf.glsl", "declarations.geometry", { id: i })).join("\n")
         + Object.values(this.sdfs).map(d => d.getShaderSourceDeclarations()).join("\n")
@@ -156,7 +156,7 @@ class WebGLSDFDecorator {
 
     // An SDF parameter is either a uniform, written by writeShaderData, or a constant baked into the shader, which
     // lets the compiler fold it: zeros in a matrix, infinite box sizes, fixed loop counts. See
-    // WebGLRendererAdapter.sdfConstants and modifyProperty.
+    // modifyProperty.
     get constants() { return !!this._adapter.useConstants; }
     static glslFloat(x) {
         if (!isFinite(x))

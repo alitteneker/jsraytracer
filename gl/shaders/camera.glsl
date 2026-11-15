@@ -10,7 +10,7 @@ Ray computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec2 ra
 
 // ==================== CAMERA ====================
 uniform mat4 uCameraTransform;
-uniform float uAspect, uTanFOV, uSensorSize, uFocusDistance;
+uniform float uTanFOV, uSensorSize, uFocusDistance;
 Ray computeCameraRayForTexel(in vec2 canvasPos, in vec2 pixelSize, inout vec2 random_seed) {
     vec4 ro = uCameraTransform * vec4(0.0, 0.0, 0.0, 1.0);
     vec4 rd = uCameraTransform * vec4(canvasPos.x * uTanFOV * (pixelSize.y / pixelSize.x), canvasPos.y * uTanFOV, -1.0, 0.0);

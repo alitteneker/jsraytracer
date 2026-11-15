@@ -41,18 +41,18 @@ The working hypothesis was that traversal was memory-bandwidth-bound. The measur
 
 ## What changed
 
-All of these are static flags on `WebGLRendererAdapter`, read when the shader is generated. The adopted ones are
-on by default. Set one to `false` (in the console, or as a URL parameter such as `?debugChildBoxes=false`) and
-reload the scene to compare.
+Each of these was developed behind a static flag on `WebGLRendererAdapter` and measured against the old code. All
+were adopted, and the flags and the old code paths have since been removed; the names below are the flags they had,
+for finding them in the history.
 
-| Flag | Default | Effect on dragon | What it does |
-|---|---|---|---|
-| `debugFastAABB` | off | 6.05 -> 4.79 ms | Branchless slab test with `1/dir` computed once per ray. Superseded by `debugChildBoxes`, which has its own slab test. |
-| `debugPow2DataTextures` | **on** | 4.79 -> 4.39 ms | Every data texture is 2048 texels wide, so `texelFetchByIndex` uses a mask and shift instead of integer `%` and `/`. Integer division is expensive on GPUs. |
-| `debugSkipUnlitShadows` | (removed) | 4.39 -> 3.79 ms | Skips a shadow ray when the surface would reflect none of that light (for example, a light behind an opaque surface). The image is identical. Now always on: the integrator (`rendererDirectLight`) asks the surface first and casts the shadow ray only if the answer is nonzero, for BSDF surfaces too. |
-| `debugChildBoxes` | **on** | see below | Each internal node stores its two children's boxes (2 texels per node), so a node the ray misses is never fetched. Children are visited nearest-first by entry distance. Non-editable shaders only. |
-| `debugFastTriangle` | **on** | see below | Moller-Trumbore triangle test: one reciprocal, no normalize, versus plane intersection plus a barycentric check. |
-| `debugInlineTriangleVerts` | **on** | 3.01 -> 2.67 ms | Each triangle's three positions are duplicated into their own texture, so intersection does three independent fetches instead of an index fetch followed by three dependent ones. Costs about 48 bytes per triangle of extra memory. |
+| Change (flag) | Effect on dragon | What it does |
+|---|---|---|
+| Branchless slab test (`debugFastAABB`) | 6.05 -> 4.79 ms | `1/dir` computed once per ray, then min/max. Superseded by the child-box layout, which has its own slab test. |
+| Power-of-two data textures (`debugPow2DataTextures`) | 4.79 -> 4.39 ms | Every data texture is 2048 texels wide, so `texelFetchByIndex` uses a mask and shift instead of integer `%` and `/`. Integer division is expensive on GPUs. |
+| Skip unlit shadow rays (`debugSkipUnlitShadows`) | 4.39 -> 3.79 ms | No shadow ray when the surface would reflect none of that light (for example, a light behind an opaque surface). The image is identical. The integrator (`rendererDirectLight`) asks the surface first, for BSDF surfaces too. |
+| Child boxes (`debugChildBoxes`) | see below | Each internal node stores its two children's boxes (2 texels per node), so a node the ray misses is never fetched. Children are visited nearest-first by entry distance. |
+| Moller-Trumbore triangles (`debugFastTriangle`) | see below | One reciprocal, no normalize, versus plane intersection plus a barycentric check. |
+| Inline triangle vertices (`debugInlineTriangleVerts`) | 3.01 -> 2.67 ms | Each triangle's three positions are duplicated into their own texture, so intersection does three independent fetches instead of an index fetch followed by three dependent ones. Costs about 48 bytes per triangle of extra memory. |
 
 Child boxes and the faster triangle test only pay off together: child boxes alone measured 4.48 ms, slower than
 without them (3.79 ms), and child boxes plus Moller-Trumbore measured 3.01 ms. The ray work is nearly identical
@@ -61,6 +61,8 @@ new two-child loop. That is a reminder that on this platform, the shape of the g
 the algorithm.
 
 ## Tried and not adopted
+
+These flags and their code have been removed too; the history has them.
 
 | Experiment | Result on dragon | Notes |
 |---|---|---|
@@ -105,7 +107,7 @@ Static fields on `WebGLRendererAdapter`. Ones read at shader-generation time nee
 reloading assets:
 
 ```js
-Object.assign(WebGLRendererAdapter, { debugChildBoxes: false, bench: 4, benchRef: "compare" });
+Object.assign(WebGLRendererAdapter, { debugNoShadows: true, bench: 4, benchRef: "compare" });
 window.onBenchResult = r => console.log(r.gpu.p50);
 jsrtEditor.stopDrawLoop();
 jsrtEditor.changeTest(jsrtLastTest);
@@ -158,8 +160,8 @@ change without recompiling. Nothing had built it for a long time. It can now be 
 
    `getEditableUnifiedRayCastSource` replaces the layered code with a single loop. Each iteration either advances
    the traversal (next root aggregate, pop a BVH node and push the children the ray hits, or decode a leaf into a
-   pending primitive or list) or tests one pending primitive. The primitive test appears once. Controlled by
-   `WebGLRendererAdapter.editableUnifiedCast` (on by default).
+   pending primitive or list) or tests one pending primitive. The primitive test appears once. (The layered version
+   has since been removed.)
 3. **Untransformed triangles skip the generic dispatch** in `worldObjectIntersect` and call `triangleIntersect`
    directly.
 
@@ -242,8 +244,12 @@ binding.
 
 ## Open questions and next steps
 
-- **Russian roulette** for path-traced scenes (bigger effect at depth 8 than at depth 4). It changes the noise, so
-  check it with mean-color comparisons rather than RMSE.
+- **Shadow rays dominate path-traced scenes with several lights.** Every hit casts one to each light, and an
+  unoccluded shadow ray has no closer hit to prune with, so it walks every box along its segment. Turning shadows
+  off took cornell_box_path from 2.29 to 1.46 ms and bunny_path from 5.40 to 1.88 ms (both have 2 lights).
+  Sampling one light per hit (chosen by power, divided by the selection probability) would halve that work. The
+  MIS weight for BSDF rays that hit a light (`surfaceEmitterPdf`) must then include the selection probability too.
+  Judge it by error at equal time, since each sample gets noisier.
 - **Shadow rays in transmissive scenes** still get cast for lights behind the surface, since a transmissive surface
   reflects some of that light (skipping unlit shadow rays is now part of the integrator).
 - **The editable shader is still 1.2 to 1.7 times slower than the regular one.** The remaining cost is in reading
@@ -254,7 +260,5 @@ binding.
   them would all fit the same `worldModified` path. Deleting one primitive from inside a BVH would need the BVH
   rebuilt; for now the whole BVH is deleted.
 - **Faster rebuilds for big scenes**, by caching wrapped BVH trees and their child-box layouts across rebuilds.
-- **Promoting the adopted flags.** They still carry `debug` names and the old code paths remain. Once these
-  settings have held up for a while, the old paths could be removed and the flags renamed or deleted.
 - **A wider BVH revisited.** With children sorted by distance, or compressed child boxes (8-wide trees with
   quantized boxes are the standard GPU layout), it might still beat the binary layout.

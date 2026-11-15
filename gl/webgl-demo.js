@@ -52,7 +52,7 @@ $(document).ready(function() {
     }
 
     // Diagnostics/benchmark harness: any URL parameter that names a static field of WebGLRendererAdapter
-    // (debugFastAABB, debugTraversalOnly, bench, benchRef, ...) sets it before the scene is built, so a whole
+    // (debugNoShadows, debugTraversalOnly, bench, benchRef, ...) sets it before the scene is built, so a whole
     // experiment can be described by its URL, e.g. ?test=dragon&debugTraversalOnly=1&bench=5.
     // Values: "true"/"false" -> booleans, numeric strings -> numbers, anything else stays a string.
     // A parameter of the form ClassName.FIELD sets a static on another global class instead (for example

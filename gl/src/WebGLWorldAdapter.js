@@ -583,12 +583,9 @@ class WebGLWorldAdapter {
         
         // process world node data for writing
         const primitive_list = this.primitives.map(o => o.getDataVector()).flat();
-        let aggregate_list = [], indices_list = [], aabb_data = [];
-        for (let a of this.bvh_tree_order) {
-            indices_list = indices_list.concat(a.bvh_object_list);
-            aabb_data = aabb_data.concat(a.bvh_nodes.map(n => WebGLWorldAdapter.packBVHNodeTexel(n.aabb,
-                (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex)).flat());
-        }
+        let aggregate_list = [], indices_list = [];
+        for (let a of this.bvh_tree_order)
+            indices_list.push(...a.bvh_object_list);
         for (const a of this.aggregates) {
             if (a.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE) {
                 aggregate_list.push(a.type_code, a.transformIndex, a.indicesStartIndex, a.indicesList.length);
@@ -608,69 +605,40 @@ class WebGLWorldAdapter {
         gl.uniform1i(gl.getUniformLocation(program, "uWorldListsStart"), this.aggregates.length + this.primitives.length);
         this.world_node_texture.setDataPixelsUnit([...aggregate_list, ...primitive_list, ...indices_list],
             this.world_node_texture_unit, "uWorldData", program);
-        if (this.bvh_child_boxes)
-            this.world_aabb_texture.setDataPixelsUnit(this.bvh_child_box_layout.data, this.world_aabb_texture_unit, "uWorldAABBs", program);
-        else if (this.bvh_node_texture_width) {
-            // debugFastNodeIndex layout: must match the width baked into fetchBVHNodeTexel by getShaderSource.
-            const w = this.bvh_node_texture_width, nodes = aabb_data.length / 4, h = Math.max(1, Math.ceil(nodes / w));
-            const padded = new Int32Array(w * h * 4);
-            padded.set(aabb_data);
-            gl.activeTexture(this.world_aabb_texture_unit);
-            this.world_aabb_texture.setPixels(padded, 4, "INTEGER", w, h);
-            gl.uniform1i(gl.getUniformLocation(program, "uWorldAABBs"), WebGLHelper.textureUnitIndex(this.world_aabb_texture_unit));
-        }
-        else
-            this.world_aabb_texture.setDataPixelsUnit(aabb_data.flat(), this.world_aabb_texture_unit, "uWorldAABBs", program);
+        this.world_aabb_texture.setDataPixelsUnit(this.bvh_layout, this.world_aabb_texture_unit, "uWorldAABBs", program);
         
         // let our contained adapters do their own thing too
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
         this.adapters.materials.writeShaderData(gl, program, webgl_helper);
         this.adapters.geometries.writeShaderData(gl, program, webgl_helper);
     }
-    // debugChildBoxes layout, built at shader-gen time (getShaderSource) and uploaded by writeShaderData. Each BVH
-    // node becomes W consecutive RGBA32I texels, one per child slot: [child AABB as 3 packed fp16 pairs, child data].
-    // Child data is > 0 for an internal child (its node index within the tree + 1), < 0 for a leaf (the same leaf
-    // encoding the original layout uses), and 0 for an empty slot. The root's own box is never stored or tested,
-    // since its children's boxes lie inside it.
-    // W = 2 keeps the binary tree as is. W = 4 (debugWideBVH) collapses it: each wide node starts from a binary
-    // node's two children and repeatedly replaces the internal child with the largest surface area by that child's
-    // own two children, until it has W slots or only leaves remain.
-    // Sets tree.childBoxStart (texel offset) on every tree, and returns { data, maxStack }.
-    buildChildBoxBVHData(W) {
+    // The BVH node layout, built at shader-gen time (getShaderSource) and uploaded by writeShaderData. Each internal
+    // node becomes 2 consecutive RGBA32I texels, one per child: [child AABB as 3 packed fp16 pairs, child data]. Child
+    // data is > 0 for an internal child (its node index within the tree + 1), < 0 for a leaf (-1 - its primitive id,
+    // or for a list leaf -1 - (primitive count + its list offset)), and 0 for an empty slot. The root's own box is
+    // never stored or tested, since its children's boxes lie inside it. Nodes are numbered depth-first.
+    // Sets tree.childBoxStart (texel offset) on every tree, and returns the texel data.
+    buildBVHLayout() {
         const data = [];
-        let maxStack = 1;
         const emptyTexel = WebGLWorldAdapter.packBVHNodeTexel({ min: [0, 0, 0], max: [0, 0, 0] }, 0);
         for (const tree of this.bvh_tree_order) {
             tree.childBoxStart = data.length / 4;
             const nodes = tree.bvh_nodes;
             const leafData = n => (n.isLeaf && !n.isSingularLeaf) ? -1 - (this.primitives.length + n.hitIndex) : n.hitIndex;
+            // A binary node's children in the flattened CPU tree: the next node, and the one its hitIndex points to.
             const children = i => [i + 1, nodes[i].hitIndex >> 2];
-            const area = i => nodes[i].aabb.surfaceArea();
 
-            const wide = [];   // wide node index -> array of { slot: binary index, child: wide index or undefined }
-            let treeDepth = 0;
-            const build = (slots, depth) => {
-                treeDepth = Math.max(treeDepth, depth);
-                while (slots.length < W) {
-                    let best = -1;
-                    for (const sl of slots)
-                        if (!nodes[sl].isLeaf && (best < 0 || area(sl) > area(best)))
-                            best = sl;
-                    if (best < 0)
-                        break;
-                    slots.splice(slots.indexOf(best), 1, ...children(best));
-                }
-                const index = wide.length;
-                wide.push(null);
-                wide[index] = slots.map(sl => nodes[sl].isLeaf ? { slot: sl } : { slot: sl, child: build(children(sl), depth + 1) });
+            const layout = [];   // layout node index -> its two slots: { slot: binary index, child: layout index }
+            const build = slots => {
+                const index = layout.length;
+                layout.push(null);
+                layout[index] = slots.map(sl => nodes[sl].isLeaf ? { slot: sl } : { slot: sl, child: build(children(sl)) });
                 return index;
             };
-            build(nodes[0].isLeaf ? [0] : children(0), 1);
-            // Each visit can leave at most W - 1 entries on the stack, so this bounds the stack for this tree.
-            maxStack = Math.max(maxStack, (W - 1) * treeDepth + 1);
+            build(nodes[0].isLeaf ? [0] : children(0));
 
-            for (const entries of wide) {
-                for (let c = 0; c < W; ++c) {
+            for (const entries of layout)
+                for (let c = 0; c < 2; ++c) {
                     const e = entries[c];
                     if (!e)
                         data.push(...emptyTexel);
@@ -678,26 +646,19 @@ class WebGLWorldAdapter {
                         data.push(...WebGLWorldAdapter.packBVHNodeTexel(nodes[e.slot].aabb,
                             e.child === undefined ? leafData(nodes[e.slot]) : e.child + 1));
                 }
-            }
         }
-        // An editable scene can have no BVHs at all; keep the texture non-empty.
+        // A scene can have no BVHs at all; keep the texture non-empty.
         if (!data.length)
             data.push(...emptyTexel);
-        return { data, maxStack };
+        return data;
     }
     // The editable shader's ray cast as a single loop. It walks the root aggregates, the BVH nodes under each BVH root
     // (child-box layout), and lists of primitives, but tests a primitive in only one place. The shader compiler
     // inlines the generic geometry intersection at every call site, and each copy costs about a second of compile
-    // time; the layered version (worldRayCastList, worldRayCastBVH and its leaves) had three sites per ray cast.
-    // Used when the BVHs use the child-box layout (or there are none).
-    editableUnifiedCast() {
-        return this.WORLD_EDITABLE && WebGLRendererAdapter.editableUnifiedCast && (this.bvh_child_boxes || this.bvh_node_count == 0);
-    }
+    // time; a layered version (separate list, BVH and leaf functions) had three sites per ray cast.
     getEditableUnifiedRayCastSource() {
-        const W = this.bvh_child_boxes ? this.bvh_child_box_width : 2;
-        // Leaves are pushed too, so a visit can leave up to W entries on the stack.
-        const stackSize = (this.bvh_child_boxes ? (W == 2 ? this.getBVHStackSize() : this.bvh_child_box_layout.maxStack) : 1) + W;
-        return ShaderLibrary.render("world.glsl", "editable.unified", { stackSize: stackSize, width: W });
+        // Leaves are pushed too, so a visit can leave up to 2 entries on the stack.
+        return ShaderLibrary.render("world.glsl", "editable.unified", { stackSize: this.getBVHStackSize() + 2 });
     }
     getShaderSourceDeclarations() {
         return ShaderLibrary.render("world.glsl", "declarations") + "\n"
@@ -717,49 +678,25 @@ class WebGLWorldAdapter {
         const heatNodeScale = Number(WebGLRendererAdapter.debugHeatmapNodeScale) || 1;
         const heatPrimScale = Number(WebGLRendererAdapter.debugHeatmapPrimScale) || 1;
 
-        // debugFastNodeIndex: choose the BVH node texture's width here, at shader-gen time, so it can be baked into the
-        // shader as a mask/shift. writeShaderData (which always runs after this) lays the texture out to match. The node
-        // count is fixed once the scene is visited, so the width stays valid until the next shader rebuild.
-        // debugChildBoxes: store each internal node's two CHILD boxes in the node (2 texels per internal node), so a
-        // child is only fetched once its box is known to be hit. Used by the editable shader too: a BVH's boxes are in
-        // its own local space, so editing transforms never changes them. Decided here at shader-gen time;
-        // writeShaderData uploads the matching layout.
-        this.bvh_child_boxes = !!WebGLRendererAdapter.debugChildBoxes && (this.WORLD_EDITABLE || this.bvh_node_count > 0);
-        this.bvh_child_box_width = (this.bvh_child_boxes && WebGLRendererAdapter.debugWideBVH) ? 4 : 2;
-        this.bvh_child_box_layout = this.bvh_child_boxes ? this.buildChildBoxBVHData(this.bvh_child_box_width) : null;
-        this.bvh_node_texture_width = (WebGLRendererAdapter.debugFastNodeIndex && !this.bvh_child_boxes && this.bvh_node_count > 0)
-            ? Math.pow(2, Math.ceil(Math.log2(Math.max(1, Math.ceil(Math.sqrt(this.bvh_node_count))))))
-            : 0;
+        // The BVH node layout (see buildBVHLayout), uploaded by writeShaderData. A BVH's boxes are in its own local
+        // space, so editing transforms never changes them, and the editable shader uses the same layout.
+        this.bvh_layout = this.buildBVHLayout();
         
         // Below is most of the significant source for world ray cast and color functions, where the geometry and
         // material functionality is directly invoked. The source below has a variety of preprocessor branches that
         // can dramatically simplify the source if certain conditions are met, such as if the scene is not editable,
         // if the scene contains any BVHs, if all BVH leaf nodes contain only a single primitive, or if all primitives
         // inside a BVH are triangles with simple identity transforms.
-        const W = this.bvh_child_box_width;
-        const tnearStack = this.bvh_child_boxes && !!WebGLRendererAdapter.debugStackTNear && W == 2;
         let ret = ShaderLibrary.render("world.glsl", "source", {
             worldEditable:                      Number(!!this.WORLD_EDITABLE),
             worldHasBVHNodes:                   Number(this.WORLD_EDITABLE || this.bvh_node_count > 0),
             worldBVHLeavesSingular:             Number(!this.WORLD_EDITABLE && !!this.bvh_all_leaves_singular),
             worldBVHOnlyUntransformedTriangles: Number(!this.WORLD_EDITABLE && !!this.bvh_only_uses_untransformed_triangles),
-            // Flags whose effect depends on the BVH layout chosen above.
-            worldDebugDefines: ShaderLibrary.defines({
-                DEBUG_FAST_NODE_INDEX: this.bvh_node_texture_width > 0,
-                DEBUG_WIDE_BVH:        this.bvh_child_boxes && W != 2,
-                DEBUG_STACK_TNEAR:     tnearStack,
-                DEBUG_STACK_TOP_CACHE: this.bvh_child_boxes && !!WebGLRendererAdapter.debugStackTopCache && !tnearStack && W == 2
-            }, "world-debug"),
             transformCount: this.shader_transform_max_size,
             untransformedTriangleIntersect: (this.WORLD_EDITABLE || this.untransformed_triangles.length)
                 ? `triangleIntersect(r, minDistance, prim_id)` : `minDistance - 1.0`,
-            nodeTextureWidth: this.bvh_node_texture_width,
-            nodeTextureMask:  this.bvh_node_texture_width - 1,
-            nodeTextureShift: this.bvh_node_texture_width ? Math.log2(this.bvh_node_texture_width) : 0,
-            bvhTraversal: this.bvh_child_boxes
-                ? ShaderLibrary.render("world.glsl", "bvh.child-boxes", {
-                    stackSize: W == 2 ? this.getBVHStackSize() : this.bvh_child_box_layout.maxStack, width: W })
-                : ShaderLibrary.render("world.glsl", "bvh.stack", { stackSize: this.getBVHStackSize() }),
+            bvhTraversal: (this.WORLD_EDITABLE || this.bvh_node_count > 0)
+                ? ShaderLibrary.render("world.glsl", "bvh.child-boxes", { stackSize: this.getBVHStackSize() }) : "",
             lightEmitterTest: this.WORLD_EDITABLE ? ShaderLibrary.render("world.glsl", "emitter.editable")
                 : this.light_emitter_prim_ids.length ? ShaderLibrary.render("world.glsl", "emitter.list", {
                     condition: this.light_emitter_prim_ids.map(i => `primID == ${i}`).join(" || ") })
@@ -780,11 +717,9 @@ class WebGLWorldAdapter {
         // a minute) on some devices (e.g., Windows).
         if (this.WORLD_EDITABLE) {
             ret += ShaderLibrary.render("world.glsl", "editable", {
-                aggregateType: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE,
-                bvhType:       WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE
+                aggregateType: WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE
             });
-            ret += this.editableUnifiedCast() ? this.getEditableUnifiedRayCastSource()
-                : ShaderLibrary.render("world.glsl", "editable.layered");
+            ret += this.getEditableUnifiedRayCastSource();
         }
         
         // If this branch is taken, the scene is not editable. This is potentially good news: by only including
@@ -810,7 +745,7 @@ class WebGLWorldAdapter {
                 const bvhs = [];
                 for (let b of this.bvh_tree_order)
                     for (let i of b.instances)
-                        bvhs.push(i.transformIndex, this.bvh_child_boxes ? b.childBoxStart : i.bvhStartIndex, i.indicesStartIndex);
+                        bvhs.push(i.transformIndex, b.childBoxStart, i.indicesStartIndex);
                 ret += `
                 
                 // ---------- BVHs ----------
@@ -1004,9 +939,7 @@ class WrappedAggregate extends AbstractWrappedWorldObject {
         if (this.type_code == WebGLWorldAdapter.WORLD_NODE_AGGREGATE_TYPE)
             return [this.type_code, this.transformIndex, this.indicesStartIndex, this.indicesList.length];
         else if (this.type_code == WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE)
-            // With debugChildBoxes the BVH's nodes live at a different offset (see buildChildBoxBVHData).
-            return [this.type_code, this.transformIndex,
-                this.worldadapter.bvh_child_boxes ? this.bvh_tree.childBoxStart : this.bvhStartIndex, this.indicesStartIndex];
+            return [this.type_code, this.transformIndex, this.bvh_tree.childBoxStart, this.indicesStartIndex];
         else
             throw "Unsupported aggregate type detected";
     }
@@ -1107,7 +1040,6 @@ class WrappedBVHTree {
         this.BVHVisitorFn(kdtree, webgl_helper);
         this.node_count = this.bvh_nodes.length;
 
-        this.bvhStartIndex = worldadapter.bvh_node_count;
         worldadapter.bvh_node_count += this.bvh_nodes.length;
         
         this.instances = [];
@@ -1161,7 +1093,6 @@ class WrappedBVHAggregate extends WrappedAggregate {
         this.type = "BVH";
         this.type_code = WebGLWorldAdapter.WORLD_NODE_BVH_NODE_TYPE;
         
-        this.bvhStartIndex = bvh_tree.bvhStartIndex;
         this.bvh_tree = bvh_tree;
         bvh_tree.instances.push(this);
         

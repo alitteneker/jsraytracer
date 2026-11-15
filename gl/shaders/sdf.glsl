@@ -72,7 +72,6 @@ float sdfGeometryDistance_${id}(in vec4 position) {
 float sdfIntersect_${id}(in Ray r, in float minDistance) {
     float rd_norm = length(r.d);
     float t = minDistance, tEnd = minDistance + sdf_${id}_max_trace_distance / rd_norm;
-#if DEBUG_SDF_BOUNDS
     // March only inside the SDF's bounding box (a slab test, in the SDF's own space): start where the
     // ray enters it and stop where it leaves. Rays that miss it entirely cost nothing.
     {
@@ -87,7 +86,6 @@ float sdfIntersect_${id}(in Ray r, in float minDistance) {
             tEnd = min(tEnd, tExit + sdf_${id}_distance_epsilon / rd_norm);
         }
     }
-#endif
     for (int i = 0; i < sdf_${id}_max_samples; ++i) {
         float distance = sdfGeometryDistance_${id}(r.o + t * r.d);
 

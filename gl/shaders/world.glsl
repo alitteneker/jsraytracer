@@ -1,11 +1,10 @@
 // The world: casting rays against the scene's primitives, aggregates and BVHs, and shading the closest hit.
 // Rendered by WebGLWorldAdapter. Most of a scene's structure is data in textures; what the shader needs to know
 // about it at compile time comes in as the WORLD_* macros at the top of source, and as these holes:
-//   source: the WORLD_* values, worldDebugDefines (the DEBUG_* macros that depend on the scene's BVH layout),
-//     transformCount (the transform array's length), untransformedTriangleIntersect,
-//     bvhTraversal (bvh.stack or bvh.child-boxes), lightEmitterTest (emitter.*, or nothing), and the heatmap's
-//     settings (debugTraversalHeatmap).
-//   bvh.*, editable.unified: stackSize, and width, the child boxes per node.
+//   source: the WORLD_* values, transformCount (the transform array's length), untransformedTriangleIntersect,
+//     bvhTraversal (bvh.child-boxes, or nothing without BVHs), lightEmitterTest (emitter.*, or nothing), and the
+//     heatmap's settings (debugTraversalHeatmap).
+//   bvh.child-boxes, editable.unified: stackSize.
 // The editable shader (editable.*) reads everything from the textures; the scene-specific shader's ray cast and
 // shading functions are generated per scene (see WebGLWorldAdapter.getShaderSource).
 
@@ -25,7 +24,6 @@ vec3 worldRayColorShallow(in Ray in_ray, inout vec4 intersect_position, inout ve
 #define WORLD_HAS_BVH_NODES ${worldHasBVHNodes}
 #define WORLD_BVH_LEAVES_SINGULAR ${worldBVHLeavesSingular}
 #define WORLD_BVH_ONLY_UNTRANSFORMED_TRIANGLES ${worldBVHOnlyUntransformedTriangles}
-${worldDebugDefines}
 
 uniform vec3 uBackgroundColor;
 
@@ -196,26 +194,10 @@ bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in 
 }
 #endif
 
-// Emulates recursive BVH traversal without actual recursion, using a small fixed-size local stack.
-// Each internal node stores its "greater" child implicitly (always node_index+1, since it's visited
-// immediately after this node when the tree was flattened) and its "lesser" child explicitly (packed
-// together with the split axis, since lesser_node's position varies). At traversal time, the ray's
-// direction sign along that axis determines which child is actually nearer for THIS ray, so unlike a
-// fixed rope/miss-index chain, the nearer child is always descended into first, letting min_found_t
-// prune the farther child before it's ever visited.
-// Sized exactly to the deepest BVH actually present in this scene (see WebGLWorldAdapter.getBVHStackSize),
-// rather than a conservative guess, since the tree shape can't change without a full shader rebuild anyway.
-#if DEBUG_FAST_NODE_INDEX
-// debugFastNodeIndex: the node texture is laid out ${nodeTextureWidth} texels wide (a power of
-// two, fixed at shader-gen time; see WebGLWorldAdapter.writeShaderData), so index -> texel is mask + shift.
-ivec4 fetchBVHNodeTexel(in int index) {
-    return texelFetch(uWorldAABBs, ivec2(index & ${nodeTextureMask}, index >> ${nodeTextureShift}), 0);
-}
-#else
+// BVH nodes are read from uWorldAABBs in the child-box layout (see WebGLWorldAdapter.buildChildBoxBVHData).
 ivec4 fetchBVHNodeTexel(in int index) {
     return itexelFetchByIndex(index, uWorldAABBs);
 }
-#endif
 
 ${bvhTraversal}
 #endif
@@ -300,156 +282,15 @@ float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag) {
     // don't reflect, so this path ends here with nothing added.
     if (!countEmission && (${condition}))
         return vec3(0.0);
-//#section bvh.stack
-
-#define BVH_STACK_SIZE ${stackSize}
-bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
-    bool found_min = false;
-
-#if DEBUG_FAST_AABB
-    vec3 invD  = 1.0 / r.d.xyz;
-    vec3 oInvD = r.o.xyz * invD;
-#endif
-
-    int stack[BVH_STACK_SIZE];
-    int stackPtr = 0;
-    int node_index = 0;
-
-    while (true) {
-        // BVH node data is packed 16 bytes per node into a single RGBA32I texel (halving the fetch
-        // traffic of the older two-RGBA32F-texel layout; traversal is bandwidth-bound):
-        //    [ min.x|min.y,  min.z|max.x,  max.y|max.z   as fp16 pairs bit-cast through int,
-        //      leaf encoding or (lesser child index << 2 | split axis) as a full int ]
-        // The AABB was quantized conservatively at upload (min rounded down, max up, see
-        // packBVHNodeTexel), so boxes only ever grow (<= 1 fp16 ulp per side) and no hit can be lost.
-
-        // Node i lives at texel i. All node indices are specified relative to the index of the
-        // root node, so an offset of the root index must be included.
-#if DEBUG_TRAVERSAL_HEATMAP
-        gHeatmapNodeCount++;
-#endif
-        ivec4 nodeTexel = fetchBVHNodeTexel(root_index + node_index);
-
-        // int->uint on ANGLE/GLSL ES 3.0 is a bit-preserving cast, so unpackHalf2x16 sees the
-        // exact half bits packed on the JS side.
-        vec2 min_xy    = unpackHalf2x16(uint(nodeTexel.r));
-        vec2 minz_maxx = unpackHalf2x16(uint(nodeTexel.g));
-        vec2 max_yz    = unpackHalf2x16(uint(nodeTexel.b));
-        vec3 aabb_min  = vec3(min_xy, minz_maxx.x);
-        vec3 aabb_max  = vec3(minz_maxx.y, max_yz);
-
-        int nodeData = nodeTexel.a;
-
-        // Identify where the ray could intersect this node's AABB, and test whether the possible
-        // range of intersections would be useful given the range desired. This is called a 'hit'.
-        // (Center/half-size reconstruction feeds the shared AABBIntersects; fp16 values are exact
-        // in fp32, so this round-trip introduces no error beyond the old float path's own rounding.)
-#if DEBUG_FAST_AABB
-        // Branchless slab test (debugFastAABB). invD/oInvD are hoisted out of the loop, so each node costs
-        // two multiply-subtracts per axis plus min/max reductions. Clamping the entry/exit to [minT, maxT]
-        // folds the original range checks into the single tnear <= tfar comparison. Axis-parallel rays rely
-        // on IEEE inf from 1/0; an origin exactly on a slab plane of such a ray gives 0*inf = NaN, an edge
-        // case the original's EPSILON branch handled and this version doesn't.
-        vec3 slab_t0 = aabb_min * invD - oInvD;
-        vec3 slab_t1 = aabb_max * invD - oInvD;
-        vec3 slab_near = min(slab_t0, slab_t1), slab_far = max(slab_t0, slab_t1);
-        float tnear = max(max(slab_near.x, slab_near.y), max(slab_near.z, minT));
-        float tfar  = min(min(slab_far.x,  slab_far.y),  min(slab_far.z,  maxT));
-        bool hit_node = tnear <= tfar && (tnear <= min_found_t || min_found_t < minT);
-#else
-        vec2 aabb_ts = AABBIntersects(r, vec4(0.5*(aabb_min + aabb_max), 1.0), vec4(0.5*(aabb_max - aabb_min), 0.0), minT, maxT);
-        bool hit_node = aabb_ts.x <= maxT && aabb_ts.y >= minT && (aabb_ts.x <= min_found_t || min_found_t < minT);
-#endif
-
-        bool descending = false;
-#if DEBUG_TRAVERSAL_HEATMAP
-        if (!hit_node) gHeatmapMissCount++;
-#endif
-
-        if (hit_node) {
-
-            // If the hit node is a leaf node (encoded by an index less than or equal to zero), check all objects in this node.
-            if (nodeData <= 0) {
-                int id = -nodeData - 1;
-                // There are two possibilities: either the id corresponds to a single primitive
-                // id (encoded as a number less than the number of primitives), or to a list
-                // (encoded as a number greater than the number of primitives).
-
-                // If the world is not editable, and every BVH is a leaf with a single primitive,
-                // only the single primitive case need be compiled.
-#if (!WORLD_EDITABLE && WORLD_BVH_LEAVES_SINGULAR)
-                if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                    found_min = true;
-
-#else
-                // Single primitive ids are easy (and should dominate most good BVH constructions),
-                // so we just do them directly.
-                if (id < uWorldNumPrimitives) {
-                    if (worldRayCastBVHObject(id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                        found_min = true;
-                }
-
-                // lists are a bit harder: we don't know how long the list is, so we have to first
-                // lookup the length before we can test. Fortunately, these should be a small fraction
-                // of BVH nodes, so the cost should be much lower on average.
-                else {
-                    int listStart = indices_offset + (id - uWorldNumPrimitives);
-                    int listLength = itexelFetchByIndex(uWorldListsStart + listStart / 4, uWorldData)[listStart % 4];
-                    if (worldRayCastBVHList(listStart + 1, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id))
-                        found_min = true;
-                }
-#endif
-            }
-
-            // Otherwise, this is an internal node: figure out which child the ray reaches first along
-            // the split axis, descend into it directly, and push the other child to visit afterward.
-            else {
-                int axis = nodeData & 3;
-                int farChildIndex = nodeData >> 2;
-                int nearChildIndex = node_index + 1;
-
-                int nextIndex, pushIndex;
-                if (r.d[axis] < 0.0) {
-                    // ray points toward decreasing axis value: the implicit (greater) child is nearer
-                    nextIndex = nearChildIndex;
-                    pushIndex = farChildIndex;
-                }
-                else {
-                    // ray points toward increasing (or zero) axis value: the explicit (lesser) child is nearer
-                    nextIndex = farChildIndex;
-                    pushIndex = nearChildIndex;
-                }
-
-                if (stackPtr < BVH_STACK_SIZE)
-                    stack[stackPtr++] = pushIndex;
-                node_index = nextIndex;
-                descending = true;
-            }
-        }
-
-        // If we missed this node, or just finished checking a leaf's objects, backtrack to the next
-        // node waiting on the stack. An empty stack means every reachable node has been visited.
-        // For a shadow ray, any recorded hit is enough to occlude the light, so stop as soon as one
-        // is found rather than continuing to search for the closest one.
-        if (!descending) {
-            if ((shadowFlag && found_min) || stackPtr <= 0)
-                break;
-            node_index = stack[--stackPtr];
-        }
-    }
-
-    return found_min;
-}
-
 //#section bvh.child-boxes
 
 
 #define BVH_STACK_SIZE ${stackSize}
-// debugChildBoxes traversal. Each visit fetches both child boxes of one internal node and tests them
-// with a branchless slab test; hit leaf children are intersected immediately (so a hit there can prune
-// the sibling's box test), hit internal children are visited nearest-first. A node is therefore only
-// ever fetched when its box is already known to be hit, unlike the original layout, where every
-// fetched node first has to test its own box.
+// BVH traversal. Each internal node holds its two children's boxes, so a visit fetches both boxes and tests them
+// with a branchless slab test, and a node is only ever fetched once its box is known to be hit. Hit leaf children
+// are intersected immediately (so a hit there can prune the sibling's box test); hit internal children are visited
+// nearest-first, the farther one going on the stack. The stack is sized to the deepest BVH in the scene (see
+// WebGLWorldAdapter.getBVHStackSize). Performance.md has the measurements behind this layout.
 bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in float minT, in float maxT, in bool shadowFlag, inout float min_found_t, inout int min_prim_id) {
     bool found_min = false;
     // Replace exactly-zero direction components with a tiny value, so 1/d is huge but finite: this keeps
@@ -462,15 +303,7 @@ bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in floa
     vec3 oInvD = r.o.xyz * invD;
 
     int stack[BVH_STACK_SIZE];
-#if DEBUG_STACK_TNEAR
-    float stackT[BVH_STACK_SIZE];
-#endif
     int stackPtr = 0;
-#if DEBUG_STACK_TOP_CACHE
-    // debugStackTopCache: the most recently pushed node lives in a register (stackTop); only older
-    // entries go through the dynamically indexed array. Most pops take the entry just pushed.
-    int stackTop = -1;
-#endif
     int node_index = 0;
 
     while (true) {
@@ -478,9 +311,9 @@ bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in floa
         gHeatmapNodeCount++;
 #endif
         int nearChild = -1, farChild = -1;
-        float nearT = 0.0, farT = 0.0;
-        for (int c = 0; c < ${width}; ++c) {
-            ivec4 childTexel = fetchBVHNodeTexel(root_index + ${width} * node_index + c);
+        float nearT = 0.0;
+        for (int c = 0; c < 2; ++c) {
+            ivec4 childTexel = fetchBVHNodeTexel(root_index + 2 * node_index + c);
             int childData = childTexel.a;
             if (childData == 0)
                 continue;
@@ -524,70 +357,25 @@ bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in floa
                 nearChild = childData - 1;
                 nearT = tnear;
             }
-#if !DEBUG_WIDE_BVH
             else if (tnear < nearT) {
                 farChild = nearChild;
-                farT = nearT;
                 nearChild = childData - 1;
                 nearT = tnear;
             }
-            else {
+            else
                 farChild = childData - 1;
-                farT = tnear;
-            }
-#else
-            // Wide node: the nearest hit internal child is visited next; every other hit internal
-            // child goes straight onto the stack (unsorted among themselves).
-            else if (tnear < nearT) {
-                if (stackPtr < BVH_STACK_SIZE)
-                    stack[stackPtr++] = nearChild;
-                nearChild = childData - 1;
-                nearT = tnear;
-            }
-            else if (stackPtr < BVH_STACK_SIZE)
-                stack[stackPtr++] = childData - 1;
-#endif
         }
         if (shadowFlag && found_min)
             break;
 
-#if DEBUG_STACK_TOP_CACHE
-        if (farChild >= 0) {
-            if (stackTop >= 0 && stackPtr < BVH_STACK_SIZE)
-                stack[stackPtr++] = stackTop;
-            stackTop = farChild;
-        }
-#else
-        if (farChild >= 0 && stackPtr < BVH_STACK_SIZE) {
-#if DEBUG_STACK_TNEAR
-            stackT[stackPtr] = farT;
-#endif
+        if (farChild >= 0 && stackPtr < BVH_STACK_SIZE)
             stack[stackPtr++] = farChild;
-        }
-#endif
         if (nearChild >= 0)
             node_index = nearChild;
         else {
-#if DEBUG_STACK_TNEAR
-            // debugStackTNear: drop stacked nodes whose box entry is now beyond the closest hit found
-            // since they were pushed, without fetching them.
-            while (stackPtr > 0 && min_found_t >= minT && stackT[stackPtr - 1] > min_found_t)
-                --stackPtr;
-#endif
-#if DEBUG_STACK_TOP_CACHE
-            if (stackTop >= 0) {
-                node_index = stackTop;
-                stackTop = -1;
-            }
-            else if (stackPtr > 0)
-                node_index = stack[--stackPtr];
-            else
-                break;
-#else
             if (stackPtr <= 0)
                 break;
             node_index = stack[--stackPtr];
-#endif
         }
     }
     return found_min;
@@ -596,7 +384,6 @@ bool worldRayCastBVH(in int root_index, in int indices_offset, in Ray r, in floa
 //#section editable
 
 #define WORLD_NODE_AGGREGATE_TYPE    ${aggregateType}
-#define WORLD_NODE_BVH_TYPE          ${bvhType}
 
 vec3 worldObjectSurface(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInvTransform, inout vec3 normal) {
     Primitive ids = getPrimitive(primID);
@@ -640,8 +427,8 @@ float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, i
                     int node_index = entry - 1;
                     int nearEntry = 0;
                     float nearT = 0.0;
-                    for (int c = 0; c < ${width}; ++c) {
-                        ivec4 childTexel = fetchBVHNodeTexel(bvhStart + ${width} * node_index + c);
+                    for (int c = 0; c < 2; ++c) {
+                        ivec4 childTexel = fetchBVHNodeTexel(bvhStart + 2 * node_index + c);
                         int childData = childTexel.a;
                         if (childData == 0)
                             continue;
@@ -740,33 +527,6 @@ float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, i
             if (shadowFlag)
                 break;
         }
-    }
-
-    return min_found_t;
-}
-
-//#section editable.layered
-float worldRayCast(in Ray r, in float minT, in float maxT, in bool shadowFlag, inout int primID, inout mat4 ancestorInvTransform) {
-    float min_found_t = minT - 1.0;
-
-    for (int root_index = 0; root_index < uWorldNumAggregates; ++root_index) {
-        ivec4 nodeData = itexelFetchByIndex(root_index, uWorldData);
-
-        mat4 root_invTransform = getTransform(nodeData.g);
-        Ray local_r = Ray(root_invTransform * r.o, root_invTransform * r.d);
-
-        if (nodeData.r == WORLD_NODE_AGGREGATE_TYPE) {
-            if (worldRayCastList(nodeData.b, nodeData.a, local_r, minT, maxT, shadowFlag, min_found_t, primID))
-                ancestorInvTransform = root_invTransform;
-        }
-        else if (nodeData.r == WORLD_NODE_BVH_TYPE) {
-            if (worldRayCastBVH(nodeData.b, nodeData.a, local_r, minT, maxT, shadowFlag, min_found_t, primID))
-                ancestorInvTransform = root_invTransform;
-        }
-
-        // A shadow ray only needs one occluder; stop scanning the remaining root nodes once found.
-        if (shadowFlag && primID != -1)
-            break;
     }
 
     return min_found_t;

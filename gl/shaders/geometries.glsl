@@ -287,12 +287,9 @@ vec3 triangleToBarycentric(in vec4 point, in vec4 p1, in vec4 p2, in vec4 p3) {
           w = (d00 * d21 - d01 * d20) / denom;
     return vec3(1.0 - v - w, v, w);
 }
+// Moller-Trumbore: one reciprocal and no normalize. Returns t along the (unnormalized) ray direction, or
+// minDistance - 1.0 on a miss. The parallel cutoff is on the unnormalized determinant.
 float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, in vec4 p3) {
-#if DEBUG_FAST_TRIANGLE
-    // Moller-Trumbore (debugFastTriangle): one reciprocal and no normalize, versus the plane-then-
-    // barycentric test below (a normalize, a plane divide and two barycentric divides). Same contract:
-    // returns t along the (unnormalized) ray direction, or minDistance - 1.0 on a miss. The parallel
-    // cutoff is on the unnormalized determinant, so grazing-angle behavior differs very slightly.
     vec3 e1 = p2.xyz - p1.xyz, e2 = p3.xyz - p1.xyz;
     vec3 pv = cross(r.d.xyz, e2);
     float det = dot(e1, pv);
@@ -306,20 +303,9 @@ float triangleIntersect(in Ray r, in float minDistance, in vec4 p1, in vec4 p2, 
     if (u < 0.0 || v < 0.0 || u + v > 1.0)
         return minDistance - 1.0;
     return dot(e2, qv) * invDet;
-#else
-    vec4 normal = vec4(normalize(cross(vec3((p2 - p1).xyz), vec3((p3 - p1).xyz))), 0.0);
-    float distance = planeIntersect(r, minDistance, normal, dot(p1, normal));
-    if (distance < minDistance)
-        return distance;
-    vec3 bary = triangleToBarycentric(r.o + (distance * r.d), p1, p2, p3);
-    if (all(greaterThanEqual(bary, vec3(0.0))) && all(lessThanEqual(bary, vec3(1.0))))
-        return distance;
-    return minDistance - 1.0;
-#endif
 }
-#if DEBUG_INLINE_TRIANGLE_VERTS
-// debugInlineTriangleVerts: each triangle's three positions sit in 3 consecutive texels of tTriangleVerts,
-// so intersection needs no index lookup and the three fetches don't wait on one.
+// Each triangle's three positions also sit in 3 consecutive texels of tTriangleVerts, so intersection needs no
+// index lookup and the three fetches don't wait on one. (Shading still reads the indexed data, for normals and UVs.)
 uniform sampler2D tTriangleVerts;
 float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
     vec4 p1 = vec4(texelFetchByIndex(triangleID * 3,     tTriangleVerts).rgb, 1);
@@ -327,13 +313,6 @@ float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
     vec4 p3 = vec4(texelFetchByIndex(triangleID * 3 + 2, tTriangleVerts).rgb, 1);
     return triangleIntersect(r, minDistance, p1, p2, p3);
 }
-#else
-float triangleIntersect(in Ray r, in float minDistance, in int triangleID) {
-    vec4 p1, p2, p3;
-    getTriangleVertices(triangleID, p1, p2, p3);
-    return triangleIntersect(r, minDistance, p1, p2, p3);
-}
-#endif
 void triangleMaterialData(in vec4 position, inout GeometricMaterialData data, in int triangleID) {
     vec4 p1, p2, p3, n1, n2, n3;
     vec2 uv1, uv2, uv3;

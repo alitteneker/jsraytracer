@@ -215,28 +215,16 @@ class WebGLTexture {
         "FLOAT"     : { type: "FLOAT",         internal_format: "32F", format: "",         array_type: Float32Array },
         "IMAGEDATA" : { type: "UNSIGNED_BYTE", internal_format: "",    format: "",         array_type: ImageData    },
     };
-    // Data-texture layout. By default a data texture is the smallest square that fits. With
-    // WebGLRendererAdapter.debugPow2DataTextures, every data texture is instead DATA_TEXTURE_WIDTH texels wide (a power of
-    // two) and as tall as needed, so the shader can turn an index into a texel with a mask and shift (see
-    // computeGenericIndex). Both the layout and the shader read the flag, so it must not change between shader
-    // generation and data upload (it's static and only meant to be changed before a scene reload).
+    // Data-texture layout: every data texture is DATA_TEXTURE_WIDTH texels wide (a power of two) and as tall as
+    // needed, so the shader can turn an index into a texel with a mask and shift (see computeGenericIndex).
     static DATA_TEXTURE_WIDTH = 2048;
-    static pow2DataLayout() {
-        return (typeof WebGLRendererAdapter !== "undefined") && !!WebGLRendererAdapter.debugPow2DataTextures;
-    }
     static coerceToDataTextureData(channels, type, data) {
         if (!WebGLTexture.channels_map[channels] || !WebGLTexture.type_map[type])
             throw "Invalid texture channels or type passed";
         if (!data)
             data = [];
         const texels = Math.max(1, Math.ceil(data.length / channels));
-        let width, height;
-        if (WebGLTexture.pow2DataLayout()) {
-            width = WebGLTexture.DATA_TEXTURE_WIDTH;
-            height = Math.ceil(texels / width);
-        }
-        else
-            width = height = Math.max(1, Math.ceil(Math.sqrt(texels)));
+        const width = WebGLTexture.DATA_TEXTURE_WIDTH, height = Math.ceil(texels / width);
         const out = new WebGLTexture.type_map[type].array_type(channels * width * height);
         out.set(data);
         return [width, height, out];

@@ -1,7 +1,7 @@
 // Precision, constants, and the helpers every other part of the shader uses: small vector utilities, random
 // numbers, and fetching data from the 2D textures that hold the scene's arrays.
 // Rendered by WebGLHelper (WebGLUtilHelpers.js). Holes: dataTextureWidth, dataTextureMask, dataTextureShift, the
-// layout used when DEBUG_POW2_DATA_TEXTURES is on (see WebGLTexture.pow2DataLayout).
+// data textures' layout (see WebGLTexture.coerceToDataTextureData).
 
 //#section declarations
 
@@ -23,22 +23,17 @@ float average(in vec2 v);
 float average(in vec3 v);
 float average(in vec4 v);
 
-vec3 unitAxis3(in int dim);
 vec4 unitAxis4(in int dim);
 
 float randf(inout vec2 seed);
-vec2 rand2f(inout vec2 seed);
 vec2 randomGaussian(inout vec2 seed);
 vec2 randomCirclePoint(inout vec2 seed);
 vec3 randomSpherePoint(inout vec2 seed);
-vec3 randomHemispherePoint(in vec3 N, inout vec2 seed);
 mat4 transformToAlignY(in vec4 R);
 
 float safePow(in float x, in float y);
 
-ivec2  computeGenericIndex(in int index, in ivec2 size);
-ivec2  computeGenericIndex(in int index, in  sampler2D texture);
-ivec2 icomputeGenericIndex(in int index, in isampler2D texture);
+ivec2 computeGenericIndex(in int index);
 vec4   texelFetchByIndex(  in int index, in  sampler2D texture);
 ivec4 itexelFetchByIndex(  in int index, in isampler2D texture);
 
@@ -55,11 +50,6 @@ float average(in vec2 v)     { return sum(v) / 2.0; }
 float average(in vec3 v)     { return sum(v) / 3.0; }
 float average(in vec4 v)     { return sum(v) / 4.0; }
 
-vec3 unitAxis3(in int dim) {
-    vec3 ret = vec3(0.0);
-    ret[dim] = 1.0;
-    return ret;
-}
 vec4 unitAxis4(in int dim) {
     vec4 ret = vec4(0.0);
     ret[dim] = 1.0;
@@ -99,29 +89,14 @@ float random_hash( vec2  v ) {
     return floatConstruct( hash_uint( floatBitsToUint(v) ) );
 }
 
-float random_fractsin(in vec2 seed) {
-    const float a = 12.9898;
-    const float b = 78.233;
-    const float c = 43758.5453;
-
-    float dt = dot(seed.xy ,vec2(a,b));
-    float sn = mod(dt, PI);
-
-    return fract(sin(sn) * c);
-}
-
 float randf(inout vec2 seed) {
     const float random_advance = 65.60358;
 
     float ret = random_hash(seed);
-    //float ret = random_fractsin(seed);
 
     seed += vec2(random_advance);
 
     return ret;
-}
-vec2 rand2f(inout vec2 seed) {
-    return vec2(randf(seed), randf(seed));
 }
 
 vec2 randomGaussian(inout vec2 seed) {
@@ -154,12 +129,6 @@ vec3 randomSpherePoint(inout vec2 seed) {
                      cos(phi),
         sin(theta) * sin_phi);
 }
-vec3 randomHemispherePoint(in vec3 N, inout vec2 seed) {
-    vec3 dir = randomSpherePoint(seed);
-    if (dot(dir, N) < 0.0)
-        return -dir;
-    return dir;
-}
 vec4 getFurthestAxis(in vec4 R) {
     vec4  best_axis = vec4(1,0,0,0);
     float best_score = 1.0-abs(dot(R, best_axis));
@@ -191,17 +160,10 @@ float safePow(in float x, in float y) {
 }
 
 // Texel fetch by index functions
-ivec2 computeGenericIndex(in int index, in ivec2 size) {
-#if DEBUG_POW2_DATA_TEXTURES
-    // Data textures are ${dataTextureWidth} texels wide (debugPow2DataTextures), so index -> texel
-    // is a mask and a shift rather than an integer % and / by the runtime texture width.
+// Data textures are ${dataTextureWidth} texels wide, so index -> texel is a mask and a shift rather than an integer %
+// and / by the texture's width (integer division is expensive on GPUs).
+ivec2 computeGenericIndex(in int index) {
     return ivec2(index & ${dataTextureMask}, index >> ${dataTextureShift});
-#else
-    return ivec2(index % size.x, index / size.x);
-#endif
 }
-ivec2  computeGenericIndex(in int index, in  sampler2D texture) { return computeGenericIndex(index, textureSize(texture, 0)); }
-ivec2 icomputeGenericIndex(in int index, in isampler2D texture) { return computeGenericIndex(index, textureSize(texture, 0)); }
-vec4   texelFetchByIndex(  in int index, in  sampler2D texture) { return texelFetch(texture,  computeGenericIndex(index, texture), 0);
-}
-ivec4 itexelFetchByIndex(  in int index, in isampler2D texture) { return texelFetch(texture, icomputeGenericIndex(index, texture), 0); }
+vec4   texelFetchByIndex(in int index, in  sampler2D texture) { return texelFetch(texture, computeGenericIndex(index), 0); }
+ivec4 itexelFetchByIndex(in int index, in isampler2D texture) { return texelFetch(texture, computeGenericIndex(index), 0); }
