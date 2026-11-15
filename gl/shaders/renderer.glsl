@@ -139,6 +139,26 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
         RecursiveNextRays nextRays = RecursiveNextRays(0.0, vec4(0), vec3(0), 0.0, vec4(0), vec3(0), false, false, 0.0);
         surfaceClear();
         vec3 surface_color = worldRayColorShallow(r, intersect_position, intersect_normal, countEmission);
+#if LIGHTS_VISIBLE_DIRECTIONAL && !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
+        // A directional light's shape seen by this ray (it sits relative to the ray's origin, not in the world, so
+        // worldRayColorShallow can't find it). Nearer than the world's hit, it replaces it, and the path ends there.
+        {
+            float worldT = intersect_position.w == 0.0 ? 1e30
+                : dot(intersect_position.xyz - r.o.xyz, r.d.xyz) / dot(r.d.xyz, r.d.xyz);
+            vec3 Le;
+            float lightPdf;
+            if (lightsRayCastDirectional(r, worldT, Le, lightPdf)) {
+                surfaceClear();
+#ifdef PATH_TRACING
+                // As for an area light hit by a sampled bounce: light sampling could have found it too.
+                if (prevBsdfPdf > 0.0)
+                    Le *= powerHeuristic(prevBsdfPdf, lightPdf);
+#endif
+                surface_color = countEmission ? Le : vec3(0);
+                intersect_position.w = 0.0;
+            }
+        }
+#endif
 #ifdef PATH_TRACING
         // A light reached by sampling a BSDF: light sampling at the surface the path left could have found it
         // too, so MIS splits the credit.

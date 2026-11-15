@@ -203,21 +203,22 @@ class RandomSampleAreaLight extends Light {
     }
 }
 
-// A light that travels with whoever is looking at it. Its transform places its geometry relative to the point being
-// shaded (or the camera), rather than in the world: a sample is transform * (a point on the geometry), offset by
-// that point. Every shaded point therefore sees it in the same direction, at the same distance and size, which is
-// how a distant light like the sun behaves; any affine transform and any geometry that can be sampled will do (a
-// point, by default, for hard shadows; a disc or square for soft ones, whose angular size is its size over its
-// distance).
+// A light that travels with whoever is looking at it. Its transform places its geometry relative to an observer
+// rather than in the world: the point being shaded, when sampling it for direct light, and a ray's origin, when a ray
+// looks for it. So every point sees it in the same direction, at the same distance and size, which is how a distant
+// light like the sun behaves, and a ray sees it wherever light sampling would find it: in the camera, in reflections,
+// and from any bounce. Any affine transform and any geometry that can be sampled will do: a point (the default) for
+// hard shadows, which nothing can see; a disc or square for soft ones, whose angular size is their size over their
+// distance.
 //
-// Everything else follows the other lights, so one rule covers them all:
-//   - color * intensity is power. With a point it is a point light's (irradiance Phi / (4 pi d^2)); with an area,
-//     an area light's (radiance Phi / (2 pi A), so the area cancels out and the irradiance is about
-//     Phi / (2 pi d^2)). Moving the geometry farther away therefore dims it.
-//   - Shadow rays stop at the sampled point, as for any light: something farther away than the light's distance
-//     doesn't block it.
-// Nothing can hit it (it isn't anywhere in the world), so it is never seen directly, and BSDF sampling can never find
-// it: its samples are delta samples, which take full weight in MIS.
+// Everything else follows the area light it is relative to, so one rule covers every light:
+//   - color * intensity is power: a point light's falloff (Phi / (4 pi d^2)) for a point, an area light's radiance
+//     (Phi / (2 pi A)) for a shape, so the area cancels out of its irradiance and moving it farther dims it.
+//   - Shadow rays stop at the sampled point: only geometry nearer than the light can block it, and only geometry
+//     nearer than it hides it from a ray.
+//   - A shape takes part in MIS like an area light (BSDF sampling can find it); a point is a delta light.
+// With an observer at o, its world transform is translation(o) * transform. In its own space a ray from o therefore
+// starts at transform^-1 * origin wherever o is, so whether a ray sees it depends only on the ray's direction.
 class DirectionalLight extends RandomSampleAreaLight {
     constructor(surface_geometry=new OriginPoint(), transform=Mat4.translation([0, 10, 0]), color_mc=Vec.of(1, 1, 1), intensity=1, samples=1) {
         super(surface_geometry, transform, color_mc, intensity, samples);
@@ -239,11 +240,43 @@ class DirectionalLight extends RandomSampleAreaLight {
     buildBoundingBox() {
         return this.surface_geometry.getBoundingBox(this.transform, this.inv_transform);
     }
+    // The ray's origin is the observer. The ray arrives in the light's parent space (World.cast transforms it through
+    // any ancestors), which is the space the light's own transform is relative to.
     intersect(ray, minDistance, maxDistance=Infinity, intersectTransparent=true) {
-        return { distance: Infinity, ancestors: [], object: this };
+        if (!intersectTransparent || this.isPoint)
+            return { distance: Infinity, ancestors: [], object: this };
+        const local = ray.getTransformed(DirectionalLight.observerInvTransform(ray.origin, this.getInvTransform()));
+        return { distance: this.surface_geometry.intersect(local, minDistance, maxDistance), ancestors: [], object: this };
+    }
+    // Area-light emission (see RandomSampleAreaLight), with the light placed relative to the ray's origin. The ray is
+    // in world space; ancestorInvTransform takes it to the light's parent space.
+    observedAt(ray, ancestorInvTransform) {
+        const parent_ray = ancestorInvTransform.is_identity() ? ray : ray.getTransformed(ancestorInvTransform);
+        const world_transform = ancestorInvTransform.is_identity()
+            ? DirectionalLight.observerTransform(ray.origin, this.transform)
+            : Mat4.inverse(ancestorInvTransform).times(DirectionalLight.observerTransform(parent_ray.origin, this.transform));
+        return { world_transform: world_transform, inv_transform: Mat4.inverse(world_transform) };
     }
     color(ray, distance, ancestorInvTransform, world, recursionDepth, countEmission=true) {
-        return Vec.of(0, 0, 0);
+        if (!countEmission || this.isPoint)
+            return Vec.of(0, 0, 0);
+        const { world_transform, inv_transform } = this.observedAt(ray, ancestorInvTransform);
+        const material_data = this.surface_geometry.materialData(
+            { ray: ray, distance: distance, position: ray.getTransformed(inv_transform).getPoint(distance) }, ray.direction);
+        return this.color_mc.color(material_data).times(this.emittedRadianceScale(world_transform));
+    }
+    emissionAt(ray, distance, ancestorInvTransform) {
+        if (this.isPoint)
+            return null;
+        const { world_transform, inv_transform } = this.observedAt(ray, ancestorInvTransform);
+        const material_data = this.surface_geometry.materialData(
+            { ray: ray, distance: distance, position: ray.getTransformed(inv_transform).getPoint(distance) }, ray.direction);
+        const area = this.surfaceArea(world_transform), radianceScale = 1 / (2 * Math.PI * area);
+        const n = inv_transform.transposed().times(material_data.normal).to4(0).normalized();
+        const dirLength = ray.direction.norm(), cosLight = Math.abs(n.dot(ray.direction)) / dirLength;
+        const d = distance * dirLength;
+        const Le = this.color_mc.color(material_data).times(radianceScale);
+        return { Le: [Le[0], Le[1], Le[2]], pdf: cosLight > 0 ? d * d / (area * cosLight) : Infinity, count: this.samples };
     }
     *sampleIterator(surface_position, transform=this.transform, inv_transform=this.inv_transform, withCos=false) {
         const T = DirectionalLight.observerTransform(surface_position, transform);
@@ -261,8 +294,14 @@ class DirectionalLight extends RandomSampleAreaLight {
         yield* super.sampleIterator(surface_position, T, DirectionalLight.observerInvTransform(surface_position, inv_transform), withCos);
     }
     *sampleLi(surface_position, transform=this.transform, inv_transform=this.inv_transform) {
-        for (const s of this.sampleIterator(surface_position, transform, inv_transform))
-            yield { direction: s.direction, value: s.color, delta: true, count: this.isPoint ? 1 : this.samples };
+        if (this.isPoint) {
+            for (const s of this.sampleIterator(surface_position, transform, inv_transform))
+                yield { direction: s.direction, value: s.color, delta: true, count: 1 };
+            return;
+        }
+        // An area light's samples and pdf (the area doesn't change with the observer's position).
+        yield* super.sampleLi(surface_position, DirectionalLight.observerTransform(surface_position, transform),
+            DirectionalLight.observerInvTransform(surface_position, inv_transform));
     }
 }
 

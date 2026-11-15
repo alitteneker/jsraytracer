@@ -663,7 +663,7 @@ class WebGLWorldAdapter {
     }
     getShaderSourceDeclarations() {
         return ShaderLibrary.render("world.glsl", "declarations") + "\n"
-            + this.adapters.lights.getShaderSourceDeclarations()     + "\n"
+            + this.adapters.lights.getShaderSourceDeclarations(this.WORLD_EDITABLE) + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations(this.WORLD_EDITABLE) + "\n"
             + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
     }
@@ -839,7 +839,8 @@ class WebGLWorldAdapter {
         return ret
             + this.adapters.lights.getShaderSource(this.WORLD_EDITABLE)     + "\n"
             + this.adapters.materials.getShaderSource(this.WORLD_EDITABLE)  + "\n"
-            + this.adapters.geometries.getShaderSource(this.WORLD_EDITABLE, !this.bvh_only_uses_untransformed_triangles) + "\n";
+            + this.adapters.geometries.getShaderSource(this.WORLD_EDITABLE,
+                !this.bvh_only_uses_untransformed_triangles || this.adapters.lights.hasVisibleDirectional()) + "\n";
     }
 }
 

@@ -83,9 +83,10 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 
 **Lights**
 - Point lights, and area lights in any supported shape (square, circle, sphere and more), sampled by area
-- Directional lights: a point or shape whose transform is relative to the point being lit, so every point sees it
-  in the same direction, like the sun. A shape gives soft shadows; the same power units apply, and shadows reach as
-  far as the light's distance
+- Directional lights: a point or shape whose transform is relative to whoever looks at it (the point being lit,
+  or a ray's origin), so every point sees it in the same direction, like the sun. A shape gives soft shadows and is
+  seen by the camera, in reflections and by every bounce; the same power units apply, and shadows reach as far as
+  the light's distance
 - Physical units: a light's color times intensity is the power it emits
 - Lights are scene objects: they can be hit by rays, picked and edited in the GPU editor, and placed inside groups
 - Direct light sampling combined with visible emission, without counting any light twice

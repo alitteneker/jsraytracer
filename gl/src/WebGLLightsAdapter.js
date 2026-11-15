@@ -24,9 +24,10 @@ class WebGLLightsAdapter {
             material_adapter.bindToScene(light_data.color_mc, v => light.color_mc = MaterialColor.coerce(v));
         }
         else if (light instanceof DirectionalLight) {
-            // Placed relative to the point being shaded: sampleLight adds that point (see src/lights.js).
+            // Placed relative to the point being shaded or the ray's origin (see src/lights.js): sampleLight adds the
+            // point, and rays test its shape (lightsRayCastDirectional), so a shape is registered for intersection.
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_DIRECTIONAL;
-            light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, false, true);
+            light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, !light.isPoint, true);
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
             material_adapter.bindToScene(light_data.color_mc, v => light.color_mc = MaterialColor.coerce(v));
         }
@@ -62,6 +63,10 @@ class WebGLLightsAdapter {
     getLights() {
         return this.lights_data;
     }
+    // Whether some directional light has a shape (rays then need to test it, and the generic geometry functions).
+    hasVisibleDirectional() {
+        return this.lights_data.some(l => l.light instanceof DirectionalLight && !l.light.isPoint);
+    }
     getLight(index) {
         return this.lights_data[index];
     }
@@ -96,7 +101,10 @@ class WebGLLightsAdapter {
         }
     }
     getShaderSourceDeclarations(sceneEditable) {
-        return ShaderLibrary.render("lights.glsl", "declarations");
+        // The editable shader takes lights added later, so it always has the directional test.
+        return ShaderLibrary.render("lights.glsl", "declarations", {
+            visibleDirectional: (sceneEditable || this.hasVisibleDirectional()) ? 1 : 0
+        });
     }
     getShaderSource(sceneEditable) {
         return ShaderLibrary.render("lights.glsl", "source", {

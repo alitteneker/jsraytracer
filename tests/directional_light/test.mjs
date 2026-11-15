@@ -1,5 +1,6 @@
-// A directional light (see DirectionalLight in src/lights.js): a disc whose transform is relative to the point being
-// shaded, so every point sees it in the same direction, like the sun. The disc is 0.6 units across at a distance of
+// A directional light (see DirectionalLight in src/lights.js): a disc whose transform is relative to whoever looks
+// at it (the point being shaded, or a ray's origin), so every point sees it in the same direction, like the sun. It's
+// out of the camera's view here, but shows in the reflective objects. The disc is 0.6 units across at a distance of
 // about 12, which makes the shadows soft; with a point (new OriginPoint()) they'd be hard. Its power follows the same
 // rule as an area light's: about 2 pi d^2 for unit irradiance on a surface facing it.
 export function configureTest(callback) {
