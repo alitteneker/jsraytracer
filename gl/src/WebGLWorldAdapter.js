@@ -197,6 +197,10 @@ class WebGLWorldAdapter {
         // deal with world objects
         this.visitDescendantObject(new Aggregate(world.objects), webgl_helper);
 
+        // Materials nothing uses yet (see WebGLMaterialEditor), so the editor can edit them like any other.
+        for (const m of world.materialLibrary || [])
+            this.adapters.materials.visit(m, webgl_helper);
+
         // Primitive indices of the light stand-ins, so the shader can tell when a ray has hit a light (see
         // worldRayColorShallow's countEmission).
         this.light_emitter_prim_ids = [...this.light_emitter_proxies.values()]

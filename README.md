@@ -33,7 +33,8 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 - **Edit the scene live.** Click any object to select it, then drag it, rotate it, scale it or change its material,
   and the render keeps converging. That includes lights. Add spheres, boxes, planes and lights, or delete what's
   selected; with `?worldEditable=true` the shader is built to handle any scene, so these edits apply in milliseconds
-  without recompiling.
+  without recompiling. The World tree lists the scene's materials with how many primitives use each: assign one to
+  an object, give an object its own copy ("Make unique"), or add, rename and delete them.
 - **Lights you can see.** Area lights are part of the scene like any other object. Look at one directly, or in a
   mirror or through glass, and you see a glowing surface, consistent with the light it casts. Lights can be nested
   inside transformed groups like any other object.
@@ -200,7 +201,6 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 
 ## Roadmap
 
-- Principled materials in the editor's Add menu
 - Normal maps, tangents and glTF loading
 - Clearcoat, sheen and the F82 metal Fresnel model
 - Adding meshes and grouping objects from the editor

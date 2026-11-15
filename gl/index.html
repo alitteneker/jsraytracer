@@ -46,6 +46,7 @@
         <script src="./src/WebGLRendererAdapter.js" defer></script>
         <script src="./src/WebGLSDFAdapter.js" defer></script>
         <script src="./src/WebGLSDFEditor.js" defer></script>
+        <script src="./src/WebGLMaterialEditor.js" defer></script>
         <script src="./src/WebGLUtilHelpers.js" defer></script>
         
         <!-- <script src="https://greggman.github.io/webgl-lint/webgl-lint.js" defer crossorigin></script> -->
@@ -95,11 +96,18 @@
                 <option value="circle">Circle</option>
                 <option value="plane">Plane</option>
                 <option value="sdf">SDF</option>
+            </select>
+            <button id="add-object-button">Add</button>
+        </div>
+        <div class="control-group" id="light-edit-bar">
+            <select id="add-light-type">
                 <option value="point-light">Point Light</option>
                 <option value="area-light">Area Light</option>
             </select>
-            <button id="add-object-button">Add</button>
+            <button id="add-light-button">Add</button>
         </div></div>
+        <!-- The menu the + buttons on the World tree's headings open (see WebGLEditorInterface.openTreeAddMenu). -->
+        <ul id="tree-add-menu" style="display: none; position: absolute; z-index: 200;"></ul>
         <hr>
         <div id="control-panel">
             <h3>Renderer</h3>
@@ -183,6 +191,20 @@
             </div>
             <div id="object-material-properties">
                 <h3>Material Properties</h3>
+                <!-- Which material this is, and managing it (see WebGLEditorInterface.fillMaterialControls). -->
+                <div id="material-controls">
+                    <div class="material-controls-row">
+                        <select id="material-select" title="The material. With an object selected, choosing another assigns it."></select>
+                        <input id="material-name" type="text" placeholder="Name" title="The material's name (only a label)">
+                    </div>
+                    <div class="material-controls-row">
+                        <button id="material-unique" title="Give this object its own copy of the material, so edits to it stop affecting the other objects that use it">Make unique</button>
+                        <select id="material-new-type"></select>
+                        <button id="material-new" title="Make a new material (with an object selected, it gets it)">New</button>
+                        <button id="material-delete" title="Delete this material; anything using it gets a plain default material">Delete</button>
+                    </div>
+                    <div id="material-users"></div>
+                </div>
                 <div><table id="object-material-properties-table" class="template-insertion-point control-group">
                 </table></div>
                 <div class="template-holder">

@@ -193,6 +193,11 @@ with the compiled source:
 Comparing the generated source, instead of listing what the shader depends on, means a missed dependency costs a
 recompile rather than a wrong image.
 
+Material management (`gl/src/WebGLMaterialEditor.js`) works the same way: assigning, copying or deleting a material
+changes primitives' `.material` in the CPU world, then rebuilds. The regular shader compiles material indices in,
+so these recompile it; the editable shader reads them from data, so they don't. (Except one case: in a Whitted
+scene, the first Principled material brings in the BSDF code, which path tracing always has.)
+
 ### Keeping the editable shader independent of the scene
 
 Diffing the editable source before and after an edit showed what it still baked in. Each is now fixed or sized with

@@ -157,17 +157,43 @@ class WebGLEditorInterface {
         $("#add-object-type").selectmenu({ width: 'auto' });
         $("#add-object-button").on("click", function() { this.addObject($("#add-object-type").val()); }.bind(this));
         $("#world-edit-bar").controlgroup("disable");
+        $("#add-light-type").selectmenu({ width: 'auto' });
+        $("#add-light-button").on("click", () => this.addObject($("#add-light-type").val()));
+        $("#light-edit-bar").controlgroup("disable");
+        this.initializeMaterialControls();
         $("#render-toggle-button").button({ icon: "ui-icon-pause", disabled: true })
             .on("click", () => this.renderingPaused ? this.resumeRendering() : this.pauseRendering());
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         
+        // The World tree. Each heading has a + button that adds one of its kind (see openTreeAddMenu).
+        const heading = (title, kind) => `${title}<button class="tree-add" data-add-kind="${kind}" title="Add">+</button>`;
         $("#world-objects").fancytree({
             source: [
-                { title: "Objects", key: "_objects", folder: true, clickFolderMode: 2 },
-                { title: "Lights",  key: "_lights",  folder: true, clickFolderMode: 2 }
+                { title: heading("Objects",   "objects"),   key: "_objects",   folder: true, clickFolderMode: 2 },
+                { title: heading("Lights",    "lights"),    key: "_lights",    folder: true, clickFolderMode: 2 },
+                { title: heading("Materials", "materials"), key: "_materials", folder: true, clickFolderMode: 2 }
             ],
-            activate: this.selectObjectTree.bind(this)
+            activate: this.selectObjectTree.bind(this),
+            click: (e, d) => {
+                const button = $(e.originalEvent && e.originalEvent.target).closest(".tree-add");
+                if (!button.length)
+                    return true;
+                this.openTreeAddMenu(button, button.attr("data-add-kind"));
+                return false;
+            }
+        });
+        $("#tree-add-menu").menu({ select: (e, ui) => {
+            $("#tree-add-menu").hide();
+            const value = ui.item.attr("data-value"), kind = $("#tree-add-menu").attr("data-kind");
+            if (kind == "materials")
+                this.addLibraryMaterial(value);
+            else
+                this.addObject(value);
+        }});
+        $(document).on("mousedown", e => {
+            if (!$(e.target).closest("#tree-add-menu, .tree-add").length)
+                $("#tree-add-menu").hide();
         });
 
         // Editing an SDF's structure (see WebGLSDFEditor and editSDFStructure).
@@ -296,6 +322,7 @@ class WebGLEditorInterface {
                 this.initializeCameraControls(adapter);
                 this.initializeWorldControls(adapter);
                 $("#world-edit-bar").controlgroup("enable");
+                $("#light-edit-bar").controlgroup("enable");
                 
                 this.startDrawLoop();
 
@@ -500,6 +527,10 @@ class WebGLEditorInterface {
         this.selectObject(this.renderer_adapter.selectObjectAt(x, y));
     }
     selectObject(selectedObject) {
+        if (selectedObject && this.selectedMaterial) {
+            this.selectedMaterial = null;
+            this.showObjectSections(true);
+        }
         if (this.selectedObject = selectedObject) {
             this.selectedObject.aabb = this.selectedObject.getBoundingBox();
             
@@ -528,7 +559,7 @@ class WebGLEditorInterface {
         else {
             this.transformObject = null;
             const activeNode = $.ui.fancytree.getTree("#world-objects").getActiveNode();
-            if (activeNode)
+            if (activeNode && !activeNode.data._material)
                 activeNode.setActive(false);
             $('#object-control-bar').controlgroup("disable");
             //$("#selected-object-controls").empty();
@@ -536,6 +567,8 @@ class WebGLEditorInterface {
         this.refreshPausedView();
     }
     selectObjectTree(e, d) {
+        if (d.node.data._material)
+            return this.selectMaterial(d.node.data._material);
         if (!("_worldtype" in d.node.data))
             return;
         if (d.node.data._worldobj && d.node.data._worldobj.type == "primitive") {
@@ -580,10 +613,8 @@ class WebGLEditorInterface {
         $("#transform-mode").selectmenu(this.transformObject ? "enable" : "disable");
         
         // Third, fill in the material property controls.
-        UIProperties.fillPropertyControls($("#object-material-properties"), o.getMaterialValues(), (function(name, prop, target, value) {
-            if (this.renderer_adapter)
-                this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), value);
-        }).bind(this));
+        this.fillMaterialProperties(o.getMaterialValues());
+        this.fillMaterialControls();
 
         
         // Fourth, fill in the object property controls (usually only used for SDFs). An SDF gets its tree, with the
@@ -739,7 +770,9 @@ class WebGLEditorInterface {
                 return;
             try {
                 const wa = ra.adapters.world;
-                if (selectAfter instanceof Light)
+                if (selectAfter instanceof Material)
+                    this.selectMaterial(selectAfter);
+                else if (selectAfter instanceof Light)
                     this.selectObject(ra.getLights().find(l => l.light === selectAfter) || null);
                 else if (selectAfter.OBJECT_UID in wa.primitive_id_index_map)
                     this.selectObject(wa.primitives[wa.primitive_id_index_map[selectAfter.OBJECT_UID]].toInstance([]));
@@ -747,6 +780,178 @@ class WebGLEditorInterface {
                 this.selectObject(null);
             }
         });
+    }
+
+    // ---- Managing materials (see WebGLMaterialEditor) ----
+    // The material panel shows either the selected object's material, or a material picked from the World tree's
+    // Materials list (this.selectedMaterial, when no object is selected). Its controls choose, name, copy, add and
+    // delete materials. Assigning a material changes primitives' .material in the scene, then rebuilds the renderer:
+    // immediate with the editable shader, a recompile with the regular one, as material indices are compiled in.
+    selectedMaterial = null;
+    initializeMaterialControls() {
+        $("#material-new-type").html(Object.entries(WebGLMaterialEditor.TYPES).map(([k, v]) => `<option value="${k}">${v}</option>`).join(""));
+        $("#material-unique, #material-new, #material-delete").button();
+        $("#material-select").on("change", () => {
+            const ctx = this.materialContext(), chosen = this.materialChoices && this.materialChoices.get(Number($("#material-select").val()));
+            if (!ctx || !chosen || chosen === ctx.material)
+                return;
+            if (!ctx.scope)
+                return this.selectMaterial(chosen);
+            const n = WebGLMaterialEditor.assign(this.renderer_adapter.renderer.world, ctx.scope, ctx.material, chosen);
+            myconsole.log(`Assigned ${WebGLMaterialEditor.label(chosen)} to ${n} primitive(s).`);
+            this.materialEdited(chosen);
+        });
+        $("#material-name").on("change", () => {
+            const ctx = this.materialContext();
+            if (!ctx)
+                return;
+            const name = $("#material-name").val().trim();
+            if (name)
+                ctx.material.name = name;
+            else
+                delete ctx.material.name;
+            this.refreshMaterialsTree();
+            this.fillMaterialControls();
+        });
+        $("#material-unique").on("click", () => {
+            const ctx = this.materialContext();
+            if (!ctx || !ctx.scope || this.renderer_adapter.rebuildingShaders)
+                return;
+            this.materialEdited(WebGLMaterialEditor.makeUnique(this.renderer_adapter.renderer.world, ctx.scope, ctx.material));
+        });
+        $("#material-new").on("click", () => {
+            const ctx = this.materialContext(), type = $("#material-new-type").val();
+            if (!ctx || this.renderer_adapter.rebuildingShaders)
+                return;
+            if (!ctx.scope)
+                return this.addLibraryMaterial(type);
+            const material = WebGLMaterialEditor.create(type);
+            WebGLMaterialEditor.assign(this.renderer_adapter.renderer.world, ctx.scope, ctx.material, material);
+            this.materialEdited(material);
+        });
+        $("#material-delete").on("click", () => {
+            const ctx = this.materialContext();
+            if (!ctx || ctx.scope || this.renderer_adapter.rebuildingShaders)
+                return;
+            const n = WebGLMaterialEditor.remove(this.renderer_adapter.renderer.world, ctx.material);
+            myconsole.log(`Deleted ${WebGLMaterialEditor.label(ctx.material)}` + (n ? `; ${n} primitive(s) now use a default material.` : "."));
+            this.selectedMaterial = null;
+            this.showObjectSections(true);
+            $("#selected-object-controls").dialog("close");
+            this.rebuildWorld(null);
+        });
+    }
+    // What the material controls act on: { material, scope }, where scope is the scene object whose primitives an
+    // assignment changes (the object the transform tools move: a whole mesh for one of its triangles), or null when
+    // the material was picked from the Materials list. Null if there's no material to manage (a light, an aggregate).
+    materialContext() {
+        if (this.selectedMaterial)
+            return { material: this.selectedMaterial, scope: null };
+        const o = this.selectedObject;
+        if (!o || !(o.object instanceof Primitive) || o.object.lightEmitterFor)
+            return null;
+        const target = this.transformObject || o;
+        return { material: o.object.material, scope: target.object || o.object };
+    }
+    // After the selected object's material changed: rebuild, then show it with its new material. An object inside
+    // a mesh or other aggregate can't be found again after the rebuild (see rebuildWorld), so the material is shown.
+    materialEdited(material) {
+        const o = this.selectedObject, world = this.renderer_adapter.renderer.world;
+        const reselect = o && this.transformObject === o && world.objects.includes(o.object);
+        this.rebuildWorld(reselect ? o.object : material);
+    }
+    addLibraryMaterial(type) {
+        const ra = this.renderer_adapter;
+        if (!ra || ra.rebuildingShaders)
+            return;
+        this.rebuildWorld(WebGLMaterialEditor.add(ra.renderer.world, type));
+    }
+    selectMaterial(material) {
+        const ra = this.renderer_adapter;
+        if (!ra)
+            return;
+        if (this.selectedObject)
+            this.selectObject(null);
+        this.selectedMaterial = material;
+        this.showObjectSections(false);
+        const node = $.ui.fancytree.getTree("#world-objects").getNodeByKey("m" + material.MATERIAL_UID);
+        if (node)
+            node.setActive(true, { noEvents: true });
+        const materials = ra.adapters.world.adapters.materials;
+        this.fillMaterialProperties(materials.getMaterial(materials.material_id_map[material.MATERIAL_UID]) || {});
+        this.fillMaterialControls();
+        $("#selected-object-controls").dialog("open");
+    }
+    // A selected material has no geometry, transform or object properties to show.
+    showObjectSections(show) {
+        $("#object-geometry-types, #object-transform, #object-properties").toggle(show);
+        $("#selected-object-controls").dialog("option", "title", show ? "Selected Object" : "Material");
+    }
+    fillMaterialProperties(values) {
+        UIProperties.fillPropertyControls($("#object-material-properties"), values, (function(name, prop, target, value) {
+            if (this.renderer_adapter)
+                this.renderer_adapter.modifyMaterialSolidColor(target.attr("data-mc-id"), value);
+            this.refreshPausedView();
+        }).bind(this));
+    }
+    fillMaterialControls() {
+        const ctx = this.materialContext(), ra = this.renderer_adapter;
+        $("#material-controls").toggle(!!(ctx && ra));
+        if (!ctx || !ra)
+            return;
+        const world = ra.renderer.world, list = WebGLMaterialEditor.list(world);
+        this.materialChoices = new Map(list.map(e => [e.material.MATERIAL_UID, e.material]));
+        $("#material-select").html(list.map(e =>
+            `<option value="${e.material.MATERIAL_UID}">${WebGLEditorInterface.escapeHTML(WebGLMaterialEditor.label(e.material))} (${e.users})</option>`).join(""))
+            .val(ctx.material.MATERIAL_UID);
+        $("#material-name").val(ctx.material.name || "");
+        const users = (list.find(e => e.material === ctx.material) || { users: 0 }).users;
+        $("#material-unique").toggle(!!ctx.scope).button("option", "disabled", !(ctx.scope && WebGLMaterialEditor.isShared(world, ctx.scope, ctx.material)));
+        $("#material-delete").toggle(!ctx.scope);
+        let text = users ? `Used by ${users} primitive${users == 1 ? "" : "s"}` : "Not used by anything";
+        if (ctx.scope) {
+            const inside = WebGLMaterialEditor.primitives(ctx.scope).filter(p => p.material === ctx.material).length;
+            if (inside < users)
+                text += `, ${inside} of them in this object. Edits change all of them; Make unique to change only this object's.`;
+            else
+                text += ", all in this object.";
+        }
+        else
+            text += ".";
+        $("#material-users").text(text);
+    }
+    refreshMaterialsTree() {
+        const ra = this.renderer_adapter, root = $.ui.fancytree.getTree("#world-objects").getNodeByKey("_materials");
+        if (!root || !ra)
+            return;
+        const list = WebGLMaterialEditor.list(ra.renderer.world);
+        if (this.selectedMaterial && !list.some(e => e.material === this.selectedMaterial)) {
+            this.selectedMaterial = null;
+            this.showObjectSections(true);
+            $("#selected-object-controls").dialog("close");
+        }
+        root.removeChildren();
+        root.addChildren(list.map(e => ({
+            key: "m" + e.material.MATERIAL_UID,
+            _material: e.material,
+            title: `${WebGLEditorInterface.escapeHTML(WebGLMaterialEditor.label(e.material))} (${e.users})`
+        })));
+    }
+    static escapeHTML(text) {
+        return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+    }
+    // The + buttons on the World tree's headings open a menu of what can be added there: the same kinds as the
+    // add bars under the canvas, or new materials.
+    openTreeAddMenu(button, kind) {
+        if (!this.renderer_adapter || this.renderer_adapter.rebuildingShaders)
+            return;
+        const options = kind == "materials" ? Object.entries(WebGLMaterialEditor.TYPES)
+                      : $(kind == "lights" ? "#add-light-type option" : "#add-object-type option").toArray().map(o => [o.value, o.textContent]);
+        const menu = $("#tree-add-menu");
+        menu.attr("data-kind", kind)
+            .html(options.map(([value, label]) => `<li data-value="${value}"><div>${label}</div></li>`).join(""))
+            .menu("refresh").show()
+            .position({ my: "left top", at: "left bottom", of: button });
     }
 
     initializeWorldControls(adapter) {
@@ -791,6 +996,8 @@ class WebGLEditorInterface {
             };
         }));
         lights_root.setExpanded(true);
+
+        this.refreshMaterialsTree();
     }
     
     

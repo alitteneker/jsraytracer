@@ -152,3 +152,30 @@ table.transform-table {
 .sdf-structure-bar button:disabled {
     opacity: 0.4;
 }
+
+/* Managing the selected object's (or the selected material's) material. */
+#material-controls {
+    margin-bottom: 8px;
+}
+.material-controls-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+    align-items: center;
+}
+#material-select, #material-name {
+    flex-grow: 1;
+    min-width: 0;
+}
+#material-users {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+/* The + buttons on the World tree's headings. */
+.tree-add {
+    margin-left: 6px;
+    padding: 0 5px;
+    line-height: 1.1;
+    font-size: 0.9em;
+    cursor: pointer;
+}
