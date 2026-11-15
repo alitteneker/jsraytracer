@@ -53,6 +53,7 @@
     <body>
         <div id="controls">
             <button id="scene-button" title="Choose a scene">Choose a scene</button>
+            <button id="render-toggle-button" title="Stop drawing new samples (the image stays as it is)">Stop rendering</button>
             <img id="loading-img" class="loading" src="../assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
             <button id="help-button">Help</button>
         </div>
@@ -74,7 +75,7 @@
             <canvas id="glcanvas" tabindex="0"></canvas>
             <div id="loading-overlay" class="loading" style="visibility:hidden">Loading...</div>
         </div>
-        <div><div class="control-group" id="object-control-bar">
+        <div id="edit-bars"><div class="control-group" id="object-control-bar">
             <button id="deselect-object-button">Deselect</button>
             <select id="transform-mode">
                 <option value="translate">Translate</option>

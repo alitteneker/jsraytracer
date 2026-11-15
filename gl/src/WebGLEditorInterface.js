@@ -157,6 +157,8 @@ class WebGLEditorInterface {
         $("#add-object-type").selectmenu({ width: 'auto' });
         $("#add-object-button").on("click", function() { this.addObject($("#add-object-type").val()); }.bind(this));
         $("#world-edit-bar").controlgroup("disable");
+        $("#render-toggle-button").button({ icon: "ui-icon-pause", disabled: true })
+            .on("click", () => this.renderingPaused ? this.resumeRendering() : this.pauseRendering());
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         
@@ -311,6 +313,32 @@ class WebGLEditorInterface {
                 myconsole.log("Starting draw world loop...");
                 this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
         }
+        // Starting the loop for any reason (a scene loading, say) ends a pause.
+        this.setRenderingPaused(false);
+    }
+    // The Stop rendering button: stops drawing samples without unloading anything, so the GPU goes idle and the
+    // image, the camera and the selection all stay as they are. Resuming carries on accumulating samples.
+    renderingPaused = false;
+    pauseRendering() {
+        if (!this.animation_request_id)
+            return;
+        window.cancelAnimationFrame(this.animation_request_id);
+        this.animation_request_id = null;
+        this.lastDrawTimestamp = null;
+        this.setRenderingPaused(true);
+        $('#fps-display').text(this.renderer_adapter.drawCount + " samples (stopped)");
+    }
+    resumeRendering() {
+        if (!this.animation_request_id)
+            this.startDrawLoop();
+    }
+    setRenderingPaused(paused) {
+        this.renderingPaused = paused;
+        $("#render-toggle-button").button("option", {
+            label: paused ? "Resume rendering" : "Stop rendering",
+            icon: paused ? "ui-icon-play" : "ui-icon-pause",
+            disabled: !this.renderer_adapter
+        });
     }
     stopDrawLoop() {
         if (this.animation_request_id) {
@@ -360,6 +388,7 @@ class WebGLEditorInterface {
                 return this.setWorldEditable(value);
             if (this.renderer_adapter)
                 this.renderer_adapter.rendererParameterModified(name, value);
+            this.refreshPausedView();
         }).bind(this));
     }
     initializeCameraControls(renderer_adapter) {
@@ -408,11 +437,7 @@ class WebGLEditorInterface {
                     this.canvas.get(0).toBlob(resolve, type, quality);
             }
             
-            // If any object is selected, draw it's wireframe.
-            if (this.transformObject)
-                this.drawWireframe(this.transformObject.getAncestorTransform(), this.transformObject.aabb, this.transformObject.isBeingTransformed ? Vec.of(0,0,1,1) : Vec.of(1,1,1,1));
-            if (this.selectedObject && this.transformObject !== this.selectedObject)
-                this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb, Vec.of(1,0,0,1));
+            this.drawSelectionWireframes();
             
             // Request another frame of animation.
             this.animation_request_id = window.requestAnimationFrame(this.draw.bind(this));
@@ -426,6 +451,21 @@ class WebGLEditorInterface {
     pendingCaptures = [];
     captureImage(type="image/png", quality=undefined) {
         return new Promise(resolve => this.pendingCaptures.push([resolve, type, quality]));
+    }
+    // If any object is selected, draw its wireframe.
+    drawSelectionWireframes() {
+        if (this.transformObject)
+            this.drawWireframe(this.transformObject.getAncestorTransform(), this.transformObject.aabb, this.transformObject.isBeingTransformed ? Vec.of(0,0,1,1) : Vec.of(1,1,1,1));
+        if (this.selectedObject && this.transformObject !== this.selectedObject)
+            this.drawWireframe(this.selectedObject.getAncestorTransform(), this.selectedObject.aabb, Vec.of(1,0,0,1));
+    }
+    // While rendering is stopped nothing redraws the canvas, so changes to what it shows without new samples (the
+    // selection, display settings such as exposure or denoising) redraw it here.
+    refreshPausedView() {
+        if (!this.renderingPaused || !this.renderer_adapter)
+            return;
+        this.renderer_adapter.redisplay();
+        this.drawSelectionWireframes();
     }
     drawWireframe(ancestorTransform, aabb, color) {
         if (this.lineShader) {
@@ -493,6 +533,7 @@ class WebGLEditorInterface {
             $('#object-control-bar').controlgroup("disable");
             //$("#selected-object-controls").empty();
         }
+        this.refreshPausedView();
     }
     selectObjectTree(e, d) {
         if (!("_worldtype" in d.node.data))

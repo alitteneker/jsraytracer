@@ -33,11 +33,15 @@ body {
     margin-top: 10px;
 }
 
-#object-control-bar {
+/* The selected object's controls and the controls for adding objects, side by side under the canvas. */
+#edit-bars {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+#edit-bars > .control-group {
     width: fit-content;
-    display: block;
-    /* align-items: center; */
-    margin: auto;
 }
 #camera-controls .ui-spinner-input {
     width: 40px;

@@ -825,32 +825,9 @@ class WebGLRendererAdapter {
         this.endGPUTimer(timerQuery);
         
         
-        // Alright, time to use the passthrough shader to clean up all our weird intermediary results
-        // First, unset the framebuffer, so that webgl will output directly to the canvas, then switch to the passthrough shader.
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.useProgram(this.passthroughShaderProgram);
-        
-        // Set textures[0] (the textures that were just rendered/written to) to be readable in the passthrough/filter shader
-        for (let k of ["render", "normal", "variance"]) {
-            this.textures[0][k].bind(this.textureUnits[k]);
-            this.gl.uniform1i(this.uniforms["passthroughTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
-        }
-        
-        // Set passthrough uniforms. These are (almost) entirely modifiable within the UI.
-        this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
-        this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
-        this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? this.drawCount : 0);
-        
-        this.gl.uniform1i(this.uniforms.doDenoise, this.doDenoise);
-        this.gl.uniform1f(this.uniforms.denoiseSigma, this.denoiseSigma);
-        this.gl.uniform1f(this.uniforms.denoiseKSigma, this.denoiseKSigma);
-        this.gl.uniform1f(this.uniforms.denoiseThreshold, this.denoiseThreshold);
-        this.gl.uniform1f(this.uniforms.denoiseNormalPower, this.denoiseNormalPower);
-
-        
-        // Finally, draw with the passthrough shader. Note that this uses the same geometry array buffer that was used
-        //      for the tracer shader, as nothing else has been bound to the relevant buffer since.
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        // Alright, time to use the passthrough shader to clean up all our weird intermediary results, reading
+        // textures[0] (the textures that were just rendered/written to).
+        this.displayImage(this.textures[0], this.drawCount);
         
         
         // Heatmap diagnostics: periodically read back the raw traversal counts (must happen before the rotate below,
@@ -866,5 +843,44 @@ class WebGLRendererAdapter {
         
         // Update the draw count, which is used for multisample blending.
         ++this.drawCount;
+    }
+    // Shows the image accumulated so far again without tracing another sample: for when rendering is stopped and the
+    // display settings or the selection wireframe change. After drawWorld's rotate, the last textures written are
+    // textures[1], holding drawCount samples (the count drawWorld displayed them with was one less).
+    redisplay() {
+        if (this.rebuildingShaders || !this.passthroughShaderProgram || this.drawCount == 0)
+            return;
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.displayImage(this.textures[1], this.drawCount - 1);
+    }
+    // Draws an accumulated set of textures to the canvas with the passthrough (display and denoise) shader.
+    displayImage(textures, sampleCount) {
+        // First, unset the framebuffer, so that webgl will output directly to the canvas, then switch to the passthrough shader.
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.useProgram(this.passthroughShaderProgram);
+        
+        for (let k of ["render", "normal", "variance"]) {
+            textures[k].bind(this.textureUnits[k]);
+            this.gl.uniform1i(this.uniforms["passthroughTexture_" + k], WebGLHelper.textureUnitIndex(this.textureUnits[k]));
+        }
+        
+        // Set passthrough uniforms. These are (almost) entirely modifiable within the UI.
+        this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
+        this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
+        this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? sampleCount : 0);
+        
+        this.gl.uniform1i(this.uniforms.doDenoise, this.doDenoise);
+        this.gl.uniform1f(this.uniforms.denoiseSigma, this.denoiseSigma);
+        this.gl.uniform1f(this.uniforms.denoiseKSigma, this.denoiseKSigma);
+        this.gl.uniform1f(this.uniforms.denoiseThreshold, this.denoiseThreshold);
+        this.gl.uniform1f(this.uniforms.denoiseNormalPower, this.denoiseNormalPower);
+
+        
+        // Finally, draw with the passthrough shader, over the same full-screen square the tracer drew.
+        // (Rebound here, as the editor's wireframe drawing may have changed it when this runs from redisplay.)
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
+        this.gl.vertexAttribPointer(this.passthroughVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
+        this.gl.enableVertexAttribArray(this.passthroughVertexAttrib);
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
 }
