@@ -7,12 +7,12 @@ export function configureTest(callback) {
     const lights = [new SimplePointLight(
         Vec.of(-15, 5, 12, 1),
         Vec.of(1, 1, 1),
-        15700
+        1200
     ),
     new SimplePointLight(
-        Vec.of(1, 5, -8, 1),
+        Vec.of(-2, 4, -8, 1),
         Vec.of(0.8, 0.8, 1),
-        15700
+        150
     )];
     
     const objs = []

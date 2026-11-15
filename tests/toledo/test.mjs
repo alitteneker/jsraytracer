@@ -1,13 +1,13 @@
 export function configureTest(callback) {
 
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
-        Mat4.translation([0,2,0])
-            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));
+        Mat4.translation([0,300,0])
+            .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0))));
 
     const lights = [new SimplePointLight(
-            Vec.of(-10, 100, -12, 1),
+            Vec.of(-10, 1000, -12, 1),
             Vec.of(1, 1, 1),
-            5000
+            5000000
         )
     ];
     
@@ -15,7 +15,7 @@ export function configureTest(callback) {
 
     loadObjFile(
         "../assets/ToledoCity/Toledo.obj",
-        new PhongMaterial(Vec.of(1,0,0), 0.1, 0.4, 0.6, 100, 0.5),
+        new PhongMaterial(Vec.of(1,0,0), 0.8, 0.4, 0.6, 100, 0.5),
 
         function(triangles) {
             objs.push(BVHAggregate.build(triangles,
