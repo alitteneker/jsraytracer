@@ -23,6 +23,13 @@ class WebGLLightsAdapter {
             light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
             material_adapter.bindToScene(light_data.color_mc, v => light.color_mc = MaterialColor.coerce(v));
         }
+        else if (light instanceof DirectionalLight) {
+            // Placed relative to the point being shaded: sampleLight adds that point (see src/lights.js).
+            light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_DIRECTIONAL;
+            light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, false, true);
+            light_data.color_mc      = material_adapter.visitMaterialColor(light.color_mc, webgl_helper);
+            material_adapter.bindToScene(light_data.color_mc, v => light.color_mc = MaterialColor.coerce(v));
+        }
         else if (light instanceof RandomSampleAreaLight) {
             light_data.type          = WebGLLightsAdapter.LIGHT_TYPE_AREA;
             light_data.geometry      = geometry_adapter.visit(light.surface_geometry, webgl_helper, false, true);
@@ -37,10 +44,11 @@ class WebGLLightsAdapter {
         this.lights_data.push(light_data);
     }
     // World-space transforms used for sampling (a point light only needs its position), and an area light's
-    // world-space area, which sets its radiance and the density of its samples.
+    // world-space area, which sets its radiance and the density of its samples (0 for lights that are points).
     static updateLightDataTransforms(light_data) {
-        const T = light_data.instance.getTransform();
-        light_data.area = light_data.light instanceof RandomSampleAreaLight ? light_data.light.surfaceArea(T) : 0;
+        const T = light_data.instance.getTransform(), light = light_data.light;
+        light_data.area = (light instanceof RandomSampleAreaLight && !(light instanceof DirectionalLight && light.isPoint))
+            ? light.surfaceArea(T) : 0;
         if (light_data.light instanceof SimplePointLight) {
             const p = T.column(3);
             light_data.transform     = Mat4.translation(p);

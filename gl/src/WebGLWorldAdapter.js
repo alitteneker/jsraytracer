@@ -231,7 +231,8 @@ class WebGLWorldAdapter {
     // space area. One stand-in is made per light, so a light referenced from several differently scaled aggregates
     // gets the brightness of the first one visited (the light it casts is still correct for every instance).
     makeLightEmitterProxy(light, world_transform) {
-        if (!(light instanceof RandomSampleAreaLight))
+        // Point lights have nothing to see, and a directional light isn't anywhere in the world.
+        if (!(light instanceof RandomSampleAreaLight) || light instanceof DirectionalLight)
             return null;
         const scale = light.emittedRadianceScale(world_transform);
         const material = new PhongMaterial(light.color_mc, scale, 0, 0, 5, 0, 0);
@@ -897,7 +898,15 @@ class WrappedLight extends AbstractWrappedWorldObject {
     getInvTransform()      { return this.instance.getInvTransform(); }
     getWorldTransform()    { return this.instance.getTransform(); }
     getWorldInvTransform() { return this.instance.getInvTransform(); }
-    getBoundingBox() {
+    // observer: where a directional light is seen from (the editor passes the camera's position, so its wireframe
+    // sits where the camera sees it, and follows the camera around).
+    getBoundingBox(observer=Vec.of(0, 0, 0, 1)) {
+        if (this.object instanceof DirectionalLight) {
+            const T = DirectionalLight.observerTransform(observer, this.instance.getTransform());
+            if (this.object.isPoint)
+                return new AABB(T.column(3), Vec.of(1, 1, 1, 0).times(WrappedLight.pointHandleSize));
+            return this.object.surface_geometry.getBoundingBox(T, Mat4.inverse(T));
+        }
         const box = this.object.getBoundingBox();
         const world = this.instance.ancestors.length
             ? box.getBoundingBox(this.instance.getAncestorTransform(), this.instance.getAncestorInvTransform())

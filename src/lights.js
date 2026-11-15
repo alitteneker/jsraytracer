@@ -203,6 +203,69 @@ class RandomSampleAreaLight extends Light {
     }
 }
 
+// A light that travels with whoever is looking at it. Its transform places its geometry relative to the point being
+// shaded (or the camera), rather than in the world: a sample is transform * (a point on the geometry), offset by
+// that point. Every shaded point therefore sees it in the same direction, at the same distance and size, which is
+// how a distant light like the sun behaves; any affine transform and any geometry that can be sampled will do (a
+// point, by default, for hard shadows; a disc or square for soft ones, whose angular size is its size over its
+// distance).
+//
+// Everything else follows the other lights, so one rule covers them all:
+//   - color * intensity is power. With a point it is a point light's (irradiance Phi / (4 pi d^2)); with an area,
+//     an area light's (radiance Phi / (2 pi A), so the area cancels out and the irradiance is about
+//     Phi / (2 pi d^2)). Moving the geometry farther away therefore dims it.
+//   - Shadow rays stop at the sampled point, as for any light: something farther away than the light's distance
+//     doesn't block it.
+// Nothing can hit it (it isn't anywhere in the world), so it is never seen directly, and BSDF sampling can never find
+// it: its samples are delta samples, which take full weight in MIS.
+class DirectionalLight extends RandomSampleAreaLight {
+    constructor(surface_geometry=new OriginPoint(), transform=Mat4.translation([0, 10, 0]), color_mc=Vec.of(1, 1, 1), intensity=1, samples=1) {
+        super(surface_geometry, transform, color_mc, intensity, samples);
+    }
+    static deserialize(data) {
+        return new DirectionalLight(data.surface_geometry, data.transform, data.color_mc, 1, data.samples);
+    }
+    get isPoint() {
+        return this.surface_geometry instanceof OriginPoint;
+    }
+    // The light's transform as seen from an observer at `position`.
+    static observerTransform(position, transform) {
+        return Mat4.translation(position.to3()).times(transform);
+    }
+    static observerInvTransform(position, inv_transform) {
+        return inv_transform.times(Mat4.translation(position.to3().times(-1)));
+    }
+    // Its box as seen from the origin; it has no place in the world (see World.getBoundingBox, which skips lights).
+    buildBoundingBox() {
+        return this.surface_geometry.getBoundingBox(this.transform, this.inv_transform);
+    }
+    intersect(ray, minDistance, maxDistance=Infinity, intersectTransparent=true) {
+        return { distance: Infinity, ancestors: [], object: this };
+    }
+    color(ray, distance, ancestorInvTransform, world, recursionDepth, countEmission=true) {
+        return Vec.of(0, 0, 0);
+    }
+    *sampleIterator(surface_position, transform=this.transform, inv_transform=this.inv_transform, withCos=false) {
+        const T = DirectionalLight.observerTransform(surface_position, transform);
+        if (this.isPoint) {
+            const delta = T.column(3).minus(surface_position);
+            const sample = {
+                direction: delta,
+                color: this.color_mc.color({ UV: Vec.cartesianToSpherical(delta.normalized()) }).times(Light.falloff(delta))
+            };
+            if (withCos)
+                sample.cosLight = 1;
+            yield sample;
+            return;
+        }
+        yield* super.sampleIterator(surface_position, T, DirectionalLight.observerInvTransform(surface_position, inv_transform), withCos);
+    }
+    *sampleLi(surface_position, transform=this.transform, inv_transform=this.inv_transform) {
+        for (const s of this.sampleIterator(surface_position, transform, inv_transform))
+            yield { direction: s.direction, value: s.color, delta: true, count: this.isPoint ? 1 : this.samples };
+    }
+}
+
 // One reachable occurrence of a light in a world: the light plus the chain of ancestors (outermost first) it sits
 // inside. A light referenced from several aggregates gets one instance per path. World.lights returns these.
 class LightInstance {

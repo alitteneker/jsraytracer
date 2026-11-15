@@ -1,5 +1,6 @@
 [
     "ASimpleScene",
+    "directional_light",
     "Aggregates",
     "AHollowTetrahedron",
     "AMultipleBVH",

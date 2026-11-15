@@ -481,6 +481,11 @@ class WebGLEditorInterface {
     }
     // If any object is selected, draw its wireframe.
     drawSelectionWireframes() {
+        // A directional light is drawn where the camera sees it, so its box moves with the camera.
+        const ra = this.renderer_adapter;
+        for (const o of [this.transformObject, this.selectedObject])
+            if (o && o.object instanceof DirectionalLight && ra)
+                o.aabb = o.getBoundingBox(ra.getCameraPosition());
         if (this.transformObject)
             this.drawWireframe(this.transformObject.getAncestorTransform(), this.transformObject.aabb, this.transformObject.isBeingTransformed ? Vec.of(0,0,1,1) : Vec.of(1,1,1,1));
         if (this.selectedObject && this.transformObject !== this.selectedObject)
@@ -717,6 +722,18 @@ class WebGLEditorInterface {
                                     Mat4.translation([0, box.isFinite() ? box.min[1] : 0, 0]).times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)))); break;
             case "point-light": obj = new SimplePointLight(position, Vec.of(1, 1, 1), brightness);                                      break;
             case "area-light":  obj = new RandomSampleAreaLight(new Square(), facingCamera.times(Mat4.scale(2 * size)), Vec.of(1, 1, 1), brightness); break;
+            case "directional-light": {
+                // A disc ahead of the camera, up and to the right (so it's in view, drawn relative to the camera),
+                // facing back at whoever sees it (the observer is at its origin), at the scene's distance; it
+                // subtends about 6 degrees, enough to show soft shadows.
+                const toLight = ra.getCameraTransform().times(Vec.of(0.3, 0.35, -1, 0)).to3().normalized();
+                const offset = toLight.times(distance);
+                const z = toLight.times(-1), x = (Math.abs(z[1]) < 0.9 ? Vec.of(0, 1, 0) : Vec.of(1, 0, 0)).cross(z).normalized(), y = z.cross(x);
+                const orient = Mat.of([x[0], y[0], z[0], offset[0]], [x[1], y[1], z[1], offset[1]], [x[2], y[2], z[2], offset[2]], [0, 0, 0, 1]);
+                // Same power as the other lights' defaults (about unit irradiance), as an area light: Phi / (2 pi d^2).
+                obj = new DirectionalLight(new Circle(), orient.times(Mat4.scale(0.05 * distance)), Vec.of(1, 1, 1), 2 * Math.PI * distance * distance);
+                break;
+            }
             default: return;
         }
         world.objects.push(obj);
@@ -937,6 +954,15 @@ class WebGLEditorInterface {
             title: `${WebGLEditorInterface.escapeHTML(WebGLMaterialEditor.label(e.material))} (${e.users})`
         })));
     }
+    // "Point Light", "Area Light (Square)", "Directional Light (Circle)".
+    static lightLabel(light) {
+        const kind = light instanceof DirectionalLight ? "Directional Light"
+                   : light instanceof RandomSampleAreaLight ? "Area Light"
+                   : light instanceof SimplePointLight ? "Point Light" : light.constructor.name;
+        const geometry = light.surface_geometry && !(light.surface_geometry instanceof OriginPoint)
+            ? ` (${light.surface_geometry.constructor.name})` : "";
+        return kind + geometry;
+    }
     static escapeHTML(text) {
         return String(text).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     }
@@ -992,7 +1018,7 @@ class WebGLEditorInterface {
                 _worldindex: l.index,
                 _worldtype: "light",
                 _worldobj: l,
-                title: `${WebGLGeometriesAdapter.TypeStringLabel(l.geometry)} : ${l.index}`
+                title: `${WebGLEditorInterface.lightLabel(l.object)} : ${l.index}`
             };
         }));
         lights_root.setExpanded(true);

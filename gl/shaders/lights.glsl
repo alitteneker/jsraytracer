@@ -39,12 +39,13 @@ uniform float uLightAreas[MAX_LIGHTS];
 // A light's color is its power. A point light spreads it over the whole sphere, so the irradiance at
 // distance d is color / (4 pi d^2). An area light emits from both sides of its surface as a Lambertian
 // emitter, radiance Le = color / (2 pi A); a point picked uniformly on it (density 1 / A) brings
-// Le A |cos_light| / d^2 = color |cos_light| / (2 pi d^2). See src/lights.js.
-float lightFalloff(in vec4 delta, in int type) {
+// Le A |cos_light| / d^2 = color |cos_light| / (2 pi d^2). A directional light is either, depending on
+// its geometry (uLightAreas is 0 for a point). See src/lights.js.
+float lightFalloff(in vec4 delta, in bool hasArea) {
     float norm_squared = dot(delta, delta);
     if (norm_squared < EPSILON)
         return 0.0;
-    return 1.0 / ((type == LIGHT_TYPE_AREA ? 2.0 : 4.0) * PI * norm_squared);
+    return 1.0 / ((hasArea ? 2.0 : 4.0) * PI * norm_squared);
 }
 LightStruct getLight(in int lightID) {
     return LightStruct(uLightTypes[lightID],
@@ -59,17 +60,21 @@ LightSample sampleLight(in int lightID, in vec4 surface_position, inout vec2 ran
     vec4 local_pos = sampleGeometrySurface(light.geometry_id, random_seed);
     vec4 world_pos = light.transform * local_pos;
 
+    // A directional light's transform is relative to the point being shaded (see src/lights.js). Shadow rays still
+    // stop at the sampled point, so only things nearer than the light can block it.
     if (light.type == LIGHT_TYPE_DIRECTIONAL)
-        world_pos += surface_position;
+        world_pos.xyz += surface_position.xyz;
 
     vec4 delta = world_pos - surface_position;
     GeometricMaterialData material_data = getSampleGeometricMaterialData(light.geometry_id, local_pos, light.inv_transform * delta);
     float cosLight = abs(dot(normalize(delta.xyz), normalize((transpose(light.inv_transform) * material_data.normal).xyz)));
-    // Uniform area sampling, converted to solid angle: pdf = d^2 / (A |cos_light|).
+    // Uniform area sampling, converted to solid angle: pdf = d^2 / (A |cos_light|). 0 marks a delta sample (full
+    // weight in MIS): a point light, or a directional light, which BSDF sampling can never hit.
     float pdf = 0.0;
     if (light.type == LIGHT_TYPE_AREA)
         pdf = cosLight > 0.0 ? dot(delta.xyz, delta.xyz) / (uLightAreas[lightID] * cosLight) : 1e30;
+    bool hasArea = light.type == LIGHT_TYPE_AREA || (light.type == LIGHT_TYPE_DIRECTIONAL && uLightAreas[lightID] > 0.0);
     return LightSample(delta,
-        getMaterialColor(light.color_mc, material_data.UV) * lightFalloff(delta, light.type) * cosLight,
+        getMaterialColor(light.color_mc, material_data.UV) * lightFalloff(delta, hasArea) * cosLight,
         pdf);
 }

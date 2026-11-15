@@ -83,6 +83,9 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 
 **Lights**
 - Point lights, and area lights in any supported shape (square, circle, sphere and more), sampled by area
+- Directional lights: a point or shape whose transform is relative to the point being lit, so every point sees it
+  in the same direction, like the sun. A shape gives soft shadows; the same power units apply, and shadows reach as
+  far as the light's distance
 - Physical units: a light's color times intensity is the power it emits
 - Lights are scene objects: they can be hit by rays, picked and edited in the GPU editor, and placed inside groups
 - Direct light sampling combined with visible emission, without counting any light twice
@@ -117,6 +120,7 @@ The `tests/` folder holds more than thirty scenes, listed in [`tests/list.json`]
 | Scene | What it shows |
 |---|---|
 | `ASimpleScene` | The basic geometry types under a single point light |
+| `directional_light` | The same objects under a soft directional light |
 | `refraction`, `diamond`, `bottle` | Glass and refraction |
 | `cornell_box_path` | Path-traced global illumination from an area light |
 | `pbr_materials` | Principled materials: plastic, gold and glass from smooth to rough |
