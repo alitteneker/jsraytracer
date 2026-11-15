@@ -626,11 +626,61 @@ class WebGLEditorInterface {
         // selected node's properties.
         if (this.buildSDFControls())
             return;
-        const object_properties = o.getMutableObjectProperties && o.getMutableObjectProperties();
-        if (object_properties)
-            UIProperties.fillPropertyControls($("#object-properties"), object_properties, (function(name, prop, target, ...value) {
-                prop.modifyFn(prop.key, ...value);
-            }).bind(this));
+        const object_properties = o.worldtype == "light" ? this.lightObjectProperties(o)
+            : (o.getMutableObjectProperties && o.getMutableObjectProperties()) || {};
+        UIProperties.fillPropertyControls($("#object-properties"), object_properties, (function(name, prop, target, ...value) {
+            prop.modifyFn(prop.key, ...value);
+        }).bind(this));
+    }
+
+    // ---- A light's own properties ----
+    lightObjectProperties(o) {
+        return {
+            "light-directional": {
+                type: "bool", key: "directional", title: "Directional",
+                tooltip: "Moves with whoever looks at it (the point being lit, or a ray's origin), like the sun",
+                value: o.object instanceof DirectionalLight,
+                modifyFn: (key, value) => this.setLightDirectional(o, value)
+            }
+        };
+    }
+    // Swaps a light between directional (placed relative to the observer, see DirectionalLight) and fixed in the
+    // world, keeping it where the camera sees it now: a world light at p becomes a directional light offset by
+    // p - camera, and back. The light keeps its shape, color, power and samples, so from the camera it looks the same.
+    setLightDirectional(o, directional) {
+        const ra = this.renderer_adapter, light = o.object;
+        if (!ra || ra.rebuildingShaders || (light instanceof DirectionalLight) == directional)
+            return;
+        // Work in the light's parent space, which its own transform is relative to.
+        const ancestors = o.instance.ancestors;
+        const cam = o.instance.getAncestorInvTransform().times(ra.getCameraPosition());
+        const T = light.getTransform();
+        let replacement;
+        if (directional) {
+            const geometry = light instanceof RandomSampleAreaLight ? light.surface_geometry : new OriginPoint();
+            replacement = new DirectionalLight(geometry, Mat4.translation(cam.to3().times(-1)).times(T), Vec.of(1, 1, 1), 1, light.samples || 1);
+        }
+        else if (light.isPoint)
+            replacement = new SimplePointLight(T.column(3).plus(cam.to4(0)), Vec.of(1, 1, 1));
+        else
+            replacement = new RandomSampleAreaLight(light.surface_geometry, Mat4.translation(cam.to3()).times(T), Vec.of(1, 1, 1), 1, light.samples);
+        replacement.color_mc = light.color_mc;
+
+        // Put it where the light was.
+        const parent = ancestors.length ? ancestors[ancestors.length - 1] : null;
+        if (parent instanceof TransformedWorldObject)
+            parent.object = replacement;
+        else {
+            const list = parent ? parent.objects : ra.renderer.world.objects, i = list.indexOf(light);
+            if (i < 0) {
+                myconsole.error("Could not find the light in its parent.");
+                return;
+            }
+            list[i] = replacement;
+        }
+        for (const a of ancestors)
+            a.contentsChanged();
+        this.rebuildWorld(replacement);
     }
     
     // ---- Editing an SDF's structure ----

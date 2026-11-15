@@ -215,7 +215,7 @@
                             <td><input class="ui-spinner-input" id="material-$name" data-mc-id="$_id" data-field-type="number" data-field-name="$name" value="$value"></td>
                         </tr>
                     </script>
-                    <<script type="text/x-template" data-template-type="color">
+                    <script type="text/x-template" data-template-type="color">
                         <tr>
                             <td><label for="material-$name">$name</label></td>
                             <td>
@@ -250,6 +250,9 @@
                 </div>
                 <table class="template-insertion-point control-group"></table>
                 <div class="template-holder">
+                    <script type="text/x-template" data-template-type="bool">
+                        <tr data-obj-pkey="$key"><td><label for="$name">$title</label></td><td><input type="checkbox" id="$name" data-field-type="bool" data-field-name="$name" title="$tooltip" ${value ? "checked" : ""}/></td></tr>
+                    </script>
                     <script type="text/x-template" data-template-type="number">
                         <tr data-obj-pkey="$key">
                             <td><label for="$name">$title</label></td>
