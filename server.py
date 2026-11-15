@@ -7,7 +7,10 @@ if sys.version_info < (3, 0):
     import SocketServer
 
     class Handler(SimpleHTTPServer.SimpleHTTPRequestHandler):
-        pass
+        # See the Python 3 handler below.
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-cache")
+            SimpleHTTPServer.SimpleHTTPRequestHandler.end_headers(self)
 
     Handler.extensions_map = {
         '.manifest': 'text/cache-manifest',
@@ -32,7 +35,13 @@ else:
     from http.server import HTTPServer, BaseHTTPRequestHandler
     import socketserver
 
-    Handler = http.server.SimpleHTTPRequestHandler
+    # Without a Cache-Control header, browsers guess how long a file stays fresh from its age (about a tenth of the
+    # time since it last changed), so a scene file untouched for a year could be reused from the cache for weeks
+    # after it is edited. no-cache makes the browser check every time; an unchanged file costs a 304.
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self):
+            self.send_header("Cache-Control", "no-cache")
+            super().end_headers()
 
     Handler.extensions_map={
         '.manifest': 'text/cache-manifest',
