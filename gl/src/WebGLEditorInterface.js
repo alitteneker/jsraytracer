@@ -4,11 +4,12 @@ class UIProperties {
         if (!src)
             return src;
         
+        // Each ${expression} is evaluated with the properties as arguments. (Passing them through JSON.stringify, as
+        // this used to, turned Infinity and NaN into null: an infinite box SDF showed its size as null.)
         const block_matches = src.matchAll(/\$\{([^\}]*)\}/g);
         if (block_matches)
             for (const block_match of [...block_matches])
-                src = src.replace(block_match[0], Function(Object.entries(props).map(
-                    ([name, prop]) => `const ${name} = ${ JSON.stringify(prop) };`).join("\n") + "\n return " + block_match[1])())
+                src = src.replace(block_match[0], Function(...Object.keys(props), "return " + block_match[1])(...Object.values(props)));
     
         const var_matches = src.matchAll(/\$(\w+)\b/g);
         if (var_matches) {
