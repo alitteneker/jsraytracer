@@ -7,21 +7,29 @@
         <title>Ray Tracer</title>
 
         <link rel="stylesheet" type="text/css" href="style.css">
+        <link rel="stylesheet" type="text/css" href="gl/scene-picker.css">
+        <script src="gl/src/ScenePicker.js"></script>
         <script src= "src/raytrace_launcher.js" ></script>
     </head>
     <body>
         
         <div id="controls">
-            <label for="test-select">Select a scene:</label>
-            <select id="test-select">
-                <option value="">--Select--</option>
-            </select>
+            <button id="scene-button" type="button" title="Choose a scene">Choose a scene &#9662;</button>
             <button id="render-button" type="button">Start Render</button>
             <button id="stop-button" type="button">Stop Render</button>
             Workers: <input type="number" id="workers-count" min="1" max="16" value="4"/>
             <img id="loading-img" src="assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
         </div>
         
+        <dialog id="scene-picker" aria-label="Choose a scene">
+            <div class="scene-picker-header">
+                <h2>Choose a scene</h2>
+                <input class="scene-picker-search" type="search" placeholder="Filter scenes" aria-label="Filter scenes">
+                <button class="scene-picker-close" type="button" aria-label="Close">&times;</button>
+            </div>
+            <div class="scene-picker-groups"></div>
+        </dialog>
+
         <hr>
         <div id="progress" style="visibility:hidden">
             <div id="progress-label"></div>

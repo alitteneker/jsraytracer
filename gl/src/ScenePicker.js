@@ -28,9 +28,11 @@ class ScenePicker {
     };
 
     // dialog: the <dialog> element, with a .scene-picker-search input and a .scene-picker-groups container.
-    // onSelect(test) runs when a scene is chosen.
-    constructor(dialog, tests, onSelect) {
+    // onSelect(test) runs when a scene is chosen. testsRoot is the tests folder relative to the page (the GPU page is
+    // in gl/, the CPU page at the top level). Styles are in gl/scene-picker.css.
+    constructor(dialog, tests, onSelect, testsRoot="../tests") {
         this.dialog = dialog;
+        this.testsRoot = testsRoot;
         this.onSelect = onSelect;
         this.current = null;
         this.search = dialog.querySelector(".scene-picker-search");
@@ -85,7 +87,7 @@ class ScenePicker {
         const image = document.createElement("img");
         image.loading = "lazy";
         image.alt = "";
-        image.src = `../tests/${encodeURIComponent(test)}/preview.jpg`;
+        image.src = `${this.testsRoot}/${encodeURIComponent(test)}/preview.jpg`;
         // No preview yet: show the name in its place.
         image.addEventListener("error", () => {
             const placeholder = document.createElement("div");

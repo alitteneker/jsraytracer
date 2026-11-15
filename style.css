@@ -45,3 +45,8 @@ div#controls {
     background-color: grey;
     text-align: center;
 }
+
+#scene-button {
+    min-width: 160px;
+    text-align: left;
+}

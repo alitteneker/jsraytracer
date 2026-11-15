@@ -11,14 +11,29 @@ document.addEventListener("DOMContentLoaded", function(event) {
     const canvas = document.querySelector("#main-canvas");
     const context = canvas.getContext("2d");
 
-    // Populate the list of available tests from the manifest
-    const select = document.querySelector("#test-select");
+    // The scene picker (shared with the GPU page, see gl/src/ScenePicker.js), filled from the manifest. Choosing a
+    // scene starts rendering it; ?test=<scene> in the URL picks one on load, and with no scene the picker opens.
+    let currentTest = "";
+    const sceneButton = document.querySelector("#scene-button");
     fetch("tests/list.json").then(response => response.json()).then(function(json) {
-        for (let o of json.sort()) {
-            const option = document.createElement('option');
-            option.value = "tests/" + (option.innerHTML = o);
-            select.appendChild(option);
+        const picker = new ScenePicker(document.querySelector("#scene-picker"), json.slice().sort(), function(test) {
+            window.history.pushState({ test: test }, test, "?test=" + encodeURIComponent(test));
+            selectTest(test);
+        }, "tests");
+        sceneButton.addEventListener("click", () => picker.open());
+        function selectTest(test) {
+            currentTest = test;
+            picker.setCurrent(test);
+            sceneButton.textContent = test + " \u25BE";
+            document.title = "Ray Tracer: " + test;
+            document.querySelector("#render-button").click();
         }
+        window.addEventListener("popstate", e => { if (e.state && e.state.test) selectTest(e.state.test); });
+        const URLTest = new URLSearchParams(window.location.search).get("test");
+        if (URLTest && json.includes(URLTest))
+            selectTest(URLTest);
+        else
+            picker.open();
     });
 
     const worker_selector = document.querySelector("#workers-count");
@@ -35,8 +50,8 @@ document.addEventListener("DOMContentLoaded", function(event) {
         // Terminate any active workers before going any further.
         stopWorkers();
         
-        // Stop here if no valid test is selected.
-        if (select.value === "")
+        // Stop here if no scene has been chosen.
+        if (currentTest === "")
             return;
 
         workerCount = Number.parseInt(worker_selector.value);
@@ -52,7 +67,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
         }
         
         // Start the test!
-        const testpath = select.value;
+        const testpath = "tests/" + currentTest;
         loading.style.visibility = "visible";
         progress.style.visibility = "visible";
 
