@@ -960,10 +960,17 @@ class WrappedLight extends AbstractWrappedWorldObject {
     getWorldInvTransform() { return this.instance.getInvTransform(); }
     getBoundingBox() {
         const box = this.object.getBoundingBox();
-        return this.instance.ancestors.length
+        const world = this.instance.ancestors.length
             ? box.getBoundingBox(this.instance.getAncestorTransform(), this.instance.getAncestorInvTransform())
             : box;
+        // A point light's box is a single point, which the editor can neither draw as a wireframe nor grab with the
+        // mouse. Give it a handle around the light instead (as before lights became WorldObjects).
+        if (world.half_size && world.half_size.slice(0, 3).every(v => v == 0))
+            return new AABB(world.center, Vec.of(1, 1, 1, 0).times(WrappedLight.pointHandleSize));
+        return world;
     }
+    // Half the width of the box the editor shows around a point light.
+    static pointHandleSize = 1;
 }
 
 class WrappedAggregate extends AbstractWrappedWorldObject {
