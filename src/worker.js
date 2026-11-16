@@ -22,6 +22,15 @@ onmessage = function(e) {
     const workerIndex = e.data[1];
     const workerCount = e.data[2];
 
+    // Problems are sent to the page (see raytrace_launcher.js), which shows them: warnings (myconsole.warn, used by
+    // the OBJ loader), and any error that stops this worker, including those in promise chains nothing waits on.
+    self.myconsole = {
+        log:  (...args) => console.log(...args),
+        warn: (...args) => postMessage(["warning", workerIndex, args.join(" ")])
+    };
+    const fail = error => postMessage(["error", workerIndex, String(error && error.stack ? error.stack : error)]);
+    self.addEventListener("unhandledrejection", e => fail(e.reason));
+
     import(testName).then(function(module) {
         module.configureTest(function(test) {
     
@@ -39,5 +48,5 @@ onmessage = function(e) {
             postMessage([buffer.imgdata, workerIndex, null]);
             postMessage(["finished", workerIndex, null]);
         });
-    });
+    }).catch(fail);
 }

@@ -34,9 +34,9 @@ export function configureTest(callback) {
                     .times(Mat4.scale(0.05)),));
 
             callback({
-                renderer: new SimpleRenderer(new World(objs, lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objs, lights), camera, 4, "auto", { exposure: -1.25 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

@@ -62,8 +62,8 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new World(objects, []), camera, 128, 4),
+            new World(objects, []), camera, 128, 4, "auto", { exposure: -0.5 }),
         width:  600,
         height: 600
     });
-}
+}

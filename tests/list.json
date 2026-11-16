@@ -1,41 +1,56 @@
-[
-    "ASimpleScene",
-    "directional_light",
-    "Aggregates",
-    "AHollowTetrahedron",
-    "AMultipleBVH",
-    "refraction_simple",
-    "BoxBall",
-    "bottle",
-    "BoxBall_path",
-    "BoxBall_DOF",
-    "refraction",
-    "refraction_path",
-    "cornell_box",
-    "cornell_box_path",
-    "cornell_box_emissive",
-    "pbr_materials",
-    "diamond",
-    "utah_teapot",
-    "spheres010",
-    "spheres050",
-    "spheres100",
-    "cat",
-    "heart",
-    "bunny",
-    "bunny_path",
-    "dragon",
-    "dragon_json",
-    "tie_fighter",
-    "x-wing",
-    "starwars",
-    "toledo",
-    "toledo_json",
-    "SDF_Simple",
-    "SDF_BoxBall",
-    "SDF_Combinations",
-    "SDF_Menger",
-    "SDF_Sierpinski",
-    "SDF_SphereRepetition",
-    "SDF_RecursiveUnionTest"
-]
+{
+    "groups": [
+        { "title": "Basics", "scenes": [
+            {"name": "ASimpleScene", "description": "The basic geometry types under one light"},
+            {"name": "directional_light", "description": "Lights placed relative to whatever they light"},
+            {"name": "Aggregates"},
+            {"name": "AHollowTetrahedron"},
+            {"name": "AMultipleBVH"},
+            {"name": "BoxBall"},
+            {"name": "BoxBall_DOF", "description": "Depth of field"},
+            {"name": "spheres010"},
+            {"name": "spheres050"},
+            {"name": "spheres100"}
+        ] },
+        { "title": "Glass and refraction", "scenes": [
+            {"name": "refraction_simple"},
+            {"name": "refraction"},
+            {"name": "refraction_path"},
+            {"name": "diamond"},
+            {"name": "bottle"}
+        ] },
+        { "title": "Path tracing", "scenes": [
+            {"name": "cornell_box_path", "description": "Global illumination from an area light"},
+            {"name": "cornell_box_emissive"},
+            {"name": "pbr_materials", "description": "Plastic, gold and glass, smooth to rough"},
+            {"name": "BoxBall_path"},
+            {"name": "bunny_path"},
+            {"name": "cornell_box"}
+        ] },
+        { "title": "Meshes", "scenes": [
+            {"name": "bunny"},
+            {"name": "dragon", "description": "A 100,000 triangle mesh in a BVH"},
+            {"name": "cat"},
+            {"name": "heart"},
+            {"name": "utah_teapot"},
+            {"name": "toledo"},
+            {"name": "sponza", "description": "The Crytek Sponza atrium, with its textures"},
+            {"name": "dragon_json", "description": "Needs a generated file: see the README"},
+            {"name": "toledo_json", "description": "Needs a generated file: see the README"}
+        ] },
+        { "title": "Star Wars", "scenes": [
+            {"name": "starwars", "description": "Instanced meshes, laser bolts and depth of field"},
+            {"name": "tie_fighter"},
+            {"name": "x-wing"}
+        ] },
+        { "title": "Signed distance fields", "scenes": [
+            {"name": "SDF_Simple"},
+            {"name": "SDF_BoxBall"},
+            {"name": "SDF_Combinations"},
+            {"name": "SDF_Menger", "description": "A Menger sponge fractal"},
+            {"name": "SDF_Sierpinski", "description": "A Sierpinski tetrahedron fractal"},
+            {"name": "SDF_SphereRepetition"},
+            {"name": "SDF_RecursiveUnionTest"}
+        ] }
+    ]
+}

@@ -31,9 +31,9 @@ export function configureTest(callback) {
             objects.push(bvh1, bvh2);
             
             callback({
-                renderer: new SimpleRenderer(new World(objects, lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objects, lights), camera, 4, "auto", { exposure: -1.5 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

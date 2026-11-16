@@ -35,9 +35,9 @@ export function configureTest(callback) {
 //                  .times(Mat4.scale(15)),));
             
             callback({
-                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 128, 4),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 128, 4, "auto", { exposure: -1 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

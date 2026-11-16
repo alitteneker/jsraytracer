@@ -100,6 +100,10 @@ output {
     color: red;
 }
 
+#console_output .warning {
+    color: orange;
+}
+
 input[type=range] {
     width: 70%;
 }

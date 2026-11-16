@@ -2,6 +2,7 @@ class WebGLMaterialsAdapter {
     static SPECIAL_COLOR_CHECKERBOARD = 1;
     static SPECIAL_COLOR_TEXTURE = 2;
     static USE_TEXTURES_FOR_MAT_PARAMS = false;
+    static MAX_TEXTURE_GROUPS = 8;    // different image sizes in one scene: each takes a texture unit
 
     // Each material is described to the shader by MATERIAL_SLOTS integers (three ivec4s): its type, then indices of
     // its parameters' colors (see getMaterialColor), in an order that depends on the type.
@@ -27,6 +28,7 @@ class WebGLMaterialsAdapter {
         [this.albedo_texture_unit, this.albedo_texture] = webgl_helper.createDataTextureAndUnit(1, "FLOAT");
         
         this.solid_colors = new WebGLVecStore(3, false);
+        this.texture_groups = [];   // see textureRef
         this.reset();
     }
     reset() {
@@ -36,8 +38,6 @@ class WebGLMaterialsAdapter {
         // shader from the scene (adding or removing objects, or switching to and from the editable shader) keeps them.
         this.scene_bindings = {};   // solid color id -> [{ field, set }]
         
-        this.textures = [];
-        this.texture_id_map = {};
         this.special_colors = [];
         
         this.materials = [];
@@ -95,8 +95,56 @@ class WebGLMaterialsAdapter {
         this.material_colors_texture.destroy();
         this.material_indices_texture.destroy();
         this.albedo_texture.destroy();
-        for (const td of (this.texture_cache ? this.texture_cache.values() : this.textures))
-            td.texture.destroy();
+        for (const group of this.texture_groups)
+            this.webgl_helper.gl.deleteTexture(group.texture);
+    }
+    // Images live in array textures, one per image size and color space (see materials.glsl:colors.textures). sRGB
+    // images are stored as SRGB8_ALPHA8, so the GPU decodes their texels to linear before filtering, as the CPU does. The groups are kept
+    // across reset(), like the uploaded images in them, so revisiting the world after an edit doesn't upload anything
+    // again; a group that gains an image is uploaded again, whole, before the next draw (uploadTextures).
+    textureRef(mc, webgl_helper) {
+        const key = mc.width + "x" + mc.height + " " + mc.colorSpace;
+        let group = this.texture_groups.find(g => g.key == key);
+        if (!group) {
+            if (this.texture_groups.length >= WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS)
+                throw `Too many kinds of texture: at most ${WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS} different image sizes and color spaces are supported`;
+            group = { key: key, width: mc.width, height: mc.height, srgb: mc.colorSpace == "srgb", layers: [],
+                unit: webgl_helper.allocateTextureUnit(), texture: null, uploaded: 0 };
+            this.texture_groups.push(group);
+        }
+        let layer = group.layers.indexOf(mc);
+        if (layer < 0) {
+            layer = group.layers.length;
+            group.layers.push(mc);
+        }
+        return WebGLMaterialsAdapter.packTextureRef(this.texture_groups.indexOf(group), layer, mc.clampU, mc.clampV);
+    }
+    static packTextureRef(group, layer, clampU, clampV) {
+        return (group << 18) | (layer << 2) | (clampV ? 2 : 0) | (clampU ? 1 : 0);
+    }
+    uploadTextures(gl) {
+        for (const group of this.texture_groups) {
+            if (group.uploaded == group.layers.length)
+                continue;
+            if (!group.texture)
+                group.texture = gl.createTexture();
+            gl.activeTexture(group.unit);
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, group.texture);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, group.srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, group.width, group.height,
+                group.layers.length, 0,
+                gl.RGBA, gl.UNSIGNED_BYTE, null);
+            group.layers.forEach((mc, layer) => {
+                const data = mc._imgdata.data;
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, group.width, group.height, 1, gl.RGBA,
+                    gl.UNSIGNED_BYTE, new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+            });
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
+            group.uploaded = group.layers.length;
+        }
     }
     storeSolidColor(color) {
         const id = this.solid_colors.store(color);
@@ -126,31 +174,12 @@ class WebGLMaterialsAdapter {
             };
         }
         else if (mc instanceof TextureMaterialColor) {
-            if (!(mc.MATERIALCOLOR_UID in this.texture_id_map)) {
-                this.texture_id_map[mc.MATERIALCOLOR_UID] = this.textures.length;
-                // GL textures are kept across reset() (the world can be re-visited after an edit, see
-                // WebGLRendererAdapter.worldModified), so an image is only uploaded once.
-                if (!this.texture_cache)
-                    this.texture_cache = new Map();
-                let td = this.texture_cache.get(mc.MATERIALCOLOR_UID);
-                if (!td) {
-                    td = { mc: mc };
-                    [ td.texture_unit, td.texture ] = webgl_helper.createTextureAndUnit(4, "IMAGEDATA", mc.width, mc.height, true, mc._imgdata);
-                    this.texture_cache.set(mc.MATERIALCOLOR_UID, td);
-                }
-                this.textures.push(td);
-            }
+            const ref = this.textureRef(mc, webgl_helper);
             const scaleColorData = this.storeSolidColor(scale);
-            this.special_colors.push([
-                WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE,
-                this.texture_id_map[mc.MATERIALCOLOR_UID],
-                scaleColorData._id
-            ]);
-            
-            return { 
+            this.special_colors.push([WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE, ref, scaleColorData._id]);
+            return {
                 _id: -this.special_colors.length,
                 scale: scaleColorData,
-                texture: this.texture_id_map[mc.MATERIALCOLOR_UID],
                 mc: mc,
                 type: "texture"
             };
@@ -302,11 +331,16 @@ class WebGLMaterialsAdapter {
                 indexCount: Math.max(12, 3 * this.materials.length)
             });
         ret += ShaderLibrary.render("materials.glsl", "colors", {
-            textureCount: Math.max(1, this.textures.length),
             specialColorCount: sceneEditable
                 ? WebGLWorldAdapter.editableCapacity(this.special_colors.length, 16)
                 : Math.max(4, this.special_colors.length),
-            textureCases: this.textures.map((_, i) => ShaderLibrary.render("materials.glsl", "colors.texture-case", { i: i })).join("")
+            textureSampling: this.texture_groups.length
+                ? ShaderLibrary.render("materials.glsl", "colors.textures", {
+                    textureCount: this.texture_groups.length,
+                    textureCases: this.texture_groups.map((_, i) =>
+                        ShaderLibrary.render("materials.glsl", "colors.texture-case", { i: i })).join("")
+                })
+                : ShaderLibrary.render("materials.glsl", "colors.no-textures")
         });
         ret += ShaderLibrary.render("materials.glsl", "phong");
 
@@ -342,8 +376,10 @@ class WebGLMaterialsAdapter {
         
         if (this.special_colors.length)
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
-        if (this.textures.length)
+        if (this.texture_groups.length) {
+            this.uploadTextures(gl);
             gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
-                this.textures.map(t => WebGLHelper.textureUnitIndex(t.texture_unit)));
+                this.texture_groups.map(g => WebGLHelper.textureUnitIndex(g.unit)));
+        }
     }
 }

@@ -136,9 +136,9 @@ repository. Generate them first with `cd tests && node test_to_json.js dragon` (
 
 ## Writing a scene
 
-A scene is a module in `tests/<name>/test.mjs` that hands back a renderer. Add its name to `tests/list.json` and it
-appears in the scene picker. The picker shows `tests/<name>/preview.jpg` if there is one: render it with
-`?renderAll=1&only=<name>&previews=true` (see below).
+A scene is a module in `tests/<name>/test.mjs` that hands back a renderer. Add it to a group in `tests/list.json`,
+as `{ "name": "<name>" }` with an optional `"description"` for its card, and it appears in the scene picker. The
+picker shows `tests/<name>/preview.jpg` if there is one: render it with `?renderAll=1&only=<name>&previews=true` (see below).
 
 ```js
 export function configureTest(callback) {
@@ -157,12 +157,19 @@ export function configureTest(callback) {
     ];
 
     callback({
-        renderer: new IncrementalMultisamplingRenderer(new World(objects), camera, 16, 4),
+        renderer: new IncrementalMultisamplingRenderer(new World(objects), camera, 16, 4, "auto", { exposure: -1 }),
         width: 600,
         height: 600
     });
 }
 ```
+
+The renderer's last argument is its film: how radiance becomes the pixels you see, like a camera's sensor and its
+processing. `exposure` is in stops (each +1 doubles the brightness), and `toneMap` is the curve that brings bright
+values into the displayable range: `"neutral"` (the default, Khronos PBR Neutral, which leaves colors below about 0.8
+as they are), `"aces"`, `"reinhard"` or `"clip"`. The result is encoded as sRGB. Both can be changed in the GPU page's
+Renderer panel. Colors in materials, and the colors of textures (which are decoded from sRGB), are linear values: a
+gray of 0.5 reflects half the light, and displays brighter than a pixel value of 0.5 would.
 
 ## Under the hood
 

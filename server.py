@@ -55,7 +55,9 @@ else:
         '': 'application/octet-stream', # Default
     }
 
-    httpd = socketserver.TCPServer(("", PORT), Handler)
+    # One thread per request: a scene that loads many files at once (Sponza fetches two dozen textures together)
+    # overflows a single-threaded server's short listen queue, and the requests it refuses fail in the browser.
+    httpd = http.server.ThreadingHTTPServer(("", PORT), Handler)
 
     print("serving at port", PORT)
-    httpd.serve_forever()
+    httpd.serve_forever()

@@ -6,11 +6,11 @@ function makeMaterialColor(a, b, defaultVal=Vec.of(0,0,0)) {
     return MaterialColor.coerce(defaultVal);
 }
 
-function makeMaterial(data, isPath) {
-    const ambient  = makeMaterialColor(data.map_Ka, data.Ka),
-          diffuse  = makeMaterialColor(data.map_Kd, data.Kd),
-          specular = makeMaterialColor(data.map_Ks, data.Ks),
-          smoothness      = data.Ns || 0;
+// Which material an MTL entry becomes is the caller's choice (loadObjFile's materialModel):
+//   "phong":      PhongMaterial, or FresnelPhongMaterial for a transparent one (the default).
+//   "path":       PhongPathTracingMaterial, the Phong model with path-traced bounces.
+//   "principled": PrincipledMaterial, the physically based model (see Materials.md), translated from the MTL terms.
+function makeMaterial(data, materialModel="phong") {
     // Ni (optical density) only matters for a transparent material: one whose illumination model has refraction
     // (illum 4, 6, 7 or 9) or that is partly dissolved (d < 1, or Tr > 0). Exporters write Ni for every material
     // (Tie_Fighter.mtl has Ni 1.0 on its opaque illum 2 hull), so treating any Ni as an index of refraction makes opaque
@@ -19,11 +19,41 @@ function makeMaterial(data, isPath) {
     const dissolve    = data.d !== undefined ? data.d : (data.Tr !== undefined ? 1 - data.Tr : 1),
           transparent = [4, 6, 7, 9].includes(data.illum) || dissolve < 1,
           refractionIndex = (transparent && data.Ni > 0) ? data.Ni : Infinity;
+
+    if (materialModel == "principled")
+        return makePrincipledMaterial(data, transparent, refractionIndex);
+    if (materialModel != "phong" && materialModel != "path")
+        throw `Unknown material model "${materialModel}": use "phong", "path" or "principled"`;
+
+    const ambient  = makeMaterialColor(data.map_Ka, data.Ka),
+          diffuse  = makeMaterialColor(data.map_Kd, data.Kd),
+          specular = makeMaterialColor(data.map_Ks, data.Ks),
+          smoothness      = data.Ns || 0;
     // TODO: add support for Tf, partial dissolve, bump?
-    if (isPath || isFinite(refractionIndex))
-        return new (isPath ? PhongPathTracingMaterial : FresnelPhongMaterial)(
+    if (materialModel == "path" || isFinite(refractionIndex))
+        return new (materialModel == "path" ? PhongPathTracingMaterial : FresnelPhongMaterial)(
             Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);
     return new PhongMaterial(Vec.of(1,1,1), ambient, diffuse, specular, smoothness);
+}
+
+// MTL describes Phong-style materials, so a PrincipledMaterial has to be guessed from them:
+//   - base color: the diffuse texture if there is one (as glTF and Blender's importer treat it, rather than scaling it
+//     by Kd), otherwise Kd.
+//   - roughness: Pr, from the PBR extension to MTL, if given. Otherwise from the Phong exponent Ns: a Blinn-Phong lobe
+//     with exponent Ns is roughly a GGX lobe with alpha = sqrt(2 / (Ns + 2)), and roughness = sqrt(alpha).
+//   - metallic: Pm if given, otherwise 0. Ks is ignored: a dielectric's specular comes from its ior.
+//   - transmission and ior: glass (transmission 1, ior Ni) for a transparent material, opaque otherwise.
+//   - emission: Ke.
+function makePrincipledMaterial(data, transparent, refractionIndex) {
+    const Ns = data.Ns || 0;
+    return new PrincipledMaterial({
+        baseColor:    data.map_Kd || data.Kd || Vec.of(0.8, 0.8, 0.8),
+        roughness:    data.Pr !== undefined ? data.Pr : Math.sqrt(Math.sqrt(2 / (Ns + 2))),
+        metallic:     data.Pm || 0,
+        transmission: transparent ? 1 : 0,
+        ior:          isFinite(refractionIndex) ? refractionIndex : 1.5,
+        emission:     data.Ke || Vec.of(0, 0, 0)
+    });
 }
 
 function textFetch(filename) {
@@ -37,32 +67,100 @@ function textFetch(filename) {
     });
 }
 
-function loadTexture(filename, callback) {
-    fetch(filename, { mode: 'cors' })
-        .then(response => response.blob())
-        .then(blob => createImageBitmap(blob))
-        .then(bitmap => {
-            callback(bitmap);
-        });
+// Loading problems that don't stop a scene from loading (a missing texture, an MTL statement this loader ignores)
+// are reported here: in the GPU page's log when there is one, and otherwise the browser console.
+function objLoaderWarn(message) {
+    const log = (typeof myconsole !== "undefined") ? myconsole : console;
+    (log.warn || log.log)("Warning: " + message);
 }
 
-function loadTextures(prefix, filenames, callback) {
-    if (filenames.length == 0)
-        callback({});
-    let toDoCount = filenames.length;
-    let textures = {};
-    for (let filename of filenames) {
-        (function(f) {
-            loadTexture(prefix+f, function(bitmap) {
-                textures[f] = TextureMaterialColor.fromBitmap(bitmap);
-                if (--toDoCount == 0)
-                    callback(textures);
-            });
-        })(filename);
+// Decodes a TGA image (types 2, 3, 10 and 11: true color or grayscale, raw or run-length encoded, 8, 24 or 32 bits a
+// pixel) into an ImageData. Browsers don't decode TGA, and many OBJ scenes (Crytek Sponza among them) use it.
+function decodeTGA(buffer) {
+    const bytes = new Uint8Array(buffer), view = new DataView(buffer);
+    const idLength = bytes[0], colorMapType = bytes[1], imageType = bytes[2];
+    const width = view.getUint16(12, true), height = view.getUint16(14, true);
+    const depth = bytes[16], descriptor = bytes[17];
+    if (colorMapType != 0 || ![2, 3, 10, 11].includes(imageType))
+        throw `unsupported TGA image type ${imageType}` + (colorMapType ? " (color mapped)" : "");
+    const grey = (imageType & 3) == 3, rle = imageType >= 8, bpp = depth / 8;
+    if (grey ? bpp != 1 : (bpp != 3 && bpp != 4))
+        throw `unsupported TGA pixel depth ${depth}`;
+    // 32 bit pixels whose header claims no alpha bits carry padding there, not alpha.
+    const hasAlpha = bpp == 4 && (descriptor & 15) != 0;
+
+    const count = width * height, out = new Uint8ClampedArray(count * 4);
+    let p = 18 + idLength, n = 0;
+    const readPixel = () => {
+        const o = n++ * 4;
+        if (grey)
+            out[o] = out[o + 1] = out[o + 2] = bytes[p];
+        else {
+            out[o] = bytes[p + 2]; out[o + 1] = bytes[p + 1]; out[o + 2] = bytes[p];
+        }
+        out[o + 3] = hasAlpha ? bytes[p + 3] : 255;
+        p += bpp;
+    };
+    while (n < count) {
+        if (!rle)
+            readPixel();
+        else {
+            const header = bytes[p++], run = (header & 127) + 1;
+            if (header & 128) {
+                readPixel();
+                for (let k = 1; k < run && n < count; ++k, ++n)
+                    out.copyWithin(n * 4, (n - 1) * 4, n * 4);
+            }
+            else
+                for (let k = 0; k < run && n < count; ++k)
+                    readPixel();
+        }
     }
+    if (p > bytes.length)
+        throw "the TGA file is truncated";
+
+    // Pixels are stored bottom row first unless descriptor bit 5 says otherwise (and right to left if bit 4 is set);
+    // ImageData's first row is the top.
+    const flipY = !(descriptor & 32), flipX = !!(descriptor & 16);
+    let pixels = out;
+    if (flipX || flipY) {
+        pixels = new Uint8ClampedArray(out.length);
+        const u32in = new Uint32Array(out.buffer), u32out = new Uint32Array(pixels.buffer);
+        for (let y = 0; y < height; ++y)
+            for (let x = 0; x < width; ++x)
+                u32out[y * width + x] = u32in[(flipY ? height - 1 - y : y) * width + (flipX ? width - 1 - x : x)];
+    }
+    return (typeof ImageData !== "undefined")
+        ? new ImageData(pixels, width, height)
+        : { data: pixels, width: width, height: height };
 }
 
-function parseMtlFile(text, callback, prefix="", isPath=false) {
+// Textures named in MTL files repeat outside [0, 1], as OBJ texture coordinates expect.
+async function loadTexture(filename) {
+    const response = await fetch(filename);
+    if (!response.ok)
+        throw `${response.status} ${response.statusText}`;
+    if (/\.tga$/i.test(filename))
+        return new TextureMaterialColor(decodeTGA(await response.arrayBuffer()), "bilinear", false, false);
+    return TextureMaterialColor.fromBitmap(await createImageBitmap(await response.blob()), "bilinear", false, false);
+}
+
+// Resolves to { filename: TextureMaterialColor } for every texture that loaded. One that can't be loaded or decoded is
+// reported and left out, so the materials using it fall back to their plain colors.
+async function loadTextures(prefix, filenames) {
+    const textures = {};
+    await Promise.all([...new Set(filenames)].map(async f => {
+        try {
+            textures[f] = await loadTexture(prefix + f);
+        }
+        catch (e) {
+            objLoaderWarn(`could not load texture ${prefix + f} (${e}); its materials use their plain colors.`);
+        }
+    }));
+    return textures;
+}
+
+function parseMtlFile(text, callback, prefix="", materialModel="phong", filename="an MTL file") {
     const lines = text.split("\n");
     
     const texture_names = [];
@@ -71,13 +169,14 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
             continue;
 
         let t = l.match(/\S+/g) || [];
-        if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks" || t[0] == "map_Ns")
+        if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks")
             texture_names.push(t[t.length-1]);
     }
-    loadTextures(prefix, texture_names, function(textures) {
+    return loadTextures(prefix, texture_names).then(function(textures) {
         const ret = {};
 
         let curr = null, name = null;
+        const ignored = new Set();
         for (const l of lines) {
             if (/^\s*($|#)/.test(l))
                 continue;
@@ -86,7 +185,7 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
 
             if (t[0] == "newmtl") {
                 if (curr)
-                    ret[name] = Object.assign(makeMaterial(curr, isPath), { name: name });
+                    ret[name] = Object.assign(makeMaterial(curr, materialModel), { name: name });
                 name = t[1];
                 curr = {};
                 continue;
@@ -102,33 +201,37 @@ function parseMtlFile(text, callback, prefix="", isPath=false) {
                 curr[t[0]] = Vec.of(t[1], t[2], t[3]);
 
             else if (t[0] == "Ns" || t[0] == "Ni" || t[0] == "illum"
-                || t[0] == "d" || t[0] == "Tr")
+                || t[0] == "d" || t[0] == "Tr" || t[0] == "Pr" || t[0] == "Pm")
                 curr[t[0]] = t[1];
 
             else if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks") {
-                if (!textures[t[t.length-1]])
-                    throw "Unknown texture: " + t[t.length-1];
-                curr[t[0]] = textures[t[t.length-1]]; // TODO: there are lots of other options to do with textures
+                // A texture that failed to load was reported by loadTextures.
+                if (textures[t[t.length-1]])
+                    curr[t[0]] = textures[t[t.length-1]]; // TODO: there are lots of other options to do with textures
             }
-            
-            else
-                throw "Unsupported material parameter: " + t[0];
+
+            // Statements this loader doesn't use yet (bump and displacement maps, alpha masks, and so on): the
+            // material is still usable without them, so each kind is reported once per file and skipped.
+            else if (!ignored.has(t[0])) {
+                ignored.add(t[0]);
+                objLoaderWarn(`ignoring the unsupported MTL statement "${t[0]}" in ${filename}.`);
+            }
         }
 
         if (curr)
-            ret[name] = Object.assign(makeMaterial(curr, isPath), { name: name });
+            ret[name] = Object.assign(makeMaterial(curr, materialModel), { name: name });
 
         callback(ret);
     });
 }
 
-function loadMtlFile(filename, callback, prefix, isPath) {
-    textFetch(filename).then(function(text) {
-        parseMtlFile(text, callback, prefix, isPath);
+function loadMtlFile(filename, callback, prefix, materialModel) {
+    return textFetch(filename).then(function(text) {
+        return parseMtlFile(text, callback, prefix, materialModel, filename);
     });
 }
 
-function loadMtlFiles(filenames, callback, prefix="", isPath=false) {
+function loadMtlFiles(filenames, callback, prefix="", materialModel="phong") {
     if (filenames.length == 0)
         callback({});
     let toDoCount = filenames.length;
@@ -142,7 +245,7 @@ function loadMtlFiles(filenames, callback, prefix="", isPath=false) {
                     if (--toDoCount === 0)
                         callback(materials);
                 },
-                prefix, isPath
+                prefix, materialModel
             );
         })(i);
     }
@@ -153,7 +256,7 @@ function parseIndices(ts) {
         x => Number.parseInt(x) - 1));
 }
 
-function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform=Mat4.identity(), minArea=0.0, isPath=false) {
+function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform=Mat4.identity(), minArea=0.0, materialModel="phong") {
 
     let lines = data.split("\n");
 
@@ -241,19 +344,21 @@ function parseObjFile(callback, data, prefix="", defaultMaterial=null, transform
 
         callback(triangles);
 
-    }, prefix, isPath);
+    }, prefix, materialModel);
 }
 
-function loadObjFile(filename, defaultMaterial=null, callback, transform=Mat4.identity(), minArea=0.00001) {
+// materialModel chooses what the OBJ's MTL materials become: "phong", "path" or "principled" (see makeMaterial).
+// defaultMaterial is used for faces before any usemtl.
+function loadObjFile(filename, defaultMaterial=null, callback, transform=Mat4.identity(), minArea=0.00001, materialModel="phong") {
     textFetch(filename).then(function(text) {
         let prefix = "";
         if (filename.lastIndexOf("/") > 0)
             prefix = filename.substring(0, filename.lastIndexOf("/") + 1);
-        parseObjFile(callback, text, prefix, defaultMaterial, transform, minArea);
+        parseObjFile(callback, text, prefix, defaultMaterial, transform, minArea, materialModel);
     });
 }
 
-function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.identity(), minArea=0.00001) {
+function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.identity(), minArea=0.00001, materialModel="phong") {
     let toDoCount = files.length;
     let triangle_sets = new Array(files.length).fill(null);
     for (let i = 0; i < files.length; ++i) {
@@ -268,8 +373,9 @@ function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.iden
                         callback(triangle_sets);
                 },
                 files[i].transform || transform,
-                minArea
+                minArea,
+                files[i].materialModel || materialModel
             );
         })(i);
     }
-}
+}

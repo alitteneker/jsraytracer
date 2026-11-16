@@ -35,10 +35,10 @@ export function configureTest(callback) {
             objects.push(bvh1, bvh2);
             
             callback({
-                renderer: new SimpleRenderer(new World(objects, lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objects, lights), camera, 4, "auto", { exposure: -1.5 }),
                 width: 600,
                 height: 600
             });
         },
         new PhongMaterial(Vec.of(1,0.7,0.7), 0.1, 0.4, 0.6, 100, 0.4));
-}
+}

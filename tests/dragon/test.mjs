@@ -30,9 +30,9 @@ export function configureTest(callback) {
                     .times(Mat4.scale(0.175)),));
             
             callback({
-                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights, Vec.of(0,0,0)), camera, 8, 4),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights, Vec.of(0,0,0)), camera, 8, 4, "auto", { exposure: -1.25 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

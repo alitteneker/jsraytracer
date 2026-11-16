@@ -99,6 +99,12 @@ a color, or a `MaterialColor` (texture). It blends three materials:
 `roughness` is perceptual: the GGX alpha is `roughness^2`. Below alpha = 0.001 the lobes become perfect mirrors and
 refraction. `tests/pbr_materials` shows a grid of them.
 
+OBJ files can use them too: `loadObjFile(file, defaultMaterial, callback, transform, minArea, "principled")` turns
+each MTL material into a `PrincipledMaterial` (`tests/sponza` does). MTL describes Phong materials, so the translation
+is a guess: the diffuse texture (or `Kd`) becomes `baseColor`, `roughness` comes from the Phong exponent `Ns`
+(alpha = sqrt(2 / (Ns + 2))) unless the PBR extension's `Pr` is given, `metallic` is `Pm` or 0, and a transparent
+material becomes glass with `ior` = `Ni`. See `makePrincipledMaterial` in `src/objloader.js`.
+
 ## Microfacet theory, briefly
 
 A rough surface is modeled as a field of tiny perfect mirrors with normals m. Light from wi reaches wo only off

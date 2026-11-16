@@ -15,8 +15,8 @@ document.addEventListener("DOMContentLoaded", function(event) {
     // scene starts rendering it; ?test=<scene> in the URL picks one on load, and with no scene the picker opens.
     let currentTest = "";
     const sceneButton = document.querySelector("#scene-button");
-    fetch("tests/list.json").then(response => response.json()).then(function(json) {
-        const picker = new ScenePicker(document.querySelector("#scene-picker"), json.slice().sort(), function(test) {
+    ScenePicker.fetchManifest("tests/list.json").then(function(manifest) {
+        const picker = new ScenePicker(document.querySelector("#scene-picker"), manifest, function(test) {
             window.history.pushState({ test: test }, test, "?test=" + encodeURIComponent(test));
             selectTest(test);
         }, "tests");
@@ -30,7 +30,7 @@ document.addEventListener("DOMContentLoaded", function(event) {
         }
         window.addEventListener("popstate", e => { if (e.state && e.state.test) selectTest(e.state.test); });
         const URLTest = new URLSearchParams(window.location.search).get("test");
-        if (URLTest && json.includes(URLTest))
+        if (URLTest)
             selectTest(URLTest);
         else
             picker.open();
@@ -85,7 +85,19 @@ document.addEventListener("DOMContentLoaded", function(event) {
             worker.postMessage(["../" + testpath + "/test.mjs", i, workerCount]);
 
             worker.onmessage = (function(e) {
-                if (e.data[0] === "finished") {
+                // Every worker loads the scene, so each would report the same warnings: show the first's.
+                if (e.data[0] === "warning") {
+                    if (e.data[1] === 0)
+                        console.warn(e.data[2]);
+                }
+                else if (e.data[0] === "error") {
+                    console.error(e.data[2]);
+                    stopWorkers();
+                    loading.style.visibility = "hidden";
+                    progress.style.visibility = "visible";
+                    progress_label.textContent = "Error: " + e.data[2].split("\n")[0];
+                }
+                else if (e.data[0] === "finished") {
                     worker.terminate();
                     workers[e.data[1]] = null;
                     percentages[e.data[1]] = 1;
@@ -149,4 +161,4 @@ document.addEventListener("DOMContentLoaded", function(event) {
         progress_bar.style.width = (percentage * 100) + "%";
         progress_label.innerHTML = (percentage * 100).toFixed(1) + "% after " + pass.toFixed(1) + " passes : " + (remaining_time / 1000).toFixed(1) + "s left of " + (total_time / 1000).toFixed(1) + "s est.";
     }
-});
+});

@@ -26,7 +26,7 @@ export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 5, 1.5,
         Mat4.translation([0, 1.5, 8.5]).times(Mat4.rotation(-0.07, Vec.of(1, 0, 0))));
     callback({
-        renderer: new IncrementalMultisamplingRenderer(new World(objects, [], Vec.of(0.12, 0.14, 0.18)), camera, 64, 10, "path"),
+        renderer: new IncrementalMultisamplingRenderer(new World(objects, [], Vec.of(0.12, 0.14, 0.18)), camera, 64, 10, "path", { exposure: -1.5 }),
         width: 600,
         height: 400
     });

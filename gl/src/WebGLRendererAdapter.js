@@ -86,6 +86,11 @@ class WebGLRendererAdapter {
         
         // Sometimes it's useful to render into log color space, scaled to an appropriate level
         this.colorLogScale = 0.0;
+
+        // The scene's film: exposure and tone curve (see Film, in src/renderers.js). Edits are written back to it.
+        const film = Film.coerce(renderer.film);
+        this.exposure = film.exposure;
+        this.toneMap = film.toneMap;
         this.maxDepth = 1000.0;
 
         this.maxBounceDepth = renderer.maxRecursionDepth;
@@ -196,6 +201,8 @@ class WebGLRendererAdapter {
             
             worldEditable    : { label: "Editable Shader",    value: !!this.adapters.world.WORLD_EDITABLE, type: "bool" },
             doRandomSample   : { label: "Do Random Sample",   value: this.doRandomSample,   type: "bool"  },
+            exposure         : { label: "Exposure (stops)",   value: this.exposure,         type: "number", step: 0.25, min: -64 },
+            toneMap          : { label: "Tone Map",           value: this.toneMap,          type: "select", options: Film.TONE_MAPS },
             colorLogScale    : { label: "Color Log Scale",    value: this.colorLogScale,    type: "number", step: 0.1, min: 0 },
             maxBounceDepth   : { label: "Max Bounce Depth",   value: this.maxBounceDepth,   type: "number", step: 1,   min: 0 },
             fireflyClamp     : { label: "Firefly Clamp",      value: this.fireflyClamp,     type: "number", step: 0.1, min: 0 },
@@ -217,6 +224,8 @@ class WebGLRendererAdapter {
         else {
             const requires_reset = { doRandomSample: true, maxBounceDepth: true, fireflyClamp: true };
             this[name] = value;
+            if (name == "exposure" || name == "toneMap")
+                this.renderer.film = new Film({ exposure: this.exposure, toneMap: this.toneMap });
             if (requires_reset[name])
                 this.resetDrawCount();
         }
@@ -307,6 +316,8 @@ class WebGLRendererAdapter {
                                                          
                             passthroughSampleCount:      gl.getUniformLocation(this.passthroughShaderProgram, "uSampleCount"),
                             colorLogScale:               gl.getUniformLocation(this.passthroughShaderProgram, "uColorLogScale"),
+                            exposure:                    gl.getUniformLocation(this.passthroughShaderProgram, "uExposure"),
+                            toneMap:                     gl.getUniformLocation(this.passthroughShaderProgram, "uToneMap"),
                             maxDepth:                    gl.getUniformLocation(this.passthroughShaderProgram, "uMaxDepth"),
                             doDenoise:                   gl.getUniformLocation(this.passthroughShaderProgram, "uDoDenoise"),
                             denoiseThreshold:            gl.getUniformLocation(this.passthroughShaderProgram, "uDenoiseThreshold"),
@@ -820,6 +831,8 @@ class WebGLRendererAdapter {
         
         // Set passthrough uniforms. These are (almost) entirely modifiable within the UI.
         this.gl.uniform1f(this.uniforms.colorLogScale, this.colorLogScale);
+        this.gl.uniform1f(this.uniforms.exposure, this.exposure);
+        this.gl.uniform1i(this.uniforms.toneMap, Film.TONE_MAPS.indexOf(this.toneMap));
         this.gl.uniform1f(this.uniforms.maxDepth, this.maxDepth);
         this.gl.uniform1i(this.uniforms.passthroughSampleCount, this.doRandomSample ? sampleCount : 0);
         
@@ -837,4 +850,4 @@ class WebGLRendererAdapter {
         this.gl.enableVertexAttribArray(this.passthroughVertexAttrib);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
-}
+}

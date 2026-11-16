@@ -34,9 +34,9 @@ export function configureTest(callback) {
 //                  .times(Mat4.rotation(0, Vec.of(0,1,0))),
 //                  .times(Mat4.scale(15)),));
             callback({
-                renderer: new SimpleRenderer(new World(objs, lights/*, Vec.of(0.53, 0.81, 0.92).times(0.6)*/), camera, 4),
+                renderer: new SimpleRenderer(new World(objs, lights/*, Vec.of(0.53, 0.81, 0.92).times(0.6)*/), camera, 4, "auto", { exposure: -0.5 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

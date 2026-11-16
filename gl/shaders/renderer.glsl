@@ -284,6 +284,35 @@ in vec2 textureCoord;
 uniform float uMaxDepth;
 uniform float uColorLogScale;
 
+// The renderer's film (Film, in src/renderers.js, which documents the settings): exposure in stops, a tone curve
+// (uToneMap indexes Film.TONE_MAPS), then sRGB encoding for the display.
+uniform float uExposure;
+uniform int uToneMap;
+vec3 filmToneMap(vec3 c) {
+    if (uToneMap == 0) {   // neutral: Khronos PBR Neutral
+        const float startCompression = 0.8 - 0.04, desaturation = 0.15;
+        float x = min(c.r, min(c.g, c.b));
+        c -= x < 0.08 ? x - 6.25 * x * x : 0.04;
+        float peak = max(c.r, max(c.g, c.b));
+        if (peak < startCompression)
+            return c;
+        const float d = 1.0 - startCompression;
+        float newPeak = 1.0 - d * d / (peak + d - startCompression);
+        c *= newPeak / peak;
+        float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+        return mix(c, vec3(newPeak), g);
+    }
+    if (uToneMap == 1)     // aces: Narkowicz's fit
+        return (c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14);
+    if (uToneMap == 2)     // reinhard
+        return c / (1.0 + c);
+    return c;              // clip
+}
+vec3 encodeSRGB(vec3 c) {
+    c = clamp(c, 0.0, 1.0);
+    return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
 uniform bool uDoDenoise;
 uniform float uDenoiseThreshold;
 uniform float uDenoiseSigma;
@@ -370,15 +399,18 @@ void main() {
     else
         sampleColor = texture(uSampleSumTexture, textureCoord) * texture_factor;
 
+    // Invalid values show as flat warning colors, which skip the film.
     if (any(isnan(sampleColor)))
         sampleColor = vec4(1.0, 0.0, 0.5, 1.0);
-    if (any(isinf(sampleColor)))
+    else if (any(isinf(sampleColor)))
         sampleColor = vec4(0.0, 1.0, 0.5, 1.0);
-    if (any(lessThan(sampleColor.rgb, vec3(0.0))))
+    else if (any(lessThan(sampleColor.rgb, vec3(0.0))))
         sampleColor = vec4(0.5, 0.0, 1.0, 1.0);
-
-    if (uColorLogScale > 0.0)
+    // The log scale view is a diagnostic of the raw radiance, so it skips the film too.
+    else if (uColorLogScale > 0.0)
         sampleColor = vec4(log(sampleColor.rgb + 1.0) / uColorLogScale, sampleColor.a);
+    else
+        sampleColor.rgb = encodeSRGB(filmToneMap(sampleColor.rgb * exp2(uExposure)));
 
     outTexelColor = vec4(sampleColor.rgb, 1.0);
     gl_FragDepth = min(sampleColor.a / uMaxDepth, 1.0-EPSILON);

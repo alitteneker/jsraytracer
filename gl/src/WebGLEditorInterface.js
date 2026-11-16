@@ -27,6 +27,7 @@ class UIProperties {
 
     static listeners = {
         bool:         { e: 'input',                          c: UIProperties.boolPropertyChanged },
+        select:       { e: 'change selectmenuchange',        c: UIProperties.selectPropertyChanged },
         number:       { e: 'spin spinstop input',            c: UIProperties.numberPropertyChanged },
         vec:          { e: 'spin spinstop input',            c: UIProperties.vecPropertyChanged },
         mat:          { e: 'spin spinstop input',            c: UIProperties.matPropertyChanged },
@@ -72,6 +73,9 @@ class UIProperties {
             UIProperties.listenToControls(root, name, prop, callback);
     }
     
+    static selectPropertyChanged(name, prop, callback, e, ui) {
+        callback(name, prop, $(e.target), $(e.target).val());
+    }
     static boolPropertyChanged(name, prop, callback, e, ui) {
         callback(name, prop, $(e.target), e.target.checked);
     }
@@ -1278,4 +1282,4 @@ class WebGLEditorInterface {
             }
         }
     }
-}
+}

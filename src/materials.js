@@ -74,8 +74,18 @@ class CheckerboardMaterialColor extends MaterialColor {
             ? this.color1.color(data) : this.color2.color(data);
     }
 }
+// An image, sampled at texture coordinates. Its texels are 8 bit values in a color space:
+//   "srgb":   (the default) the encoding nearly every color image uses, including photos and painted textures. The
+//             color channels are decoded to linear values, which is what lighting needs; alpha is linear already.
+//   "linear": the texels are the values themselves, as in normal maps and other data that isn't a color.
+// Decoding happens per texel, before filtering, as GPUs do for sRGB textures.
 class TextureMaterialColor extends MaterialColor {
-    constructor(imgdata, mode="bilinear", clampU=true, clampV=true) {
+    static SRGB_TO_LINEAR = Float32Array.from({ length: 256 }, (_, i) => {
+        const x = i / 255;
+        return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    });
+    static LINEAR = Float32Array.from({ length: 256 }, (_, i) => i / 255);
+    constructor(imgdata, mode="bilinear", clampU=true, clampV=true, colorSpace="srgb") {
         super();
         this._imgdata = imgdata;
         this.width  = imgdata.width;
@@ -84,32 +94,35 @@ class TextureMaterialColor extends MaterialColor {
         this.mode = mode;
         this.clampU = clampU;
         this.clampV = clampV;
+        if (colorSpace != "srgb" && colorSpace != "linear")
+            throw `Unknown texture color space "${colorSpace}": use "srgb" or "linear"`;
+        this.colorSpace = colorSpace;
     }
     static deserialize(data) {
-        return new TextureMaterialColor(data.imgdata, data.mode, data.clampU, data.clampV);
+        // Textures serialized before they had a color space were treated as linear.
+        return new TextureMaterialColor(data.imgdata, data.mode, data.clampU, data.clampV, data.colorSpace || "linear");
     }
-    static fromBitmap(bitmap) {
+    static fromBitmap(bitmap, mode="bilinear", clampU=true, clampV=true, colorSpace="srgb") {
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
         const context = canvas.getContext("2d");
         context.drawImage(bitmap, 0, 0);
-        return new TextureMaterialColor(context.getImageData(0, 0, bitmap.width, bitmap.height));
+        return new TextureMaterialColor(context.getImageData(0, 0, bitmap.width, bitmap.height), mode, clampU, clampV,
+            colorSpace);
     }
-    static normalizeUV(c, doClamp) {
-        if (doClamp) return Math.clamp(c, 0, 1);
-        else         return ((c % 1) + 1) % 1;
+    // Texel coordinates follow the GPU's: the image's top row is V = 1, and texel centers sit at half-integers. A
+    // clamped axis repeats its edge texel beyond [0, 1] (CLAMP_TO_EDGE); an unclamped one wraps around (REPEAT).
+    texel(i, size, doClamp) {
+        return doClamp ? Math.clamp(i, 0, size - 1) : ((i % size) + size) % size;
     }
     color(data) {
-        let U = TextureMaterialColor.normalizeUV(data.UV[0], this.clampU);
-        let V = TextureMaterialColor.normalizeUV(data.UV[1], this.clampV);
-        
-        const fx =        U  * this.width  - 0.5;
-        const fy = (1.0 - V) * this.height - 0.5;
+        const fx =        data.UV[0]  * this.width  - 0.5;
+        const fy = (1.0 - data.UV[1]) * this.height - 0.5;
         
         const xs = [], ys = [];
         if (this.mode == "bilinear") {
             const mx = Math.floor(fx), my = Math.floor(fy);
-            xs.push([mx, 1 - (fx % 1)], [mx + 1, fx % 1]);
-            ys.push([my, 1 - (fy % 1)], [my + 1, fy % 1]);
+            xs.push([mx, 1 - (fx - mx)], [mx + 1, fx - mx]);
+            ys.push([my, 1 - (fy - my)], [my + 1, fy - my]);
         }
         else if (this.mode == "nearest") {
             xs.push([Math.round(fx), 1]);
@@ -118,12 +131,13 @@ class TextureMaterialColor extends MaterialColor {
         else
             throw "Unsupported texture mode " + this.mode;
         
+        const decode = this.colorSpace == "srgb" ? TextureMaterialColor.SRGB_TO_LINEAR : TextureMaterialColor.LINEAR;
         let ret = [0,0,0,0];
         for (let [px, bx] of xs) {
             for (let [py, by] of ys) {
-                const index = Math.clamp(py, 0, this.height-1) * this.width + Math.clamp(px, 0, this.width-1);
+                const index = this.texel(py, this.height, this.clampV) * this.width + this.texel(px, this.width, this.clampU);
                 for (let i = 0; i < 4; ++i)
-                    ret[i] += bx * by * (this._imgdata.data[index * 4 + i] / 255);
+                    ret[i] += bx * by * (i < 3 ? decode : TextureMaterialColor.LINEAR)[this._imgdata.data[index * 4 + i]];
             }
         }
         return Vec.from(ret);

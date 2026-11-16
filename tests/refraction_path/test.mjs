@@ -49,7 +49,7 @@ export function configureTest(callback) {
 
     callback({
         renderer: new IncrementalMultisamplingRenderer(
-            new World(objects, lights, Vec.of(0.5,0.5,0.5)), camera, 256, 7),
+            new World(objects, lights, Vec.of(0.5,0.5,0.5)), camera, 256, 7, "auto", { exposure: -0.75 }),
         width: 600,
         height: 600
     });

@@ -8,6 +8,10 @@ $(document).ready(function() {
             console.log(...args);
             console_output.append('<p class="log">' + args.join("\t") + "</p>");
         },
+        warn: function(...args) {
+            console.warn(...args);
+            console_output.append('<p class="warning">' + args.join("\t") + "</p>");
+        },
         error: function(...args) {
             console.error(...args);
             console_output.append('<p class="error">' + args.join("\t") + "</p>");
@@ -20,6 +24,15 @@ $(document).ready(function() {
             window["myconsole"].error(error_dict.error, "@" + error_dict.url + ":" + error_dict.lineNo);
         return;
     }
+    // From here on, uncaught errors go to the log too: those thrown in callbacks (window.onerror) and those in promise
+    // chains nothing waits on, such as a scene's asset loading (unhandledrejection). Either one means the scene being
+    // loaded won't arrive, so the loading indicator stops.
+    const reportUncaught = (error, where) => {
+        myconsole.error(error && error.stack ? error.stack : error, where || "");
+        $(".loading").css('visibility', 'hidden');
+    };
+    window.onerror = (msg, url, lineNo, columnNo, error) => reportUncaught(error || msg, "@" + url + ":" + lineNo);
+    window.addEventListener("unhandledrejection", e => reportUncaught(e.reason));
     
     
     // Benchmark harness option ?unthrottled=1: browsers stop requestAnimationFrame entirely while a page is hidden
@@ -87,13 +100,13 @@ $(document).ready(function() {
     
     // The scene list, and the GLSL files the tracer's shaders are built from (see ShaderLibrary), both before any scene loads.
     let scenePicker = null;
-    Promise.all([fetch("../tests/list.json").then(response => response.json()), ShaderLibrary.load()]).then(function([json]) {
-        scenePicker = new ScenePicker(document.getElementById("scene-picker"), json.slice().sort(), chooseTest);
+    Promise.all([ScenePicker.fetchManifest("../tests/list.json"), ShaderLibrary.load()]).then(function([manifest]) {
+        scenePicker = new ScenePicker(document.getElementById("scene-picker"), manifest, chooseTest);
         $("#scene-button").button({ icon: "ui-icon-triangle-1-s", iconPosition: "end" }).on("click", () => scenePicker.open());
         
         const URLParams = new URLSearchParams(window.location.search);
         if (URLParams.get("renderAll")) {
-            renderAllScenes(json.sort(), URLParams);
+            renderAllScenes(ScenePicker.sceneNames(manifest).sort(), URLParams);
             return;
         }
         const URLTest = URLParams.get('test');

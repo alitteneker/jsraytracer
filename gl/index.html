@@ -123,6 +123,9 @@
                     <script type="text/x-template" data-template-type="number">
                         <tr><td><label for="$name">$label</label></td><td><input class="ui-spinner-input" data-field-type="number" data-field-name="$name" id="$name" min="$min" value="$value" step="$step"/></td></tr>
                     </script>
+                    <script type="text/x-template" data-template-type="select">
+                        <tr><td><label for="$name">$label</label></td><td><select data-field-type="select" data-field-name="$name" id="$name">${options.map(o => '<option' + (o == value ? ' selected' : '') + '>' + o + '</option>').join('')}</select></td></tr>
+                    </script>
                 </div>
             </div>
             <h3>Camera</h3>
@@ -309,4 +312,4 @@
             <p>For more information on the technical details behind this project, see the <a href="https://github.com/alitteneker/jsraytracer">github project page</a>.</p>
         </div>
     </body>
-</html>
+</html>

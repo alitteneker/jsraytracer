@@ -27,9 +27,9 @@ export function configureTest(callback) {
              ));
             
             callback({
-                renderer: new SimpleRenderer(new World(objs, lights), camera, 4),
+                renderer: new SimpleRenderer(new World(objs, lights), camera, 4, "auto", { exposure: -2.75 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}

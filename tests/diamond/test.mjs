@@ -39,9 +39,9 @@ export function configureTest(callback) {
                     .times(Mat4.scale(1))));
 
             callback({
-                renderer: new SimpleRenderer(new World(objs, lights, Vec.of(0.9, 0.9, 0.9)), camera, 4),
+                renderer: new SimpleRenderer(new World(objs, lights, Vec.of(0.9, 0.9, 0.9)), camera, 4, "auto", { exposure: -1 }),
                 width: 600,
                 height: 600
             });
         });
-}
+}
