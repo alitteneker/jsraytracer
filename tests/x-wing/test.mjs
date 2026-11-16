@@ -1,8 +1,8 @@
 export function configureTest(callback) {
 
-    const camera = new PerspectiveCamera(Math.PI / 4, 1,
+    const camera = new DepthOfFieldPerspectiveCamera(Math.PI / 4, 1,
         Mat4.translation([0,2,0])
-            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))));
+            .times(Mat4.rotation(-0.2, Vec.of(1,0,0))), 5.9, 0.07);
 
     const lights = [new SimplePointLight(
             Vec.of(-10, 10, -12, 1),
@@ -13,9 +13,9 @@ export function configureTest(callback) {
             new Square(),
             Mat4.translation([-0.15, 1.86, -2.73])
                 .times(Mat4.rotation(0.4, Vec.of(0,1,0)))
-                .times(Mat4.scale([0.01, 0.01, 1.5]))
+                .times(Mat4.scale([0.01, 0.01, 3.5]))
                 .times(Mat4.rotation(Math.PI / 2, Vec.of(1,0,0))),
-            Vec.of(0,1,0), 5, 4
+            Vec.of(1,0.01,0.01), 50, 4
         )
     ];
     
@@ -38,8 +38,8 @@ export function configureTest(callback) {
 
         function(triangles) {
             objs.push(BVHAggregate.build(triangles,
-                Mat4.translation([-0.75, 1, -4])
-                  .times(Mat4.rotation(-0.8, Vec.of(0,1,0)))
+                Mat4.translation([-1.75, 1, -8.65])
+                  .times(Mat4.rotation(-1.15, Vec.of(0,1,0)))
                   .times(Mat4.scale(0.01))));
             
             callback({
