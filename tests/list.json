@@ -27,6 +27,10 @@
             {"name": "bunny_path"},
             {"name": "cornell_box"}
         ] },
+        { "title": "Volumes", "scenes": [
+            {"name": "media_fog", "description": "Fog and haze of constant density"},
+            {"name": "bunny_cloud", "description": "A cloud from an OpenVDB grid, under sun and sky"}
+        ] },
         { "title": "Meshes", "scenes": [
             {"name": "bunny"},
             {"name": "dragon", "description": "A 100,000 triangle mesh in a BVH"},

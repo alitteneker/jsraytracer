@@ -88,7 +88,8 @@ class WebGLWorldAdapter {
         this.adapters = {
             lights:     new WebGLLightsAdapter(webgl_helper, this),
             materials:  new WebGLMaterialsAdapter(webgl_helper, this),
-            geometries: new WebGLGeometriesAdapter(webgl_helper, this)
+            geometries: new WebGLGeometriesAdapter(webgl_helper, this),
+            media:      new WebGLMediaAdapter(webgl_helper, this)
         };
         
         this.visitWorld(world, webgl_helper);
@@ -100,6 +101,7 @@ class WebGLWorldAdapter {
         this.adapters.lights.destroy(gl);
         this.adapters.geometries.destroy(gl);
         this.adapters.materials.destroy(gl);
+        this.adapters.media.destroy(gl);
     }
 
     static collapseAncestorTransform(ancestors) {
@@ -136,6 +138,7 @@ class WebGLWorldAdapter {
         this.adapters.lights.reset();
         this.adapters.geometries.reset();
         this.adapters.materials.reset();
+        this.adapters.media.reset();
     }
     visitWorld(world, webgl_helper, sceneEditable) {
         this.reset();
@@ -146,6 +149,10 @@ class WebGLWorldAdapter {
         // adapter samples for direct lighting.
         for (let light of world.lights)
             this.adapters.lights.visit(light, this.adapters.geometries, this.adapters.materials, webgl_helper);
+
+        // Volumes (participating media) aren't part of the object tree: the media adapter uploads them for media.glsl.
+        for (const volume of world.volumes)
+            this.adapters.media.visit(volume);
 
         // To make a light with a surface visible to rays, it's drawn through an ordinary primitive standing in for it
         // (see makeLightEmitterProxy): same geometry and local transform, a material that only emits, and no shadow
@@ -446,6 +453,9 @@ class WebGLWorldAdapter {
         }
         // A light (at any depth) is drawn by its stand-in primitive, which has the light's local transform and so
         // picks up the same ancestors. The light's sampling is handled by the lights adapter.
+        // Volumes are drawn by media.glsl, not as objects in the tree.
+        else if (obj instanceof Volume)
+            return null;
         else if (obj instanceof Light) {
             let proxy = this.light_emitter_proxies.get(obj.OBJECT_UID);
             if (!proxy)
@@ -612,6 +622,7 @@ class WebGLWorldAdapter {
         this.adapters.lights.writeShaderData(gl, program, webgl_helper);
         this.adapters.materials.writeShaderData(gl, program, webgl_helper);
         this.adapters.geometries.writeShaderData(gl, program, webgl_helper);
+        this.adapters.media.writeShaderData(gl, program);
     }
     // The BVH node layout, built at shader-gen time (getShaderSource) and uploaded by writeShaderData. Each internal
     // node becomes 2 consecutive RGBA32I texels, one per child: [child AABB as 3 packed fp16 pairs, child data]. Child
@@ -665,7 +676,8 @@ class WebGLWorldAdapter {
         return ShaderLibrary.render("world.glsl", "declarations") + "\n"
             + this.adapters.lights.getShaderSourceDeclarations(this.WORLD_EDITABLE) + "\n"
             + this.adapters.geometries.getShaderSourceDeclarations(this.WORLD_EDITABLE) + "\n"
-            + this.adapters.materials.getShaderSourceDeclarations()  + "\n";
+            + this.adapters.materials.getShaderSourceDeclarations()  + "\n"
+            + this.adapters.media.getShaderSourceDeclarations()      + "\n";
     }
     getShaderSource() {
         this.shader_transform_max_size = this.WORLD_EDITABLE
@@ -839,6 +851,7 @@ class WebGLWorldAdapter {
         return ret
             + this.adapters.lights.getShaderSource(this.WORLD_EDITABLE)     + "\n"
             + this.adapters.materials.getShaderSource(this.WORLD_EDITABLE)  + "\n"
+            + this.adapters.media.getShaderSource()                         + "\n"
             + this.adapters.geometries.getShaderSource(this.WORLD_EDITABLE,
                 !this.bvh_only_uses_untransformed_triangles || this.adapters.lights.hasVisibleDirectional()) + "\n";
     }

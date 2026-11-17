@@ -152,7 +152,7 @@ class WebGLRendererAdapter {
             return true;
         if (integrator == "whitted")
             return false;
-        return this.renderer.world.anyMaterial(m => m.prefersPathTracing);
+        return this.renderer.world.volumes.length > 0 || this.renderer.world.anyMaterial(m => m.prefersPathTracing);
     }
 
     // Builds an adapter for the renderer in three phases, each shown by the loading indicator (LoadingStatus): the

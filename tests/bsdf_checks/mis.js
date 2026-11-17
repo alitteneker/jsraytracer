@@ -6,7 +6,7 @@
 // same size, which sits at the same offset from every point it lights.
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const src = path.join(__dirname, "..", "..", "src");
-for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','aggregates.js'])
+for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','media.js','aggregates.js'])
     vm.runInThisContext(fs.readFileSync(path.join(src, f)).toString(), { filename: f });
 const materials = {
     diffuse:     () => new PhongPathTracingMaterial(Vec.of(0.8, 0.6, 0.4), 0, 0.9),

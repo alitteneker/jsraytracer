@@ -10,12 +10,13 @@
 //       at every hit (next-event estimation), the two combined with multiple importance sampling, and Russian
 //       roulette to end paths.
 // Renderers pick one with Integrator.create(name, world); "auto" uses path tracing when any material asks for it
-// (Material.prefersPathTracing), which keeps every existing scene rendering the way it was designed to.
+// (Material.prefersPathTracing), or the world has volumes, which keeps every existing scene rendering the way it was
+// designed to. Volumes (participating media, src/media.js) are only seen by the path integrator.
 
 class Integrator {
     static create(name, world) {
         if (name == "auto")
-            name = world.anyMaterial(m => m.prefersPathTracing) ? "path" : "whitted";
+            name = world.volumes.length || world.anyMaterial(m => m.prefersPathTracing) ? "path" : "whitted";
         if (name == "whitted") return new WhittedIntegrator(world);
         if (name == "path")    return new PathIntegrator(world);
         throw "Unknown integrator " + name;
@@ -34,11 +35,49 @@ class Integrator {
         if (intersection.object instanceof Light)
             return { light: intersection.object, distance: intersection.distance, ancestorInvTransform: ancestorInvTransform };
         const data = intersection.object.surfaceData(ray, intersection.distance, ancestorInvTransform);
-        return { data: data, material: intersection.object.material };
+        return { data: data, material: intersection.object.material, distance: intersection.distance };
     }
     isShadowed(position, direction) {
         const shadowDist = this.world.cast(new Ray(position, direction), 0.0001, 1, false).distance;
         return shadowDist > 0 && shadowDist < 1;
+    }
+    // The fraction of light that reaches position from position + direction: 0 if a surface is in the way, otherwise
+    // the transmittance of the volumes between.
+    shadowTransmittance(position, direction) {
+        if (this.isShadowed(position, direction))
+            return 0;
+        return this.world.volumes.length ? this.transmittance(new Ray(position, direction), 0.0001, 1) : 1;
+    }
+    // The pieces of a ray inside volumes, between tMin and tMax, nearest first: [{ medium, local, t0, t1 }].
+    volumeSegments(ray, tMin, tMax) {
+        const segments = [];
+        for (const instance of this.world.volumes) {
+            const medium = instance.object.medium, local = ray.getTransformed(instance.getInvTransform());
+            const interval = Volume.interval(medium, local, tMin, tMax);
+            if (interval)
+                segments.push({ medium: medium, local: local, t0: interval[0], t1: interval[1] });
+        }
+        return segments.sort((a, b) => a.t0 - b.t0);
+    }
+    // Where light traveling along ray first scatters in a volume before tMax: { position, medium }, or null if it
+    // reaches tMax (where the surface is) without interacting. Each volume's chance of letting it through is its
+    // transmittance, so a path that gets through carries no extra weight.
+    mediumScatter(ray, tMin, tMax) {
+        for (const seg of this.volumeSegments(ray, tMin, tMax)) {
+            const t = Volume.sampleCollision(seg.medium, seg.local, seg.t0, seg.t1);
+            if (t !== null)
+                return { position: ray.getPoint(t), medium: seg.medium };
+        }
+        return null;
+    }
+    transmittance(ray, tMin, tMax) {
+        let T = 1;
+        for (const seg of this.volumeSegments(ray, tMin, tMax)) {
+            T *= Volume.transmittance(seg.medium, seg.local, seg.t0, seg.t1);
+            if (T == 0)
+                break;
+        }
+        return T;
     }
 }
 
@@ -103,6 +142,40 @@ class PathIntegrator extends Integrator {
 
         for (let depth = 0; depth < maxDepth; ++depth) {
             const hit = this.hit(ray, minDistance);
+
+            // Light may scatter in a volume before reaching the surface (or escaping), and then the path continues
+            // from there: next-event estimation with the phase function in place of the BSDF, then a direction
+            // sampled from the phase function (whose weight is exactly 1, so only the albedo changes beta).
+            const scatter = this.world.volumes.length ? this.mediumScatter(ray, minDistance, hit ? hit.distance : Infinity) : null;
+            if (scatter) {
+                const medium = scatter.medium, P = scatter.position, d = ray.direction.normalized();
+                for (let i = 0; i < 3; ++i) beta[i] *= medium.albedo[i];
+                if (PathIntegrator.STRATEGY != "bsdf") {
+                    for (const light of this.world.lights) {
+                        for (const ls of light.sampleLi(P)) {
+                            const T = this.shadowTransmittance(P, ls.direction);
+                            if (!T)
+                                continue;
+                            const phase = HenyeyGreenstein.eval(medium.g, d.dot(ls.direction.normalized()));
+                            const w = ls.delta || PathIntegrator.STRATEGY == "light" ? 1 : PathIntegrator.powerHeuristic(ls.count, ls.pdf, 1, phase);
+                            add(ls.value, phase * T * w / ls.count);
+                        }
+                    }
+                }
+                const ps = HenyeyGreenstein.sample(medium.g, d);
+                prevDelta = false;
+                prevPdf = ps.pdf;
+                ray = new Ray(P, ps.wi);
+                minDistance = 0;
+                if (depth + 1 >= PathIntegrator.RR_MIN_DEPTH) {
+                    const q = Math.max(0.05, 1 - BSDFMath.maxComponent(beta));
+                    if (Math.random() < q)
+                        break;
+                    for (let i = 0; i < 3; ++i) beta[i] /= (1 - q);
+                }
+                continue;
+            }
+
             if (!hit) {
                 add(this.world.bg_color);
                 break;
@@ -133,7 +206,8 @@ class PathIntegrator extends Integrator {
             if (bsdf.hasNonDelta && PathIntegrator.STRATEGY != "bsdf") {
                 for (const light of this.world.lights) {
                     for (const s of light.sampleLi(data.position)) {
-                        if (this.isShadowed(data.position, s.direction))
+                        const T = this.shadowTransmittance(data.position, s.direction);
+                        if (!T)
                             continue;
                         const wi = s.direction.normalized();
                         const f = bsdf.eval(wo, wi);
@@ -141,7 +215,7 @@ class PathIntegrator extends Integrator {
                             continue;
                         const cos = Math.abs(bsdf.n[0] * wi[0] + bsdf.n[1] * wi[1] + bsdf.n[2] * wi[2]);
                         const w = s.delta || PathIntegrator.STRATEGY == "light" ? 1 : PathIntegrator.powerHeuristic(s.count, s.pdf, 1, bsdf.pdf(wo, wi));
-                        const k = cos * w / s.count;
+                        const k = cos * w * T / s.count;
                         add([f[0] * s.value[0] * k, f[1] * s.value[1] * k, f[2] * s.value[2] * k]);
                     }
                 }

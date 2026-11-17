@@ -5,7 +5,7 @@
 // reflections of the light are wrong.
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const src = path.join(__dirname, "..", "..", "src");
-for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','aggregates.js'])
+for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','media.js','aggregates.js'])
     vm.runInThisContext(fs.readFileSync(path.join(src, f)).toString(), { filename: f });
 
 let failures = 0;

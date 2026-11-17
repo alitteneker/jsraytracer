@@ -11,6 +11,7 @@ importScripts(
     'renderers.js',
     'integrators.js',
     'lights.js',
+    'media.js',
     'objloader.js',
     'sdf.js',
     'aggregates.js');

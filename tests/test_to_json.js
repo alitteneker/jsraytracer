@@ -15,6 +15,7 @@ const requirements = [
     'renderers.js',
     'integrators.js',
     'lights.js',
+    'media.js',
     'objloader.js',
     'aggregates.js',
     'serializer.js'];

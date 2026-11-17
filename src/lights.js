@@ -311,30 +311,12 @@ class DirectionalLight extends RandomSampleAreaLight {
     }
 }
 
-// One reachable occurrence of a light in a world: the light plus the chain of ancestors (outermost first) it sits
-// inside. A light referenced from several aggregates gets one instance per path. World.lights returns these.
-class LightInstance {
+// One reachable occurrence of a light in a world (see ObjectInstance), which samples the light with its world
+// transform. World.lights returns these.
+class LightInstance extends ObjectInstance {
     constructor(light, ancestors=[]) {
+        super(light, ancestors);
         this.light = light;
-        this.ancestors = ancestors;
-    }
-    getAncestorTransform() {
-        let T = Mat4.identity();
-        for (const a of this.ancestors)
-            T = T.times(a.getTransform());
-        return T;
-    }
-    getAncestorInvTransform() {
-        let T = Mat4.identity();
-        for (const a of this.ancestors)
-            T = a.getInvTransform().times(T);
-        return T;
-    }
-    getTransform() {
-        return this.ancestors.length ? this.getAncestorTransform().times(this.light.getTransform()) : this.light.getTransform();
-    }
-    getInvTransform() {
-        return this.ancestors.length ? this.light.getInvTransform().times(this.getAncestorInvTransform()) : this.light.getInvTransform();
     }
     sampleIterator(surface_position) {
         return this.ancestors.length

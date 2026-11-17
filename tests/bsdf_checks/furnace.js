@@ -3,7 +3,7 @@
 // over the sphere's silhouette: 1 means the material neither gains nor loses energy (over one or more bounces).
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const src = path.join(__dirname, "..", "..", "src");
-for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','integrators.js','lights.js','aggregates.js'])
+for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','integrators.js','lights.js','media.js','aggregates.js'])
     vm.runInThisContext(fs.readFileSync(path.join(src, f)).toString(), { filename: f });
 const W = Vec.of(1, 1, 1);
 const cases = {

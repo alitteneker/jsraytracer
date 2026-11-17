@@ -22,6 +22,7 @@ class ShaderLibrary {
         "renderer.glsl",
         "camera.glsl",
         "lights.glsl",
+        "media.glsl",
         "materials.glsl",
         "bsdf.glsl",
         "geometries.glsl",

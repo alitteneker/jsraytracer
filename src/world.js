@@ -15,11 +15,26 @@ class World {
     // Cached, since materials ask for this at every shading point; call contentsChanged() after adding, removing or
     // moving lights between aggregates. (Transforms are read live, so moving a light needs no call.)
     get lights() {
-        if (!this._light_instances || this._light_instances_source !== this.objects || this._light_instances_count !== this.objects.length) {
+        return this.instancesOf(Light, (o, ancestors) => new LightInstance(o, ancestors));
+    }
+    // The volumes (participating media, see src/media.js) in this world, found and cached the same way as lights.
+    get volumes() {
+        if (typeof Volume === "undefined")   // src/media.js isn't loaded
+            return [];
+        return this.instancesOf(Volume, (o, ancestors) => new ObjectInstance(o, ancestors));
+    }
+    // Every object of a class reachable through this.objects, each as an instance made by make(object, ancestors).
+    instancesOf(cls, make) {
+        if (!this._instance_cache || this._instance_cache_source !== this.objects || this._instance_cache_count !== this.objects.length) {
+            // Not enumerable, so the cache is never serialized.
+            for (const [k, v] of [["_instance_cache", new Map()], ["_instance_cache_source", this.objects], ["_instance_cache_count", this.objects.length]])
+                Object.defineProperty(this, k, { value: v, writable: true, enumerable: false, configurable: true });
+        }
+        if (!this._instance_cache.has(cls)) {
             const instances = [];
             const visit = (o, ancestors) => {
-                if (o instanceof Light)
-                    instances.push(new LightInstance(o, ancestors));
+                if (o instanceof cls)
+                    instances.push(make(o, ancestors));
                 else if (o instanceof TransformedWorldObject)
                     visit(o.object, ancestors.concat(o));
                 else if (o instanceof Aggregate && !(o instanceof BVHAggregate))
@@ -28,14 +43,12 @@ class World {
             };
             for (const o of this.objects)
                 visit(o, []);
-            // Not enumerable, so the cache is never serialized.
-            for (const [k, v] of [["_light_instances", instances], ["_light_instances_source", this.objects], ["_light_instances_count", this.objects.length]])
-                Object.defineProperty(this, k, { value: v, writable: true, enumerable: false, configurable: true });
+            this._instance_cache.set(cls, instances);
         }
-        return this._light_instances;
+        return this._instance_cache.get(cls);
     }
     contentsChanged() {
-        Object.defineProperty(this, "_light_instances", { value: null, writable: true, enumerable: false, configurable: true });
+        Object.defineProperty(this, "_instance_cache", { value: null, writable: true, enumerable: false, configurable: true });
     }
     static getMinimumIntersection(objects, ray, minDistance, maxDistance, intersectTransparent) {
         let closestIntersection = { distance: Infinity, object: null, ancestors: [] };
@@ -197,5 +210,33 @@ class Primitive extends WorldObject {
     }
     buildBoundingBox() {
         return this.geometry.getBoundingBox(this.getTransform(), this.getInvTransform());
+    }
+}
+
+// One reachable occurrence of an object in a world: the object plus the chain of ancestors (outermost first) it sits
+// inside, which together give its world transform. An object referenced from several aggregates gets one instance per
+// path. World.lights and World.volumes return these (LightInstance adds light sampling).
+class ObjectInstance {
+    constructor(object, ancestors=[]) {
+        this.object = object;
+        this.ancestors = ancestors;
+    }
+    getAncestorTransform() {
+        let T = Mat4.identity();
+        for (const a of this.ancestors)
+            T = T.times(a.getTransform());
+        return T;
+    }
+    getAncestorInvTransform() {
+        let T = Mat4.identity();
+        for (const a of this.ancestors)
+            T = a.getInvTransform().times(T);
+        return T;
+    }
+    getTransform() {
+        return this.ancestors.length ? this.getAncestorTransform().times(this.object.getTransform()) : this.object.getTransform();
+    }
+    getInvTransform() {
+        return this.ancestors.length ? this.object.getInvTransform().times(this.getAncestorInvTransform()) : this.object.getInvTransform();
     }
 }

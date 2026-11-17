@@ -111,10 +111,34 @@ vec3 rendererDirectLight(in vec4 rp, inout vec2 random_seed) {
 #else
         float w = 1.0;
 #endif
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+        // Light reaching the surface through volumes is dimmed by their transmittance.
+        w *= mediaTransmittance(Ray(rp, ls.direction), EPSILON, 1.0, random_seed);
+#endif
         L += f * ls.color * cosFactor * w;
     }
     return L;
 }
+
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+// Direct light at a point where light scatters in a volume: as rendererDirectLight, with the phase function in place
+// of the BSDF (and no cosine: a medium has no surface to tilt), for light arriving against the direction d.
+vec3 rendererMediumDirectLight(in vec4 p, in vec3 d, in float g, inout vec2 random_seed) {
+    vec3 L = vec3(0.0);
+    for (int i = 0; i < uNumLights; ++i) {
+        LightSample ls = sampleLight(i, p, random_seed);
+        float phase = hgEval(g, dot(d, normalize(ls.direction.xyz)));
+#if !DEBUG_NO_SHADOWS
+        float shadowIntersection = worldRayCast(Ray(p, ls.direction), EPSILON, 1.0, true);
+        if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
+            continue;
+#endif
+        float w = ls.pdf > 0.0 ? powerHeuristic(ls.pdf, phase) : 1.0;
+        L += ls.color * phase * w * mediaTransmittance(Ray(p, ls.direction), EPSILON, 1.0, random_seed);
+    }
+    return L;
+}
+#endif
 
 // The integrator: follows a path from the camera, adding at each hit its emission and the direct light it reflects,
 // then continuing in a direction the surface chooses.
@@ -159,6 +183,26 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
             }
         }
 #endif
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING) && !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
+        // Light may scatter in a volume before reaching the surface (or escaping). Then that is where the path
+        // continues from, instead of the surface: direct light through the phase function, scaled by the albedo,
+        // and next a direction sampled from the phase function (below).
+        bool mediumEvent = false;
+        int mediumVolume = -1;
+        {
+            float worldT = intersect_position.w == 0.0 ? 1e30
+                : dot(intersect_position.xyz - r.o.xyz, r.d.xyz) / dot(r.d.xyz, r.d.xyz);
+            vec4 mediumPosition;
+            if (mediaScatter(r, EPSILON, worldT, random_seed, mediumPosition, mediumVolume)) {
+                surfaceClear();
+                mediumEvent = true;
+                intersect_position = mediumPosition;
+                intersect_normal = vec3(0);
+                surface_color = mediaAlbedo(mediumVolume) * rendererMediumDirectLight(mediumPosition,
+                    normalize(r.d.xyz), mediaG(mediumVolume), random_seed);
+            }
+        }
+#endif
 #ifdef PATH_TRACING
         // A light reached by sampling a BSDF: light sampling at the surface the path left could have found it
         // too, so MIS splits the credit.
@@ -199,6 +243,19 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
         bool do_next_ray = false;
 
         float next_ray_probability_sum = nextRays.reflectionProbability + nextRays.transmissionProbability;
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING) && !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
+        if (mediumEvent) {
+            // The phase function's sample has weight 1, so only the albedo changes the path's throughput.
+            float phasePdf;
+            vec3 wi = hgSample(mediaG(mediumVolume), normalize(r.d.xyz), random_seed, phasePdf);
+            r = Ray(intersect_position, vec4(wi, 0));
+            attenuation_color *= mediaAlbedo(mediumVolume);
+            prevBsdfPdf = phasePdf;
+            countEmission = true;
+            do_next_ray = true;
+            next_ray_probability_sum = 0.0;
+        }
+#endif
         if (next_ray_probability_sum > 0.0) {
 
             float next_ray_probability_sample = randf(random_seed) * max(next_ray_probability_sum, 1.0);
