@@ -43,7 +43,7 @@ export function configureTest(callback) {
                   .times(Mat4.scale(0.01))));
             
             callback({
-                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 16, 4, "auto", { exposure: -1.25 }),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 16, 4, "auto", { exposure: -1.5 }),
                 width: 600,
                 height: 600
             });

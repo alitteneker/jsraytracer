@@ -27,7 +27,7 @@ export function configureTest(callback) {
                     .times(Mat4.scale(0.15))));
             
             callback({
-                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 8, 4, "auto", { exposure: -1.5 }),
+                renderer: new IncrementalMultisamplingRenderer(new World(objs, lights), camera, 8, 4, "auto", { exposure: -1.25 }),
                 width: 600,
                 height: 600
             });

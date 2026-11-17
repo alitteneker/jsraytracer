@@ -30,7 +30,7 @@ export function configureTest(callback) {
         Mat4.translation([-2, 0.3, -9])));
         
     callback({
-        renderer: new IncrementalMultisamplingRenderer(new World(objects, lights), camera, 64, 4, "auto", { exposure: -1.5 }),
+        renderer: new IncrementalMultisamplingRenderer(new World(objects, lights), camera, 64, 4, "auto", { exposure: -1.25 }),
         width: 600,
         height: 600
     });
