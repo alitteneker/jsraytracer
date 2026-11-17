@@ -29,9 +29,13 @@ class WebGLMaterialsAdapter {
         
         this.solid_colors = new WebGLVecStore(3, false);
         this.texture_groups = [];   // see textureRef
+        this.free_texture_units = [];
         this.reset();
     }
     reset() {
+        // Texture groups are rebuilt by each visit, from the previous visit's groups where they still fit (textureRef).
+        this.previous_texture_groups = (this.previous_texture_groups || []).concat(this.texture_groups);
+        this.texture_groups = [];
         this.solid_colors.clear();
         this.solid_mc_map = {};
         // Edits made in the editor are written back into the CPU scene (see bindToScene), so that rebuilding the
@@ -95,21 +99,30 @@ class WebGLMaterialsAdapter {
         this.material_colors_texture.destroy();
         this.material_indices_texture.destroy();
         this.albedo_texture.destroy();
-        for (const group of this.texture_groups)
-            this.webgl_helper.gl.deleteTexture(group.texture);
+        for (const group of this.texture_groups.concat(this.previous_texture_groups))
+            if (group.texture)
+                this.webgl_helper.gl.deleteTexture(group.texture);
     }
     // Images live in array textures, one per image size and color space (see materials.glsl:colors.textures). sRGB
-    // images are stored as SRGB8_ALPHA8, so the GPU decodes their texels to linear before filtering, as the CPU does. The groups are kept
-    // across reset(), like the uploaded images in them, so revisiting the world after an edit doesn't upload anything
-    // again; a group that gains an image is uploaded again, whole, before the next draw (uploadTextures).
+    // images are stored as SRGB8_ALPHA8, so the GPU decodes their texels to linear before filtering, as the CPU does.
+    // Each visit of the world builds its groups afresh from the images it still uses, reusing the previous visit's
+    // group of the same kind (its texture unit, and its texture if the images are the same), so an edit that keeps the
+    // textures uploads nothing, and images no longer used are dropped. uploadTextures does the uploading.
     textureRef(mc, webgl_helper) {
         const key = mc.width + "x" + mc.height + " " + mc.colorSpace;
         let group = this.texture_groups.find(g => g.key == key);
         if (!group) {
             if (this.texture_groups.length >= WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS)
                 throw `Too many kinds of texture: at most ${WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS} different image sizes and color spaces are supported`;
-            group = { key: key, width: mc.width, height: mc.height, srgb: mc.colorSpace == "srgb", layers: [],
-                unit: webgl_helper.allocateTextureUnit(), texture: null, uploaded: 0 };
+            const previous = this.previous_texture_groups.findIndex(g => g.key == key);
+            if (previous >= 0) {
+                group = this.previous_texture_groups.splice(previous, 1)[0];
+                group.layers = [];
+            }
+            else
+                group = { key: key, width: mc.width, height: mc.height, srgb: mc.colorSpace == "srgb", layers: [],
+                    unit: this.free_texture_units.pop() || webgl_helper.allocateTextureUnit(), texture: null,
+                    uploaded: [] };
             this.texture_groups.push(group);
         }
         let layer = group.layers.indexOf(mc);
@@ -123,8 +136,16 @@ class WebGLMaterialsAdapter {
         return (group << 18) | (layer << 2) | (clampV ? 2 : 0) | (clampU ? 1 : 0);
     }
     uploadTextures(gl) {
+        // Groups the last visit didn't need any more: free their textures, and keep their units for new groups.
+        for (const group of this.previous_texture_groups) {
+            if (group.texture)
+                gl.deleteTexture(group.texture);
+            this.free_texture_units.push(group.unit);
+        }
+        this.previous_texture_groups = [];
+
         for (const group of this.texture_groups) {
-            if (group.uploaded == group.layers.length)
+            if (group.uploaded.length == group.layers.length && group.layers.every((mc, i) => group.uploaded[i] === mc))
                 continue;
             if (!group.texture)
                 group.texture = gl.createTexture();
@@ -143,7 +164,7 @@ class WebGLMaterialsAdapter {
             gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
             gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
             gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
-            group.uploaded = group.layers.length;
+            group.uploaded = group.layers.slice();
         }
     }
     storeSolidColor(color) {
@@ -376,8 +397,8 @@ class WebGLMaterialsAdapter {
         
         if (this.special_colors.length)
             gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
+        this.uploadTextures(gl);
         if (this.texture_groups.length) {
-            this.uploadTextures(gl);
             gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
                 this.texture_groups.map(g => WebGLHelper.textureUnitIndex(g.unit)));
         }
