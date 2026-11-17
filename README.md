@@ -138,7 +138,7 @@ repository. Generate them first with `cd tests && node test_to_json.js dragon` (
 
 A scene is a module in `tests/<name>/test.mjs` that hands back a renderer. Add it to a group in `tests/list.json`,
 as `{ "name": "<name>" }` with an optional `"description"` for its card, and it appears in the scene picker. The
-picker shows `tests/<name>/preview.jpg` if there is one: render it with `?renderAll=1&only=<name>&previews=true` (see below).
+picker shows `tests/<name>/preview.jpg` if there is one: render it with `?update_previews=1&only=<name>` (see below).
 
 ```js
 export function configureTest(callback) {
@@ -205,9 +205,12 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
   reference, so an optimization can be proven not to change the picture
 
 - `?renderAll=1` renders every scene in turn and downloads each as `<scene>.png`, for thumbnails and documentation.
-  Options: `samples` (default 2048), `maxSeconds` per scene (default 120), `only=a,b`, `from=<scene>` to resume,
-  `editable=true`, and `previews=true` to save `<scene>.preview.jpg` files for the scene picker instead (they go in
-  `tests/<scene>/preview.jpg`). Keep the tab visible while it runs, and allow multiple downloads when the browser asks.
+  Allow multiple downloads when the browser asks.
+- `?update_previews=1` renders every scene the same way and replaces its `tests/<scene>/preview.jpg`, the image the
+  scene picker shows. `server.py` writes the files: that's the only thing it will write, and only for requests from
+  the same computer.
+- Both take `samples` (default 2048), `maxSeconds` per scene (default 120), `only=a,b`, `from=<scene>` to resume, and
+  `editable=true`. Keep the tab visible while they run.
 
 [Performance.md](Performance.md) covers what was measured, what changed and what didn't help.
 

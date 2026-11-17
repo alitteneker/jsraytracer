@@ -105,7 +105,7 @@ $(document).ready(function() {
         $("#scene-button").button({ icon: "ui-icon-triangle-1-s", iconPosition: "end" }).on("click", () => scenePicker.open());
         
         const URLParams = new URLSearchParams(window.location.search);
-        if (URLParams.get("renderAll")) {
+        if (URLParams.get("renderAll") || URLParams.get("update_previews")) {
             renderAllScenes(ScenePicker.sceneNames(manifest).sort(), URLParams);
             return;
         }
@@ -168,15 +168,18 @@ $(document).ready(function() {
         });
     }
 
-    // Image harness, ?renderAll=1: renders every scene in tests/list.json in turn and downloads each as <scene>.png.
+    // Image harness: renders every scene in tests/list.json in turn.
+    //   ?renderAll=1        downloads each as <scene>.png, for thumbnails and documentation. Allow multiple downloads
+    //                       when Chrome asks.
+    //   ?update_previews=1  replaces each scene's tests/<scene>/preview.jpg, the image the scene picker shows. The JPEGs
+    //                       are sent to server.py, which writes them into place (it accepts nothing else).
+    // Either takes these options:
     //   samples=N      samples per pixel to stop at (default 2048)
     //   maxSeconds=S   stop a scene after S seconds of rendering even if it hasn't reached N (default 120)
     //   loadSeconds=S  give up on a scene that hasn't started rendering after S seconds (default 180)
     //   only=a,b       just these scenes;  from=name  start at this scene (to resume)
     //   editable=true  use the editable shader for every scene
-    //   previews=true  save each as <scene>.preview.jpg instead, ready to go in tests/<scene>/preview.jpg (the image
-    //                  the scene picker shows)
-    // Keep the tab visible (browsers pause drawing in hidden tabs), and allow multiple downloads when Chrome asks.
+    // Keep the tab visible: browsers pause drawing in hidden tabs.
     async function renderAllScenes(tests, params) {
         const samples = Number(params.get("samples") || 2048),
               maxSeconds = Number(params.get("maxSeconds") || 120),
@@ -196,6 +199,14 @@ $(document).ready(function() {
             a.click();
             a.remove();
             setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        };
+        const updatePreviews = !!params.get("update_previews");
+        const uploadPreview = async (blob, name) => {
+            const response = await fetch(`../tests/${encodeURIComponent(name)}/preview.jpg`,
+                { method: "PUT", body: blob, headers: { "Content-Type": "image/jpeg" } });
+            if (!response.ok)
+                throw `the server didn't save the preview (${response.status} ${response.statusText})`
+                    + (response.status == 501 ? ": restart server.py so it has update_previews support" : "");
         };
         const results = [];
         myconsole.log(`Rendering ${tests.length} scenes to ${samples} samples each (at most ${maxSeconds} s per scene)...`);
@@ -226,13 +237,13 @@ $(document).ready(function() {
                     $("#samples-per-draw").val(i.samplesPerDraw);
                 }
                 const reached = i.renderer_adapter.drawCount;
-                if (params.get("previews") == "true")
-                    download(await i.captureImage("image/jpeg", 0.88), `${test}.preview.jpg`);
+                if (updatePreviews)
+                    await uploadPreview(await i.captureImage("image/jpeg", 0.88), test);
                 else
                     download(await i.captureImage(), `${test}.png`);
                 const seconds = ((performance.now() - started) / 1000).toFixed(1);
                 results.push({ test: test, samples: reached, seconds: seconds });
-                myconsole.log(`Saved ${test}: ${reached} samples, ${seconds} s` + (reached < samples ? " (stopped at the time limit)" : ""));
+                myconsole.log((updatePreviews ? `Updated tests/${test}/preview.jpg` : `Saved ${test}`) + `: ${reached} samples, ${seconds} s` + (reached < samples ? " (stopped at the time limit)" : ""));
             } catch (e) {
                 results.push({ test: test, error: String(e) });
                 myconsole.error(`Skipped ${test}: ${e}`);
