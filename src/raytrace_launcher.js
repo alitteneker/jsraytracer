@@ -161,4 +161,4 @@ document.addEventListener("DOMContentLoaded", function(event) {
         progress_bar.style.width = (percentage * 100) + "%";
         progress_label.innerHTML = (percentage * 100).toFixed(1) + "% after " + pass.toFixed(1) + " passes : " + (remaining_time / 1000).toFixed(1) + "s left of " + (total_time / 1000).toFixed(1) + "s est.";
     }
-});
+});

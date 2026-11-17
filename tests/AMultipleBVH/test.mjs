@@ -41,4 +41,4 @@ export function configureTest(callback) {
             });
         },
         new PhongMaterial(Vec.of(1,0.7,0.7), 0.1, 0.4, 0.6, 100, 0.4));
-}
+}

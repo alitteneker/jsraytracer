@@ -1,0 +1,3 @@
+# Text files are stored with LF line endings, whatever the platform. Checkouts on Windows may still use CRLF
+# (core.autocrlf), but commits are normalized, so the line endings of a whole file never show up as a change.
+* text=auto

@@ -378,4 +378,4 @@ function loadObjFiles(files, callback, defaultMaterial=null, transform=Mat4.iden
             );
         })(i);
     }
-}
+}

@@ -850,4 +850,4 @@ class WebGLRendererAdapter {
         this.gl.enableVertexAttribArray(this.passthroughVertexAttrib);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
-}
+}

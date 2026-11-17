@@ -34,4 +34,4 @@ export function configureTest(callback) {
         width: 600,
         height: 600
     });
-}
+}

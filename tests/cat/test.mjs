@@ -32,4 +32,4 @@ export function configureTest(callback) {
                 height: 600
             });
         });
-}
+}

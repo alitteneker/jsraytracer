@@ -1282,4 +1282,4 @@ class WebGLEditorInterface {
             }
         }
     }
-}
+}
