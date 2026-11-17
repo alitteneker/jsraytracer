@@ -123,7 +123,7 @@ every edit made so far.
 
 On a phone or tablet, the canvas starts in **Navigate** mode: drag on the left half of the image and a joystick
 appears under your thumb to move the camera (push further to go faster), drag on the right half to look around, and
-use the two buttons to raise and lower it. Taps select objects. The toggle in the top corner switches to **Edit**, where
+use the two buttons to raise and lower it. Taps select objects. The toggle in the top corner switches to **Transform**, where
 dragging the selected object moves it, as with a mouse. Add `?touchControls=1` to show the controls on a
 desktop, or `?touchControls=0` to hide them on a touch device.
 

@@ -1203,10 +1203,10 @@ class WebGLEditorInterface {
     }
 
     // On-screen touch controls (gl/index.html, #touch-controls): shown when the main pointer is a finger, or with
-    // ?touchControls=1. They add a Navigate/Edit toggle. In Navigate mode (the default) a drag that starts on the
+    // ?touchControls=1. They add a Navigate/Transform toggle. In Navigate mode (the default) a drag that starts on the
     // image's left half becomes a floating joystick, centered where the finger landed, that moves the camera across
     // (x) and along (z) its view at a speed growing with how far it is pushed (squared, for fine control near the
-    // center); a drag on the right half turns the camera, and never moves the selected object. Edit mode gives the
+    // center); a drag on the right half turns the camera, and never moves the selected object. Transform mode gives the
     // canvas back its usual behavior, so dragging the selected object moves it. Taps select in both modes. The
     // buttons raise and lower the camera. Each finger is tracked by its pointer id, so one can steer while another
     // turns.
@@ -1225,7 +1225,7 @@ class WebGLEditorInterface {
         }
 
         const modeButton = $("#touch-mode");
-        const showMode = () => modeButton.text(this.touchNavigate ? "Navigate" : "Edit").toggleClass("editing", !this.touchNavigate);
+        const showMode = () => modeButton.text(this.touchNavigate ? "Navigate" : "Transform").toggleClass("editing", !this.touchNavigate);
         modeButton.on("click", () => {
             this.touchNavigate = !this.touchNavigate;
             showMode();
