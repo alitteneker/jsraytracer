@@ -13,6 +13,8 @@ body {
 #loading-overlay {
     position: absolute;
     color: white;
+    text-shadow: 0 0 4px black;
+    pointer-events: none;
     top: 0;
     bottom: 0;
     left: 0;
@@ -98,6 +100,10 @@ output {
 
 #console_output .error {
     color: red;
+}
+
+#loading-overlay.failed {
+    color: #ff6060;
 }
 
 #console_output .warning {

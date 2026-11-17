@@ -25,11 +25,11 @@ $(document).ready(function() {
         return;
     }
     // From here on, uncaught errors go to the log too: those thrown in callbacks (window.onerror) and those in promise
-    // chains nothing waits on, such as a scene's asset loading (unhandledrejection). Either one means the scene being
-    // loaded won't arrive, so the loading indicator stops.
+    // chains nothing waits on, such as a scene's asset loading (unhandledrejection). One during loading means the
+    // scene won't arrive, and the loading indicator says so (LoadingStatus.failed); at other times it's only logged.
     const reportUncaught = (error, where) => {
         myconsole.error(error && error.stack ? error.stack : error, where || "");
-        $(".loading").css('visibility', 'hidden');
+        LoadingStatus.failed();
     };
     window.onerror = (msg, url, lineNo, columnNo, error) => reportUncaught(error || msg, "@" + url + ":" + lineNo);
     window.addEventListener("unhandledrejection", e => reportUncaught(e.reason));
@@ -136,7 +136,7 @@ $(document).ready(function() {
     // Returns a promise that resolves once the scene is configured (its shader is still to be built), or rejects if
     // its module can't be loaded.
     function loadTest(test) {
-        $(".loading").css('visibility', 'visible');
+        LoadingStatus.phase("Loading the scene's files");
         if (scenePicker) {
             $("#scene-button").button("option", "label", test);
             scenePicker.setCurrent(test);
@@ -156,13 +156,13 @@ $(document).ready(function() {
                     document.title = defaultTitle + ": " + test;
                 }, function(e) {
                     myconsole.error(e);
-                    $(".loading").css('visibility', 'hidden');
+                    LoadingStatus.failed();
                     reject(e);
                 });
             }
             catch(e) {
                 myconsole.error(e);
-                $(".loading").css('visibility', 'hidden');
+                LoadingStatus.failed();
                 reject(e);
             }
         });

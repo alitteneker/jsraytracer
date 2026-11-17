@@ -187,7 +187,7 @@ class WebGLHelper {
                 }
                 catch(e) {
                     myconsole.error(e);
-                    $(".loading").css('visibility', 'hidden');
+                    LoadingStatus.failed();
                 }
             }
             requestAnimationFrame(checkCompletion);
@@ -309,5 +309,44 @@ class WebGLTexture {
     }
     modifyDataPixel(index, new_value) {
         this.modifyPixel(index % this.width, Math.floor(index / this.width), new_value);
+    }
+}
+
+// The loading indicator: the spinner beside the scene button and a label over the canvas, which say which phase of
+// loading a scene is in. Each phase starts with phase(), and the first frame drawn ends it all with done(). An error
+// while a scene is loading means it won't arrive, so failed() stops the spinner and says so; an error at any other
+// time is only logged, since nothing is loading then.
+class LoadingStatus {
+    static active = false;
+    static phase(label) {
+        LoadingStatus.active = true;
+        $("#loading-overlay").text(label + "...").removeClass("failed");
+        $(".loading").css("visibility", "visible");
+    }
+    static done() {
+        LoadingStatus.active = false;
+        $(".loading").css("visibility", "hidden");
+    }
+    // Returns whether a scene was loading (and so has now failed).
+    static failed() {
+        if (!LoadingStatus.active)
+            return false;
+        LoadingStatus.active = false;
+        $("#loading-img").css("visibility", "hidden");
+        $("#loading-overlay").text("Loading failed: see the log").addClass("failed").css("visibility", "visible");
+        return true;
+    }
+    // Runs fn once the browser has had a chance to show a new phase: after the next frame, or after 50 ms if no frame
+    // comes (a hidden tab draws none). Long synchronous steps would otherwise run before the label ever appears.
+    static afterPaint(fn) {
+        let ran = false;
+        const run = () => {
+            if (!ran) {
+                ran = true;
+                fn();
+            }
+        };
+        requestAnimationFrame(() => setTimeout(run, 0));
+        setTimeout(run, 50);
     }
 }

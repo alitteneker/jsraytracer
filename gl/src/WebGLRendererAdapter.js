@@ -155,25 +155,35 @@ class WebGLRendererAdapter {
         return this.renderer.world.anyMaterial(m => m.prefersPathTracing);
     }
 
+    // Builds an adapter for the renderer in three phases, each shown by the loading indicator (LoadingStatus): the
+    // scene's GPU data, the shader, then the upload. Each phase waits for the indicator to show before its work, so
+    // errors in it surface asynchronously (through window.onerror, which reports a failed load).
     static build(gl, canvas, renderer, callback) {
-        myconsole.log("Building adapters...");
-        const ret = new WebGLRendererAdapter(gl, canvas, renderer);
-        
-        // Build the shader programs to make this render
-        const compile_start = Date.now();
-        myconsole.log("Building shader...");
-        ret.buildShaders(ret.gl, canvas, () => {
-            ret.compileSeconds = (Date.now() - compile_start) / 1000;
-            myconsole.log(`Shader successfully built in ${ret.compileSeconds} seconds.`);
-            
-            // Write data to shaders
-            myconsole.log("Writing shader data...");
-            const write_start = Date.now();
-            ret.writeShaderData(ret.gl);
-            myconsole.log(`Shader data written in ${(Date.now() - write_start) / 1000} seconds.`);
-            
-            if (callback)
-                callback(ret);
+        LoadingStatus.phase("Preparing the scene");
+        LoadingStatus.afterPaint(() => {
+            myconsole.log("Building adapters...");
+            const ret = new WebGLRendererAdapter(gl, canvas, renderer);
+
+            LoadingStatus.phase("Compiling the shader");
+            LoadingStatus.afterPaint(() => {
+                const compile_start = Date.now();
+                myconsole.log("Building shader...");
+                ret.buildShaders(ret.gl, canvas, () => {
+                    ret.compileSeconds = (Date.now() - compile_start) / 1000;
+                    myconsole.log(`Shader successfully built in ${ret.compileSeconds} seconds.`);
+
+                    LoadingStatus.phase("Uploading the scene");
+                    LoadingStatus.afterPaint(() => {
+                        myconsole.log("Writing shader data...");
+                        const write_start = Date.now();
+                        ret.writeShaderData(ret.gl);
+                        myconsole.log(`Shader data written in ${(Date.now() - write_start) / 1000} seconds.`);
+
+                        if (callback)
+                            callback(ret);
+                    });
+                });
+            });
         });
     }
     

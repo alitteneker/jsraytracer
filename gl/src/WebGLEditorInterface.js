@@ -330,11 +330,11 @@ class WebGLEditorInterface {
                 
                 this.startDrawLoop();
 
-                $(".loading").css('visibility', 'hidden');
+                LoadingStatus.done();
             }.bind(this));
         } catch(error) {
             myconsole.error(error);
-            $(".loading").css('visibility', 'hidden');
+            LoadingStatus.failed();
         }
     }
     startDrawLoop() {
@@ -404,7 +404,7 @@ class WebGLEditorInterface {
 
         const settings = ra.getMutableRendererParameters(), samples = this.samplesPerDraw;
         this.stopDrawLoop();
-        $(".loading").css('visibility', 'visible');
+        LoadingStatus.phase(`Switching to the ${editable ? "editable" : "scene-specific"} shader`);
         myconsole.log(`Switching to the ${editable ? "editable" : "scene-specific"} shader...`);
         this.changeTest({ renderer: ra.renderer, width: ra.canvas.width, height: ra.canvas.height }, adapter => {
             for (const [name, p] of Object.entries(settings))
