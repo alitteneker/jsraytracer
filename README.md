@@ -121,6 +121,10 @@ Pick a scene from the scene picker, or jump straight to one with `?test=<name>`,
 It renders a little slower, but adding and removing objects is then instant. Switching keeps the scene, the camera and
 every edit made so far.
 
+On a phone or tablet, an on-screen joystick under the canvas moves the camera (push further to go faster) and two
+buttons raise and lower it; dragging the image still looks around. Add `?touchControls=1` to show the controls on a
+desktop, or `?touchControls=0` to hide them on a touch device.
+
 ### Scenes
 
 The `tests/` folder holds more than thirty scenes, listed in [`tests/list.json`](tests/list.json). A few to start with:

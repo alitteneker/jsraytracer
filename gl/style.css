@@ -8,6 +8,69 @@ body {
 
 .canvas-widget {
     position: relative;
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+/* Touch controls: hidden unless the device's main pointer is coarse (a finger), or ?touchControls=1 asks for them
+   (the body gets .touch-controls then). They sit over the canvas's bottom corners. */
+#touch-controls {
+    display: none;
+}
+body.touch-controls #touch-controls {
+    display: block;
+}
+.touch-stick, .touch-button {
+    position: absolute;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    background: rgba(255, 255, 255, 0.12);
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    box-sizing: border-box;
+}
+.touch-stick {
+    left: 18px;
+    bottom: 18px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+}
+.touch-knob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 50px;
+    height: 50px;
+    margin: -25px 0 0 -25px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.45);
+    pointer-events: none;
+}
+.touch-stick.active .touch-knob, .touch-button.active {
+    background: rgba(255, 255, 255, 0.7);
+}
+#lift-buttons {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    width: 56px;
+    height: 124px;
+}
+.touch-button {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    margin-top: 12px;
+    border-radius: 14px;
+    color: white;
+    font-size: 22px;
+    line-height: 52px;
+    text-align: center;
+}
+.touch-button:first-child {
+    margin-top: 0;
 }
 
 #loading-overlay {

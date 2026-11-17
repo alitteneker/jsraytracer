@@ -78,6 +78,16 @@
         <div class="canvas-widget">
             <canvas id="glcanvas" tabindex="0"></canvas>
             <div id="loading-overlay" class="loading" style="visibility:hidden">Loading...</div>
+            <!-- On-screen controls for touch screens (see WebGLEditorInterface.registerTouchControls): a joystick to move
+                 the camera across and along the view, and buttons to raise and lower it. Dragging the image still turns
+                 the camera. -->
+            <div id="touch-controls">
+                <div id="move-stick" class="touch-stick" title="Move the camera"><div class="touch-knob"></div></div>
+                <div id="lift-buttons">
+                    <div class="touch-button" data-lift="1" title="Move the camera up">&#x25B2;</div>
+                    <div class="touch-button" data-lift="-1" title="Move the camera down">&#x25BC;</div>
+                </div>
+            </div>
         </div>
         <div id="edit-bars"><div class="control-group" id="object-control-bar">
             <button id="deselect-object-button">Deselect</button>

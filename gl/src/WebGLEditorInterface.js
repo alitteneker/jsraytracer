@@ -144,6 +144,7 @@ class WebGLEditorInterface {
         
         this.registerPointerEvents(canvas);
         this.registerKeyEvents();
+        this.registerTouchControls();
         
         
         this.samplesPerDraw = 1;
@@ -1189,12 +1190,83 @@ class WebGLEditorInterface {
         canvas_widget.on("keyup",   this.keyUp.bind(this));
         canvas_widget.on("blur",    this.keyReset.bind(this));
     }
+    // The camera's movement direction, in its own frame (x right, y up, z back): the keys held, plus the touch joystick
+    // and lift buttons (which can be partway, so movement is analog).
     calcKeyDelta() {
         this.keyMoveDelta = [0,0,0];
         for (let [key, isDown] of Object.entries(this.keysDown))
             if (isDown && key in this.keyDirMap)
                 for (let i = 0; i < 3; ++i)
                     this.keyMoveDelta[i] += this.keyDirMap[key][i];
+        for (let i = 0; i < 3; ++i)
+            this.keyMoveDelta[i] += this.touchMoveDelta[i];
+    }
+
+    // On-screen touch controls (gl/index.html, #touch-controls): shown when the main pointer is a finger, or with
+    // ?touchControls=1. The joystick moves the camera across (x) and along (z) its view, at a speed growing with how
+    // far the knob is pushed (squared, for fine control near the center); the buttons raise and lower it. Each
+    // control captures its own pointer, so one finger can steer while another drags the image to turn.
+    touchMoveDelta = [0,0,0];
+    registerTouchControls() {
+        const force = new URLSearchParams(window.location.search).get("touchControls");
+        if (force ? force != "0" : window.matchMedia("(pointer: coarse)").matches)
+            $("body").addClass("touch-controls");
+
+        const stick = $("#move-stick"), knob = stick.find(".touch-knob");
+        let stickPointer = null;
+        const steer = e => {
+            const rect = stick.get(0).getBoundingClientRect(), radius = rect.width / 2;
+            let dx = (e.clientX - rect.left - radius) / radius, dy = (e.clientY - rect.top - radius) / radius;
+            const length = Math.hypot(dx, dy);
+            if (length > 1) {
+                dx /= length;
+                dy /= length;
+            }
+            knob.css("transform", `translate(${dx * radius}px, ${dy * radius}px)`);
+            const push = Math.min(length, 1);   // speed = push^2, along the knob's direction
+            this.touchMoveDelta[0] = dx * push;
+            this.touchMoveDelta[2] = dy * push;   // pushing up (dy < 0) moves forward, along -z
+            this.calcKeyDelta();
+        };
+        const release = e => {
+            if (e.pointerId !== stickPointer)
+                return;
+            stickPointer = null;
+            stick.removeClass("active");
+            knob.css("transform", "");
+            this.touchMoveDelta[0] = this.touchMoveDelta[2] = 0;
+            this.calcKeyDelta();
+        };
+        stick.on("pointerdown", e => {
+            e.preventDefault();
+            stickPointer = e.pointerId;
+            stick.get(0).setPointerCapture(e.pointerId);
+            stick.addClass("active");
+            steer(e);
+        });
+        stick.on("pointermove", e => {
+            if (e.pointerId === stickPointer)
+                steer(e);
+        });
+        stick.on("pointerup pointercancel lostpointercapture", e => release(e));
+
+        $("#lift-buttons .touch-button").each((_, button) => {
+            const lift = Number(button.dataset.lift);
+            $(button).on("pointerdown", e => {
+                e.preventDefault();
+                button.setPointerCapture(e.pointerId);
+                $(button).addClass("active");
+                this.touchMoveDelta[1] = lift;
+                this.calcKeyDelta();
+            });
+            $(button).on("pointerup pointercancel lostpointercapture", e => {
+                if (!$(button).hasClass("active"))
+                    return;
+                $(button).removeClass("active");
+                this.touchMoveDelta[1] = 0;
+                this.calcKeyDelta();
+            });
+        });
     }
     keyDown(e) {
         if (e.key == "Delete") {
