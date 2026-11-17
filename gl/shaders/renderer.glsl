@@ -326,7 +326,12 @@ void main() {
 
 //#section display.fragment
 #version 300 es
-precision mediump float;
+// highp throughout: the accumulated sums this reads are far outside mediump's range on phones, where mediump is a real
+// 16 bit float (desktop GPUs run it as highp, which hid this). A background sample's depth alone is 1e20, so it became
+// infinity, the denoiser's depth weights NaN, and the depth written (alpha / uMaxDepth, at most 1 - EPSILON, which is
+// 1.0 in 16 bits) failed the depth test against the cleared depth of 1.0: the background came out black.
+precision highp float;
+precision highp sampler2D;
 #define EPSILON 0.0001
 
 #define INV_SQRT_OF_2PI 0.39894228040143267793994605993439  // 1.0/SQRT_OF_2PI
