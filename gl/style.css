@@ -14,14 +14,15 @@ body {
 }
 
 /* Touch controls: hidden unless the device's main pointer is coarse (a finger), or ?touchControls=1 asks for them
-   (the body gets .touch-controls then). They sit over the canvas's bottom corners. */
+   (the body gets .touch-controls then). The joystick is placed by script where a drag starts, and shown only while
+   it is in use; the mode toggle and lift buttons sit in the canvas's top-right and bottom-right corners. */
 #touch-controls {
     display: none;
 }
 body.touch-controls #touch-controls {
     display: block;
 }
-.touch-stick, .touch-button {
+.touch-stick, .touch-button, #touch-mode {
     position: absolute;
     touch-action: none;
     user-select: none;
@@ -31,11 +32,25 @@ body.touch-controls #touch-controls {
     box-sizing: border-box;
 }
 .touch-stick {
-    left: 18px;
-    bottom: 18px;
+    display: none;
     width: 120px;
     height: 120px;
     border-radius: 50%;
+    pointer-events: none;   /* the canvas keeps the finger; this only shows where it is */
+}
+.touch-stick.active {
+    display: block;
+}
+#touch-mode {
+    top: 18px;
+    right: 18px;
+    padding: 6px 12px;
+    border-radius: 14px;
+    color: white;
+    font-size: 15px;
+}
+#touch-mode.editing {
+    background: rgba(255, 170, 60, 0.45);
 }
 .touch-knob {
     position: absolute;

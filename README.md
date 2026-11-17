@@ -121,8 +121,10 @@ Pick a scene from the scene picker, or jump straight to one with `?test=<name>`,
 It renders a little slower, but adding and removing objects is then instant. Switching keeps the scene, the camera and
 every edit made so far.
 
-On a phone or tablet, an on-screen joystick under the canvas moves the camera (push further to go faster) and two
-buttons raise and lower it; dragging the image still looks around. Add `?touchControls=1` to show the controls on a
+On a phone or tablet, the canvas starts in **Navigate** mode: drag on the left half of the image and a joystick
+appears under your thumb to move the camera (push further to go faster), drag on the right half to look around, and
+use the two buttons to raise and lower it. Taps select objects. The toggle in the top corner switches to **Edit**, where
+dragging the selected object moves it, as with a mouse. Add `?touchControls=1` to show the controls on a
 desktop, or `?touchControls=0` to hide them on a touch device.
 
 ### Scenes

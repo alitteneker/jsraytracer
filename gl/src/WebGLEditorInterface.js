@@ -1203,52 +1203,34 @@ class WebGLEditorInterface {
     }
 
     // On-screen touch controls (gl/index.html, #touch-controls): shown when the main pointer is a finger, or with
-    // ?touchControls=1. The joystick moves the camera across (x) and along (z) its view, at a speed growing with how
-    // far the knob is pushed (squared, for fine control near the center); the buttons raise and lower it. Each
-    // control captures its own pointer, so one finger can steer while another drags the image to turn.
+    // ?touchControls=1. They add a Navigate/Edit toggle. In Navigate mode (the default) a drag that starts on the
+    // image's left half becomes a floating joystick, centered where the finger landed, that moves the camera across
+    // (x) and along (z) its view at a speed growing with how far it is pushed (squared, for fine control near the
+    // center); a drag on the right half turns the camera, and never moves the selected object. Edit mode gives the
+    // canvas back its usual behavior, so dragging the selected object moves it. Taps select in both modes. The
+    // buttons raise and lower the camera. Each finger is tracked by its pointer id, so one can steer while another
+    // turns.
+    static TAP_SLOP = 10;        // px a finger may wander and still count as a tap
+    static STICK_RADIUS = 60;    // px of drag for full speed
     touchMoveDelta = [0,0,0];
+    touchNavigate = false;
+    stickPointer = null;
+    stickOrigin = null;          // client position where the joystick's finger landed
+    stickActive = false;         // whether that finger has moved past TAP_SLOP (so it isn't a tap)
     registerTouchControls() {
         const force = new URLSearchParams(window.location.search).get("touchControls");
-        if (force ? force != "0" : window.matchMedia("(pointer: coarse)").matches)
+        if (force ? force != "0" : window.matchMedia("(pointer: coarse)").matches) {
             $("body").addClass("touch-controls");
+            this.touchNavigate = true;
+        }
 
-        const stick = $("#move-stick"), knob = stick.find(".touch-knob");
-        let stickPointer = null;
-        const steer = e => {
-            const rect = stick.get(0).getBoundingClientRect(), radius = rect.width / 2;
-            let dx = (e.clientX - rect.left - radius) / radius, dy = (e.clientY - rect.top - radius) / radius;
-            const length = Math.hypot(dx, dy);
-            if (length > 1) {
-                dx /= length;
-                dy /= length;
-            }
-            knob.css("transform", `translate(${dx * radius}px, ${dy * radius}px)`);
-            const push = Math.min(length, 1);   // speed = push^2, along the knob's direction
-            this.touchMoveDelta[0] = dx * push;
-            this.touchMoveDelta[2] = dy * push;   // pushing up (dy < 0) moves forward, along -z
-            this.calcKeyDelta();
-        };
-        const release = e => {
-            if (e.pointerId !== stickPointer)
-                return;
-            stickPointer = null;
-            stick.removeClass("active");
-            knob.css("transform", "");
-            this.touchMoveDelta[0] = this.touchMoveDelta[2] = 0;
-            this.calcKeyDelta();
-        };
-        stick.on("pointerdown", e => {
-            e.preventDefault();
-            stickPointer = e.pointerId;
-            stick.get(0).setPointerCapture(e.pointerId);
-            stick.addClass("active");
-            steer(e);
+        const modeButton = $("#touch-mode");
+        const showMode = () => modeButton.text(this.touchNavigate ? "Navigate" : "Edit").toggleClass("editing", !this.touchNavigate);
+        modeButton.on("click", () => {
+            this.touchNavigate = !this.touchNavigate;
+            showMode();
         });
-        stick.on("pointermove", e => {
-            if (e.pointerId === stickPointer)
-                steer(e);
-        });
-        stick.on("pointerup pointercancel lostpointercapture", e => release(e));
+        showMode();
 
         $("#lift-buttons .touch-button").each((_, button) => {
             const lift = Number(button.dataset.lift);
@@ -1267,6 +1249,50 @@ class WebGLEditorInterface {
                 this.calcKeyDelta();
             });
         });
+    }
+    startStick(e) {
+        this.stickPointer = e.pointerId;
+        this.stickOrigin = [e.clientX, e.clientY];
+        this.stickActive = false;
+        this.canvas.get(0).setPointerCapture(e.pointerId);
+    }
+    moveStick(e) {
+        const R = WebGLEditorInterface.STICK_RADIUS, stick = $("#move-stick");
+        const ox = e.clientX - this.stickOrigin[0], oy = e.clientY - this.stickOrigin[1];
+        if (!this.stickActive) {
+            if (Math.hypot(ox, oy) < WebGLEditorInterface.TAP_SLOP)
+                return;
+            this.stickActive = true;
+            const widget = $("div.canvas-widget").get(0).getBoundingClientRect();
+            stick.css({ left: this.stickOrigin[0] - widget.left - R, top: this.stickOrigin[1] - widget.top - R }).addClass("active");
+        }
+        let dx = ox / R, dy = oy / R;
+        const length = Math.hypot(dx, dy);
+        if (length > 1) {
+            dx /= length;
+            dy /= length;
+        }
+        stick.find(".touch-knob").css("transform", `translate(${dx * R}px, ${dy * R}px)`);
+        const push = Math.min(length, 1);   // speed = push^2, along the knob's direction
+        this.touchMoveDelta[0] = dx * push;
+        this.touchMoveDelta[2] = dy * push;   // pushing up (dy < 0) moves forward, along -z
+        this.calcKeyDelta();
+    }
+    // Ends the joystick's touch; one that never left TAP_SLOP was a tap, so it selects (unless the touch was cancelled).
+    endStick(e, cancelled) {
+        if (e.pointerId !== this.stickPointer)
+            return;
+        if (!this.stickActive && !cancelled && this.renderer_adapter) {
+            const rect = this.canvas.get(0).getBoundingClientRect();
+            this.selectObjectAt(this.stickOrigin[0] - rect.left, this.stickOrigin[1] - rect.top);
+        }
+        this.stickPointer = null;
+        this.stickActive = false;
+        $("#move-stick").removeClass("active").find(".touch-knob").css("transform", "");
+        this.touchMoveDelta[0] = this.touchMoveDelta[2] = 0;
+        this.calcKeyDelta();
+        if (this.canvas.get(0).hasPointerCapture(e.pointerId))
+            this.canvas.get(0).releasePointerCapture(e.pointerId);
     }
     keyDown(e) {
         if (e.key == "Delete") {
@@ -1301,27 +1327,42 @@ class WebGLEditorInterface {
     nextMousePos = [0,0];
     isMouseDown = false;
     hasMouseMoved = false;
+    lookPointer = null;   // the pointer turning the camera (or moving the selection); others are ignored here
+    downPos = [0,0];
     registerPointerEvents(canvas) {
         canvas.on("pointerdown",   this.pointerDown.bind(this));
         canvas.on("pointerup",     this.pointerUp.bind(this));
         canvas.on("pointercancel", this.pointerLeave.bind(this));
         canvas.on("pointermove",   this.pointerMove.bind(this));
+        canvas.on("lostpointercapture", e => this.endStick(e, true));
         canvas.on("blur", e => {
             this.isMouseDown = false;
+            this.lookPointer = null;
             this.keyReset();
         });
     }
     pointerDown(e) {
         if (e.pointerType === 'mouse' && e.button !== 0)
             return;
+        const rect = e.target.getBoundingClientRect();
+        if (this.touchNavigate && this.stickPointer === null && e.clientX - rect.left < rect.width / 2) {
+            e.preventDefault();
+            this.startStick(e);
+            return;
+        }
+        // A second finger is ignored while the first turns, unless the first was lost without an up or cancel (its
+        // capture is gone then), which would otherwise leave the canvas deaf.
+        if (this.lookPointer !== null && this.canvas.get(0).hasPointerCapture(this.lookPointer))
+            return;
+        this.lookPointer = e.pointerId;
         if (e.target.hasPointerCapture(e.pointerID))
             e.target.releasePointerCapture(e.pointerID);
         this.hasMouseMoved = false;
         this.isMouseDown = true;
+        this.downPos = [e.clientX, e.clientY];
         if (this.renderer_adapter) {
-            const rect = e.target.getBoundingClientRect();
-            const mousePos = [event.clientX - rect.left, event.clientY - rect.top];
-            if (this.transformObject) {
+            const mousePos = [e.clientX - rect.left, e.clientY - rect.top];
+            if (this.transformObject && !this.touchNavigate) {
                 const ray = this.renderer_adapter.getRayForPixel(mousePos[0], mousePos[1]).getTransformed(this.transformObject.getAncestorInvTransform());
                 this.transformObject.selectDepth = this.transformObject.aabb.isFinite()
                     ? this.transformObject.aabb.intersect(ray) : this.transformObject.intersect(ray).distance;
@@ -1332,13 +1373,22 @@ class WebGLEditorInterface {
         this.canvas.get(0).setPointerCapture(e.pointerId);
     }
     pointerUp(e) {
+        if (e.pointerId === this.stickPointer)
+            return this.endStick(e, false);
+        if (e.pointerId !== this.lookPointer)
+            return;
         if (this.hasMouseMoved === false && this.renderer_adapter) {
             const rect = e.target.getBoundingClientRect();
-            this.selectObjectAt(event.clientX - rect.left, event.clientY - rect.top);
+            this.selectObjectAt(e.clientX - rect.left, e.clientY - rect.top);
         }
         this.pointerLeave(e);
     }
     pointerLeave(e) {
+        if (e.pointerId === this.stickPointer)
+            return this.endStick(e, true);
+        if (e.pointerId !== this.lookPointer)
+            return;
+        this.lookPointer = null;
         if (this.transformObject) {
             if (this.transformObject.isBeingTransformed)
                 this.lastMousePos = this.nextMousePos;
@@ -1348,12 +1398,23 @@ class WebGLEditorInterface {
         this.canvas.get(0).releasePointerCapture(e.pointerId);
     }
     pointerMove(e) {
-        if (this.isMouseDown) {
-            this.hasMouseMoved = true;
-            if (this.renderer_adapter) {
-                const rect = e.target.getBoundingClientRect();
-                this.nextMousePos = [event.clientX - rect.left, event.clientY - rect.top];
-            }
+        if (e.pointerId === this.stickPointer)
+            return this.moveStick(e);
+        if (e.pointerId !== this.lookPointer || !this.isMouseDown)
+            return;
+        // A finger always jitters a little, so for touch a move only counts (turning the camera, and ruling out a tap)
+        // once it has gone past TAP_SLOP; a mouse counts from the first pixel, as before.
+        if (!this.hasMouseMoved && e.pointerType !== 'mouse'
+                && Math.hypot(e.clientX - this.downPos[0], e.clientY - this.downPos[1]) < WebGLEditorInterface.TAP_SLOP)
+            return;
+        if (this.renderer_adapter) {
+            const rect = e.target.getBoundingClientRect();
+            this.nextMousePos = [e.clientX - rect.left, e.clientY - rect.top];
+            // Turning starts from where the slop ran out, so the image doesn't jump by it (moving an object follows the
+            // finger exactly, so it keeps the jump).
+            if (!this.hasMouseMoved && e.pointerType !== 'mouse' && !(this.transformObject && this.transformObject.isBeingTransformed))
+                this.lastMousePos = this.nextMousePos;
         }
+        this.hasMouseMoved = true;
     }
 }
