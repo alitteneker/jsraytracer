@@ -126,7 +126,9 @@ class WebGLEditorInterface {
     constructor() {
         const canvas = this.canvas = $('#glcanvas');
         
-        const gl = this.gl = canvas.get(0).getContext('webgl2');
+        // Opaque: every pixel of the image is drawn, so the page never needs to show through it. (With alpha, a pixel
+        // left undrawn is transparent, and how that composites varies between browsers and devices.)
+        const gl = this.gl = canvas.get(0).getContext('webgl2', { alpha: false });
         if (!gl)
             throw 'Unable to initialize WebGL. Your browser or machine may not support it.';
         

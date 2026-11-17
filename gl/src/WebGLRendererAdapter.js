@@ -858,6 +858,11 @@ class WebGLRendererAdapter {
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.positionBuffer);
         this.gl.vertexAttribPointer(this.passthroughVertexAttrib, 2, this.gl.FLOAT, false, 0, 0);
         this.gl.enableVertexAttribArray(this.passthroughVertexAttrib);
+        // The image covers the whole canvas whatever its depths: they're only written for the selection wireframes
+        // drawn after it to test against. (With the default LESS test, a pixel whose depth rounded to the cleared 1.0
+        // wasn't drawn at all, as happened to the background on phones.)
+        this.gl.depthFunc(this.gl.ALWAYS);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        this.gl.depthFunc(this.gl.LESS);
     }
 }
