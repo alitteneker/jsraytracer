@@ -1,6 +1,6 @@
 # BSDF checks
 
-Node scripts that test the CPU BSDFs and integrators (`src/bsdf.js`, `src/integrators.js`). Run from the repository
+Node scripts that test the CPU BSDFs, integrators and lights (`src/bsdf.js`, `src/integrators.js`, `src/lights.js`). Run from the repository
 root. See [Materials.md](../../Materials.md) for what each check means.
 
 | Script | Checks | Expect |
@@ -9,4 +9,5 @@ root. See [Materials.md](../../Materials.md) for what each check means.
 | `node tests/bsdf_checks/lobes.js` | Each lobe's sampling against its evaluation, and its pdf against its sampler | z within about +-2, pdf integral = success rate |
 | `node tests/bsdf_checks/multiscatter.js` | A white metal plus the Kulla-Conty lobe reflects everything | about 1.00 |
 | `node tests/bsdf_checks/furnace.js` | White furnace: white materials under a white sky disappear | about 1.00 |
-| `node tests/bsdf_checks/mis.js` | Light sampling, BSDF sampling and MIS converge to the same image | |z| < 3 |
+| `node tests/bsdf_checks/mis.js` | Light sampling, BSDF sampling and MIS converge to the same image (add `plastic 8 24 directional` for a directional light) | |z| < 3 |
+| `node tests/bsdf_checks/placement.js` | Rays find objects and lights where the scene and light sampling put them, inside transformed groups too | all ok |

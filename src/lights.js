@@ -217,8 +217,9 @@ class RandomSampleAreaLight extends Light {
 //   - Shadow rays stop at the sampled point: only geometry nearer than the light can block it, and only geometry
 //     nearer than it hides it from a ray.
 //   - A shape takes part in MIS like an area light (BSDF sampling can find it); a point is a delta light.
-// With an observer at o, its world transform is translation(o) * transform. In its own space a ray from o therefore
-// starts at transform^-1 * origin wherever o is, so whether a ray sees it depends only on the ray's direction.
+// With an observer at o, its world transform is translation(o) * transform, with any ancestors' transforms in between
+// (light sampling and World.cast both place it so, as the GPU does). In its own space a ray from o therefore starts at
+// transform^-1 * origin wherever o is, so whether a ray sees it depends only on the ray's direction.
 class DirectionalLight extends RandomSampleAreaLight {
     constructor(surface_geometry=new OriginPoint(), transform=Mat4.translation([0, 10, 0]), color_mc=Vec.of(1, 1, 1), intensity=1, samples=1) {
         super(surface_geometry, transform, color_mc, intensity, samples);
@@ -240,21 +241,25 @@ class DirectionalLight extends RandomSampleAreaLight {
     buildBoundingBox() {
         return this.surface_geometry.getBoundingBox(this.transform, this.inv_transform);
     }
-    // The ray's origin is the observer. The ray arrives in the light's parent space (World.cast transforms it through
-    // any ancestors), which is the space the light's own transform is relative to.
+    // Rays find directional lights in World.cast, not through the object hierarchy: a ray in the light's parent space
+    // has lost the world position of its origin, which is where the light sits. (The GPU does the same, in
+    // lightsRayCastDirectional.)
     intersect(ray, minDistance, maxDistance=Infinity, intersectTransparent=true) {
-        if (!intersectTransparent || this.isPoint)
-            return { distance: Infinity, ancestors: [], object: this };
-        const local = ray.getTransformed(DirectionalLight.observerInvTransform(ray.origin, this.getInvTransform()));
-        return { distance: this.surface_geometry.intersect(local, minDistance, maxDistance), ancestors: [], object: this };
+        return { distance: Infinity, ancestors: [], object: this };
     }
-    // Area-light emission (see RandomSampleAreaLight), with the light placed relative to the ray's origin. The ray is
-    // in world space; ancestorInvTransform takes it to the light's parent space.
+    // The distance along a world-space ray to this light's shape, placed relative to the ray's origin.
+    // world_inv_transform is the inverse of the light's transform with its ancestors' (LightInstance.getInvTransform).
+    intersectObserved(ray, world_inv_transform, minDistance, maxDistance=Infinity) {
+        if (this.isPoint)
+            return Infinity;
+        const local = ray.getTransformed(DirectionalLight.observerInvTransform(ray.origin, world_inv_transform));
+        return this.surface_geometry.intersect(local, minDistance, maxDistance);
+    }
+    // The light's transforms as a world-space ray sees it: translation(origin) * ancestors * transform, the placement
+    // light sampling uses too (LightInstance passes the light its world transform).
     observedAt(ray, ancestorInvTransform) {
-        const parent_ray = ancestorInvTransform.is_identity() ? ray : ray.getTransformed(ancestorInvTransform);
-        const world_transform = ancestorInvTransform.is_identity()
-            ? DirectionalLight.observerTransform(ray.origin, this.transform)
-            : Mat4.inverse(ancestorInvTransform).times(DirectionalLight.observerTransform(parent_ray.origin, this.transform));
+        const world_transform = DirectionalLight.observerTransform(ray.origin,
+            ancestorInvTransform.is_identity() ? this.transform : Mat4.inverse(ancestorInvTransform).times(this.transform));
         return { world_transform: world_transform, inv_transform: Mat4.inverse(world_transform) };
     }
     color(ray, distance, ancestorInvTransform, world, recursionDepth, countEmission=true) {
@@ -299,9 +304,10 @@ class DirectionalLight extends RandomSampleAreaLight {
                 yield { direction: s.direction, value: s.color, delta: true, count: 1 };
             return;
         }
-        // An area light's samples and pdf (the area doesn't change with the observer's position).
-        yield* super.sampleLi(surface_position, DirectionalLight.observerTransform(surface_position, transform),
-            DirectionalLight.observerInvTransform(surface_position, inv_transform));
+        // An area light's samples and pdf. super.sampleLi takes its samples from this.sampleIterator, which places the
+        // light relative to surface_position, so it gets the light's own transform here: placing it here as well
+        // would move it twice.
+        yield* super.sampleLi(surface_position, transform, inv_transform);
     }
 }
 

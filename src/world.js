@@ -63,8 +63,22 @@ class World {
         }
         return aabbs.length ? AABB.hull(aabbs) : AABB.empty();
     }
+    // The nearest hit along a world-space ray. Directional lights with a shape are tested here, apart from the object
+    // hierarchy, because they sit relative to the ray's origin (see DirectionalLight); like other lights, they
+    // never block shadow rays.
     cast(ray, minDistance = 0, maxDistance = Infinity, intersectTransparent=true) {
-        return World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);
+        let closest = World.getMinimumIntersection(this.objects, ray, minDistance, maxDistance, intersectTransparent);
+        if (intersectTransparent) {
+            for (const instance of this.lights) {
+                if (!(instance.light instanceof DirectionalLight))
+                    continue;
+                const distance = instance.light.intersectObserved(ray, instance.getInvTransform(), minDistance,
+                    Math.min(maxDistance, closest.distance));
+                if (distance > minDistance && distance < closest.distance && distance < maxDistance)
+                    closest = { distance: distance, object: instance.light, ancestors: instance.ancestors.slice() };
+            }
+        }
+        return closest;
     }
     // Whitted-style color along a ray. Kept for convenience; renderers use an Integrator (see src/integrators.js).
     color(ray, recursionDepth, minDistance = 0) {
@@ -132,12 +146,12 @@ class TransformedWorldObject extends WorldObject {
     static deserialize(data) {
         return new TransformedWorldObject(data.object, data.transform, data.inv_transform);
     }
+    // The child's intersection, with this object added as its outermost ancestor (as Aggregate does), so the hit
+    // keeps the object that was actually hit and the whole chain of transforms above it.
     intersect(ray, minDistance, maxDistance=Infinity, shadowCast=true) {
-        return {
-            distance: this.object.intersect(ray.getTransformed(this.getInvTransform()), minDistance, maxDistance, shadowCast),
-            ancestors: [this],
-            object: this.object
-        };
+        const ret = this.object.intersect(ray.getTransformed(this.getInvTransform()), minDistance, maxDistance, shadowCast);
+        ret.ancestors.unshift(this);
+        return ret;
     }
     buildBoundingBox() {
         return this.object.getBoundingBox().getBoundingBox(this.getTransform(), this.getInvTransform());
