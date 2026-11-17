@@ -23,7 +23,9 @@
 // grid, delta tracking samples against the majorant (an upper bound on the density) and accepts each tentative
 // collision with probability density / majorant; the rest are "null" collisions that change nothing. Shadow rays
 // estimate transmittance by ratio tracking: the same tentative collisions, each multiplying the estimate by
-// 1 - density / majorant. Both are unbiased for any majorant at least the true density, and cheaper the tighter it is.
+// 1 - density / majorant. Both are unbiased for any majorant at least the true density, and cheaper the tighter it is,
+// so grids keep a majorant per cell of 8^3 voxels (VoxelGrid.majorantCodes) and track cell by cell along the ray: thin
+// or empty regions are crossed in a few long steps instead of many short ones at the peak density's rate.
 
 class HenyeyGreenstein {
     // The density of scattering into wi, for light that was traveling along d (both unit vectors, cos = d . wi). It
@@ -143,6 +145,69 @@ class VoxelGrid {
         const c = this.codeAt(p) / 255;
         return this.max * c * c;
     }
+
+    // Majorants per cell of MAJORANT_CELL^3 voxels: the largest byte that interpolation inside the cell can reach,
+    // which includes the voxels one beyond it on each side. (Decoding is increasing, so the decoded largest byte
+    // bounds the decoded interpolated ones.) Built on first use, x fastest like the voxels.
+    static MAJORANT_CELL = 8;
+    get majorantDims() {
+        return this.dims.map(n => Math.ceil(n / VoxelGrid.MAJORANT_CELL));
+    }
+    get majorantCodes() {
+        if (!this._majorants) {
+            const c = VoxelGrid.MAJORANT_CELL, [nx, ny, nz] = this.dims, [cx, cy, cz] = this.majorantDims;
+            // Separable: the largest byte over each cell's x range (plus one voxel each side), then y, then z.
+            const range = (i, n) => [Math.max(0, i * c - 1), Math.min(n - 1, i * c + c)];
+            const mx = new Uint8Array(cx * ny * nz), my = new Uint8Array(cx * cy * nz), out = new Uint8Array(cx * cy * cz);
+            for (let z = 0; z < nz; ++z) for (let y = 0; y < ny; ++y) for (let i = 0; i < cx; ++i) {
+                const [a, b] = range(i, nx), row = (z * ny + y) * nx;
+                let m = 0;
+                for (let x = a; x <= b; ++x) m = Math.max(m, this.codes[row + x]);
+                mx[(z * ny + y) * cx + i] = m;
+            }
+            for (let z = 0; z < nz; ++z) for (let j = 0; j < cy; ++j) for (let i = 0; i < cx; ++i) {
+                const [a, b] = range(j, ny);
+                let m = 0;
+                for (let y = a; y <= b; ++y) m = Math.max(m, mx[(z * ny + y) * cx + i]);
+                my[(z * cy + j) * cx + i] = m;
+            }
+            for (let k = 0; k < cz; ++k) for (let j = 0; j < cy; ++j) for (let i = 0; i < cx; ++i) {
+                const [a, b] = range(k, nz);
+                let m = 0;
+                for (let z = a; z <= b; ++z) m = Math.max(m, my[(z * cy + j) * cx + i]);
+                out[(k * cy + j) * cx + i] = m;
+            }
+            Object.defineProperty(this, "_majorants", { value: out, enumerable: false });
+        }
+        return this._majorants;
+    }
+    // Calls visit(ta, tb, majorant) for each majorant cell a ray (in the grid's space) crosses within [t0, t1], in
+    // order, until visit returns true. A 3D DDA over the cells (Amanatides and Woo).
+    traverse(local, t0, t1, visit) {
+        const cs = this.voxelSize.map(v => v * VoxelGrid.MAJORANT_CELL), cd = this.majorantDims, codes = this.majorantCodes;
+        const o = local.origin, d = local.direction, min = this.bounds.min;
+        const idx = [0, 0, 0], step = [0, 0, 0], tNext = [0, 0, 0], tDelta = [0, 0, 0];
+        for (let i = 0; i < 3; ++i) {
+            const q = (o[i] + d[i] * t0 - min[i]) / cs[i], dq = d[i] / cs[i];
+            idx[i] = Math.min(cd[i] - 1, Math.max(0, Math.floor(q)));
+            step[i] = dq >= 0 ? 1 : -1;
+            tNext[i] = dq == 0 ? Infinity : t0 + (idx[i] + (dq > 0 ? 1 : 0) - q) / dq;
+            tDelta[i] = dq == 0 ? Infinity : Math.abs(1 / dq);
+        }
+        let t = t0;
+        while (t < t1) {
+            const axis = tNext[0] < tNext[1] ? (tNext[0] < tNext[2] ? 0 : 2) : (tNext[1] < tNext[2] ? 1 : 2);
+            const tb = Math.min(tNext[axis], t1);
+            const c = codes[(idx[2] * cd[1] + idx[1]) * cd[0] + idx[0]] / 255;
+            if (tb > t && visit(t, tb, this.max * c * c))
+                return;
+            t = tb;
+            idx[axis] += step[axis];
+            tNext[axis] += tDelta[axis];
+            if (idx[axis] < 0 || idx[axis] >= cd[axis])
+                return;
+        }
+    }
 }
 
 class GridMedium extends Medium {
@@ -210,6 +275,25 @@ class Volume extends WorldObject {
     }
     // Delta tracking: the parameter of the first real collision in [t0, t1], or null if the ray passes through.
     static sampleCollision(medium, local, t0, t1) {
+        if (medium instanceof GridMedium) {
+            const speed = local.direction.norm();
+            let result = null;
+            medium.grid.traverse(local, t0, t1, (ta, tb, cellMax) => {
+                const majorant = medium.density * cellMax;
+                if (!(majorant > 0))
+                    return false;
+                for (let t = ta;;) {
+                    t -= Math.log(1 - Math.random()) / (majorant * speed);
+                    if (t >= tb)
+                        return false;
+                    if (Math.random() * majorant < medium.densityAt(local.getPoint(t))) {
+                        result = t;
+                        return true;
+                    }
+                }
+            });
+            return result;
+        }
         const majorant = medium.majorant, speed = local.direction.norm();
         if (!(majorant > 0))
             return null;
@@ -230,6 +314,28 @@ class Volume extends WorldObject {
             return 1;
         if (medium.homogeneous)
             return Math.exp(-majorant * speed * (t1 - t0));
+        if (medium instanceof GridMedium) {
+            let T = 1;
+            medium.grid.traverse(local, t0, t1, (ta, tb, cellMax) => {
+                const cellMajorant = medium.density * cellMax;
+                if (!(cellMajorant > 0))
+                    return false;
+                for (let t = ta;;) {
+                    t -= Math.log(1 - Math.random()) / (cellMajorant * speed);
+                    if (t >= tb)
+                        return false;
+                    T *= 1 - medium.densityAt(local.getPoint(t)) / cellMajorant;
+                    if (T < 0.1) {
+                        if (Math.random() < 0.5) {
+                            T = 0;
+                            return true;
+                        }
+                        T *= 2;
+                    }
+                }
+            });
+            return T;
+        }
         let T = 1, t = t0;
         for (;;) {
             t -= Math.log(1 - Math.random()) / (majorant * speed);

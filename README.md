@@ -91,6 +91,13 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 - Lights are scene objects: they can be hit by rays, picked and edited in the GPU editor, and placed inside groups
 - Direct light sampling combined with visible emission, without counting any light twice
 
+**Volumes**
+- Participating media, seen by path tracing on both renderers: fog of constant density in a box or sphere, and clouds
+  and smoke from voxel grids, with a per-channel albedo and a Henyey-Greenstein phase function
+- Delta tracking for scattering and ratio tracking for shadow rays, against majorants kept per block of voxels, so
+  thin and empty regions are crossed in long steps
+- OpenVDB grids converted with `tools/vdb_to_grid.py` (see Writing a scene)
+
 **Cameras and sampling**
 - Perspective camera, with depth of field
 - Incremental per-pixel multisampling with an optional denoising pass on the GPU
@@ -171,6 +178,24 @@ as they are), `"aces"`, `"reinhard"` or `"clip"`. The result is encoded as sRGB.
 Renderer panel. Colors in materials, and the colors of textures (which are decoded from sRGB), are linear values: a
 gray of 0.5 reflects half the light, and displays brighter than a pixel value of 0.5 would.
 
+A volume places a participating medium in the world (see `src/media.js`). Its density is the chance per unit length
+that light hits something, measured in the volume's own space, so scaling the volume keeps its look; albedo is the
+part of that which scatters rather than being absorbed, and `g` makes scattering favor forward (toward 1) or backward
+(toward -1). Volumes may not overlap yet.
+
+```js
+objects.push(new Volume(new HomogeneousMedium({ shape: "sphere", density: 1.2, albedo: Vec.of(0.95, 0.9, 0.8), g: 0.5 }),
+    Mat4.translation([-1.6, 1.1, -0.3])));
+
+// A voxel grid, from an OpenVDB file converted once with
+//     python3 tools/vdb_to_grid.py bunny_cloud.vdb assets/volumes/bunny_cloud.vol.gz --downsample 2
+// (needs OpenVDB's Python module, pyopenvdb). The grid keeps the VDB's own units.
+GridMedium.load("../assets/volumes/bunny_cloud.vol.gz", { density: 3, albedo: 0.98, g: 0.6 }).then(cloud => {
+    objects.push(new Volume(cloud, Mat4.scale(0.1)));
+    // ...then hand back the renderer as usual
+});
+```
+
 ## Under the hood
 
 ```
@@ -178,12 +203,13 @@ src/        The scene model and CPU tracer: math, geometry, materials, BSDFs, in
             aggregates (BVH), SDFs, OBJ loading, serialization, and the Web Worker renderer.
 gl/         The GPU renderer: adapters that walk the scene graph and generate GLSL for it, plus the editor UI.
 gl/shaders/ The GLSL the adapters build each scene's shader from.
-tests/      Example scenes, one folder each.
-assets/     Models and textures used by the scenes.
+tests/      Example scenes, one folder each, and checks of the CPU tracer (tests/bsdf_checks).
+assets/     Models, textures and voxel grids used by the scenes.
+tools/      Asset converters: tools/vdb_to_grid.py turns OpenVDB grids into the tracer's voxel grids.
 ```
 
 The GPU side does not interpret the scene at runtime. Each adapter in `gl/src/` (world, geometries, materials,
-lights) visits its part of the scene graph, packs the data into uniforms and data textures, and emits the GLSL that
+lights, media) visits its part of the scene graph, packs the data into uniforms and data textures, and emits the GLSL that
 reads it. For scenes that aren't being restructured, the generated shader is unrolled for that specific scene.
 
 The fixed parts of that GLSL live in `gl/shaders/*.glsl`, loaded once by `gl/src/ShaderLibrary.js`. A file is split
@@ -221,6 +247,8 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 - Adding meshes and grouping objects from the editor
 - Solid angle sampling for area lights
 - Adaptive multisampling
+- Volumes: emission (fire and explosions, from temperature grids), colored extinction, media bounded by meshes and
+  overlapping volumes, and large sparse grids (NanoVDB)
 
 ## License
 

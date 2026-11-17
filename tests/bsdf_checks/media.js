@@ -1,7 +1,8 @@
 // node tests/bsdf_checks/media.js
 // Checks the participating media (src/media.js) and how the path integrator uses them:
 //   transmittance  ratio tracking and delta tracking against the transmittance computed by quadrature, through a
-//                  constant grid, a varying grid and a homogeneous sphere
+//                  constant grid, a varying grid and a homogeneous sphere, and across many majorant cells (whose
+//                  bounds are checked too)
 //   furnace        a medium that scatters all it absorbs (albedo 1), under a white sky, disappears: every pixel is 1
 //   mis            a lit medium rendered with light sampling, phase function sampling and MIS: all three agree
 const fs = require("fs"), vm = require("vm"), path = require("path");
@@ -50,6 +51,36 @@ for (const [name, medium] of [
     const z1 = (ratio - exact) / Math.max(ratioErr, 1e-9), z2 = (pass - exact) / passErr;
     check(`transmittance, ${name}`, Math.abs(z1) < 4 && Math.abs(z2) < 4,
         `quadrature ${exact.toFixed(4)}, ratio tracking ${ratio.toFixed(4)} (z ${z1.toFixed(2)}), delta tracking passes ${pass.toFixed(4)} (z ${z2.toFixed(2)})`);
+}
+
+// A larger grid, so tracking crosses many majorant cells (VoxelGrid.traverse): a dense blob in mostly empty space,
+// along rays in assorted directions, including ones parallel to the axes and going backwards.
+{
+    const medium = new GridMedium(makeGrid(44, (x, y, z) => 1.5 * Math.exp(-12 * ((x - 0.3) ** 2 + (y + 0.2) ** 2 + z * z)) + 0.1 * (x > 0.6)), { density: 2.5 });
+    const grid = medium.grid;
+    // Every interpolated value must be within its cell's majorant.
+    let worst = 0;
+    for (let k = 0; k < 20000; ++k) {
+        const p = Vec.of(...[0, 1, 2].map(() => -1 + 2 * Math.random()));
+        const c = [0, 1, 2].map(i => Math.min(grid.majorantDims[i] - 1, Math.floor((p[i] + 1) / (grid.voxelSize[i] * VoxelGrid.MAJORANT_CELL))));
+        const code = grid.majorantCodes[(c[2] * grid.majorantDims[1] + c[1]) * grid.majorantDims[0] + c[0]];
+        worst = Math.max(worst, grid.codeAt(p) - code);
+    }
+    check("majorant cells bound the grid", worst <= 1e-9, `largest excess of an interpolated byte over its cell's ${worst.toFixed(6)}`);
+    let ok = true;
+    const details = [];
+    for (const [o, d] of [[[-3, -0.2, 0.05], [1, 0, 0]], [[2, 2.5, -2], [-0.6, -1, 0.7]], [[0.3, -0.2, 3], [0, 0, -1]], [[-2, -2, -2], [1, 1.1, 0.9]]]) {
+        const ray = new Ray(Vec.of(...o, 1), Vec.of(...d, 0));
+        const iv = Volume.interval(medium, ray, 0, Infinity);
+        if (!iv) { ok = false; details.push("missed"); continue; }
+        const exact = quadrature(medium, ray, iv[0], iv[1], 20000);
+        const [ratio, re] = meanAndError(20000, () => Volume.transmittance(medium, ray, iv[0], iv[1]));
+        const [pass, pe] = meanAndError(20000, () => Volume.sampleCollision(medium, ray, iv[0], iv[1]) === null ? 1 : 0);
+        const z1 = (ratio - exact) / Math.max(re, 1e-9), z2 = (pass - exact) / Math.max(pe, 1e-9);
+        ok = ok && Math.abs(z1) < 4 && Math.abs(z2) < 4;
+        details.push(`${exact.toFixed(3)}: ${ratio.toFixed(3)} (z ${z1.toFixed(1)}), ${pass.toFixed(3)} (z ${z2.toFixed(1)})`);
+    }
+    check("transmittance across many majorant cells", ok, details.join("; "));
 }
 
 const camera = new PerspectiveCamera(Math.PI / 4, 1, Mat4.translation([0, 0, 4]));
