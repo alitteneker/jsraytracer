@@ -223,19 +223,13 @@ $(document).ready(function() {
                     await sleep(100);
                 }
 
-                // Render, raising the samples drawn per frame while frames stay quick, so fast scenes don't sit at
-                // one sample per display refresh.
-                const renderStart = performance.now();
-                i.samplesPerDraw = 1;
-                while (i.renderer_adapter.drawCount < samples && performance.now() - renderStart < maxSeconds * 1000) {
+                // Render unthrottled (see WebGLEditorInterface.adaptSamplesPerDraw), so fast scenes don't sit at one
+                // sample per display refresh.
+                const renderStart = performance.now(), wasUnthrottled = i.unthrottled;
+                i.setUnthrottled(true);
+                while (i.renderer_adapter.drawCount < samples && performance.now() - renderStart < maxSeconds * 1000)
                     await sleep(500);
-                    const h = i.timeDeltaHistory, frameMs = h.length ? i.timeDeltaHistorySum / h.length : 1000;
-                    if (frameMs < 25 && i.samplesPerDraw < 256)
-                        i.samplesPerDraw *= 2;
-                    else if (frameMs > 60 && i.samplesPerDraw > 1)
-                        i.samplesPerDraw = Math.max(1, i.samplesPerDraw >> 1);
-                    $("#samples-per-draw").val(i.samplesPerDraw);
-                }
+                i.setUnthrottled(wasUnthrottled);
                 const reached = i.renderer_adapter.drawCount;
                 if (updatePreviews)
                     await uploadPreview(await i.captureImage("image/jpeg", 0.88), test);

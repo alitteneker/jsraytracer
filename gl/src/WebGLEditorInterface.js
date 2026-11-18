@@ -170,6 +170,7 @@ class WebGLEditorInterface {
         this.initializeMaterialControls();
         $("#render-toggle-button").button({ icon: "ui-icon-pause", disabled: true })
             .on("click", () => this.renderingPaused ? this.resumeRendering() : this.pauseRendering());
+        $("#unthrottled-toggle").checkboxradio().on("change", e => this.setUnthrottled(e.target.checked));
         $("#deselect-object-button").button({ icon: "ui-icon-closethick", showLabel: false });
         
         
@@ -311,7 +312,7 @@ class WebGLEditorInterface {
         }
         
         // Reset some controls and tallies, to avoid cross contamination between setups.
-        $("#samples-per-draw").val(this.samplesPerDraw = 1);
+        this.samplesPerDraw = 1;
         this.timeDeltaHistory = [];
         this.timeDeltaHistorySum = 0;
         
@@ -413,7 +414,7 @@ class WebGLEditorInterface {
             for (const [name, p] of Object.entries(settings))
                 if (!["canvasWidth", "canvasHeight", "worldEditable"].includes(name))
                     adapter.rendererParameterModified(name, p.value);
-            $("#samples-per-draw").val(this.samplesPerDraw = samples);
+            this.samplesPerDraw = samples;
         });
     }
     initializeRendererControls(renderer_adapter) {
@@ -438,6 +439,37 @@ class WebGLEditorInterface {
     }
     
 
+    // Unthrottled: rather than one sample per display refresh (leaving the GPU idle for the rest of it when a sample is
+    // quick), each frame draws as many samples as fit in about UNTHROTTLED_BUDGET_MS of GPU time, so the image
+    // converges faster while the editor stays usable (around 30 frames a second). With GPU timing (gpuMsPerSample) the
+    // count follows the measured cost; without it, it doubles while frames are quick and halves when they drag.
+    static UNTHROTTLED_BUDGET_MS = 33;
+    static UNTHROTTLED_MAX_SAMPLES = 256;
+    unthrottled = false;
+    lastUnthrottleAdjust = 0;
+    setUnthrottled(on) {
+        this.unthrottled = on;
+        this.samplesPerDraw = 1;
+        $("#unthrottled-toggle").prop("checked", on).checkboxradio("refresh");
+    }
+    adaptSamplesPerDraw(frameMs, gpuMs) {
+        const E = WebGLEditorInterface, max = E.UNTHROTTLED_MAX_SAMPLES;
+        if (gpuMs !== null && gpuMs > 0) {
+            // Down at once if over budget, up at most doubling (the timing lags the draws by a few frames).
+            const target = Math.max(1, Math.min(max, Math.floor(E.UNTHROTTLED_BUDGET_MS / gpuMs)));
+            this.samplesPerDraw = target < this.samplesPerDraw ? target : Math.min(target, this.samplesPerDraw * 2);
+            return;
+        }
+        const now = performance.now();
+        if (now - this.lastUnthrottleAdjust < 500)
+            return;
+        this.lastUnthrottleAdjust = now;
+        if (frameMs < 25 && this.samplesPerDraw < max)
+            this.samplesPerDraw *= 2;
+        else if (frameMs > 60 && this.samplesPerDraw > 1)
+            this.samplesPerDraw = Math.max(1, this.samplesPerDraw >> 1);
+    }
+
     lastDrawTimestamp = null;
     timeDeltaHistory = [];
     timeDeltaHistorySum = 0;
@@ -457,8 +489,11 @@ class WebGLEditorInterface {
                 this.timeDeltaHistorySum -= this.timeDeltaHistory.shift();
             const avgTimeDelta = this.timeDeltaHistorySum / this.timeDeltaHistory.length;
             const gpu = this.renderer_adapter.gpuMsPerSample;
+            if (this.unthrottled)
+                this.adaptSamplesPerDraw(avgTimeDelta, gpu);
             $('#fps-display').text(`${avgTimeDelta.toFixed(1)} ms/frame (${(1000 / avgTimeDelta).toFixed(1)} FPS)`
                 + (gpu !== null ? ` - GPU ${gpu.toFixed(gpu < 10 ? 2 : 1)} ms/sample` : "")
+                + (this.samplesPerDraw > 1 ? ` - ${this.samplesPerDraw} samples/frame` : "")
                 + ` - ${this.renderer_adapter.drawCount} samples`);
             
             // Deal with any camera movements or object transforms that might be present since last frame.

@@ -58,6 +58,8 @@
         <div id="controls">
             <button id="scene-button" title="Choose a scene">Choose a scene</button>
             <button id="render-toggle-button" title="Stop drawing new samples (the image stays as it is)">Stop rendering</button>
+            <label for="unthrottled-toggle" title="Draw as many samples each frame as fit in about 33 ms of GPU time, rather than one per display refresh: faster to converge, at a lower frame rate">Unthrottled</label>
+            <input type="checkbox" id="unthrottled-toggle">
             <img id="loading-img" class="loading" src="../assets/loading.gif" width=20 height=20 style="visibility:hidden"></img>
             <button id="help-button">Help</button>
         </div>
