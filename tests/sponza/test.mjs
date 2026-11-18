@@ -1,13 +1,13 @@
 export function configureTest(callback) {
 
     const camera = new PerspectiveCamera(Math.PI / 4, 1,
-        Mat4.translation([0,300,0])
-            .times(Mat4.rotation(-Math.PI/2, Vec.of(1,0,0))));
+        Mat4.translation([-9, 3, -4.4])                         // inside the atrium, near the west end
+            .times(Mat4.rotation(-Math.PI/2, Vec.of(0,1,0))));  // looking along +x, down its length
 
     const lights = [new SimplePointLight(
-            Vec.of(-10, 1000, -12, 1),
+            Vec.of(0, 10, -4.4, 1),    // centred over the atrium floor, below the open roof
             Vec.of(1, 1, 1),
-            5000000
+            1500
         )
     ];
     
