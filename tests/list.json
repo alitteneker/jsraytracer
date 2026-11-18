@@ -10,7 +10,8 @@
             {"name": "BoxBall_DOF", "description": "Depth of field"},
             {"name": "spheres010"},
             {"name": "spheres050"},
-            {"name": "spheres100"}
+            {"name": "spheres100"},
+            {"name": "computational_ribbon"}
         ] },
         { "title": "Glass and refraction", "scenes": [
             {"name": "refraction_simple"},
