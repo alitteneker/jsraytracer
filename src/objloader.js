@@ -29,7 +29,7 @@ function makeMaterial(data, materialModel="phong") {
           diffuse  = makeMaterialColor(data.map_Kd, data.Kd),
           specular = makeMaterialColor(data.map_Ks, data.Ks),
           smoothness      = data.Ns || 0;
-    // TODO: add support for Tf, partial dissolve, bump?
+    // TODO: add support for Tf, partial dissolve, and normal maps (only the principled model uses them so far)
     if (materialModel == "path" || isFinite(refractionIndex))
         return new (materialModel == "path" ? PhongPathTracingMaterial : FresnelPhongMaterial)(
             Vec.of(1,1,1), ambient, diffuse, specular, smoothness, refractionIndex);
@@ -52,7 +52,9 @@ function makePrincipledMaterial(data, transparent, refractionIndex) {
         metallic:     data.Pm || 0,
         transmission: transparent ? 1 : 0,
         ior:          isFinite(refractionIndex) ? refractionIndex : 1.5,
-        emission:     data.Ke || Vec.of(0, 0, 0)
+        emission:     data.Ke || Vec.of(0, 0, 0),
+        normalMap:    data.normalMap || null,
+        normalScale:  data.normalScale !== undefined ? data.normalScale : 1
     });
 }
 
@@ -145,22 +147,51 @@ function decodeTGA(buffer) {
 }
 
 // Textures named in MTL files repeat outside [0, 1], as OBJ texture coordinates expect.
-async function loadTexture(filename) {
+async function loadTexture(filename, colorSpace="srgb") {
     const response = await objLoaderFetch(filename);
     if (!response.ok)
         throw `${response.status} ${response.statusText}`;
     if (/\.tga$/i.test(filename))
-        return new TextureMaterialColor(decodeTGA(await response.arrayBuffer()), "bilinear", false, false);
-    return TextureMaterialColor.fromBitmap(await createImageBitmap(await response.blob()), "bilinear", false, false);
+        return new TextureMaterialColor(decodeTGA(await response.arrayBuffer()), "bilinear", false, false, colorSpace);
+    return TextureMaterialColor.fromBitmap(await createImageBitmap(await response.blob()), "bilinear", false, false, colorSpace);
+}
+
+// MTL statements naming a normal map, and those naming a bump (height) map that is often a normal map in practice:
+// Sponza's MTL, for one, gives its "_ddn" normal maps as map_Disp. Those are told apart by looking (see isNormalMap).
+const MTL_NORMAL_MAPS = ["norm", "map_Kn"], MTL_BUMP_MAPS = ["bump", "map_Bump", "map_bump", "disp", "map_Disp", "map_disp"];
+
+// Whether a texture looks like a tangent-space normal map rather than a height map: on average a normal map is
+// mostly blue (z, toward the viewer) with red and green (x and y) near the middle; a height map is gray. Black texels
+// are left out of the average: normal maps often leave the parts of the image no UVs reach black (Sponza's lion is a
+// third black), and black is no normal at all.
+function isNormalMap(texture) {
+    const d = texture._imgdata.data, step = Math.max(1, Math.floor(d.length / 4 / 4096)) * 4;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < d.length; i += step)
+        if (Math.max(d[i], d[i + 1], d[i + 2]) > 25) {
+            r += d[i]; g += d[i + 1]; b += d[i + 2]; ++n;
+        }
+    if (!n)
+        return false;
+    r /= 255 * n; g /= 255 * n; b /= 255 * n;
+    return b > 0.7 && Math.abs(r - 0.5) < 0.15 && Math.abs(g - 0.5) < 0.15;
+}
+
+// A texture statement's file name (its last word) and its -bm (bump multiplier) option, if any.
+function mtlTextureArgs(t) {
+    const i = t.indexOf("-bm");
+    return { file: t[t.length - 1], bm: i > 0 && i < t.length - 2 ? Number.parseFloat(t[i + 1]) : 1 };
 }
 
 // Resolves to { filename: TextureMaterialColor } for every texture that loaded. One that can't be loaded or decoded is
 // reported and left out, so the materials using it fall back to their plain colors.
+// Normal and bump maps are loaded as linear data, keyed as "linear:" + their file name.
 async function loadTextures(prefix, filenames) {
     const textures = {};
-    await Promise.all([...new Set(filenames)].map(async f => {
+    await Promise.all([...new Set(filenames)].map(async key => {
+        const linear = key.startsWith("linear:"), f = linear ? key.slice(7) : key;
         try {
-            textures[f] = await loadTexture(prefix + f);
+            textures[key] = await loadTexture(prefix + f, linear ? "linear" : "srgb");
         }
         catch (e) {
             objLoaderWarn(`could not load texture ${prefix + f} (${e}); its materials use their plain colors.`);
@@ -180,6 +211,8 @@ function parseMtlFile(text, callback, prefix="", materialModel="phong", filename
         let t = l.match(/\S+/g) || [];
         if (t[0] == "map_Ka" || t[0] == "map_Kd" || t[0] == "map_Ks")
             texture_names.push(t[t.length-1]);
+        else if (MTL_NORMAL_MAPS.includes(t[0]) || MTL_BUMP_MAPS.includes(t[0]))
+            texture_names.push("linear:" + t[t.length-1]);
     }
     return loadTextures(prefix, texture_names).then(function(textures) {
         const ret = {};
@@ -219,7 +252,21 @@ function parseMtlFile(text, callback, prefix="", materialModel="phong", filename
                     curr[t[0]] = textures[t[t.length-1]]; // TODO: there are lots of other options to do with textures
             }
 
-            // Statements this loader doesn't use yet (bump and displacement maps, alpha masks, and so on): the
+            else if (MTL_NORMAL_MAPS.includes(t[0]) || MTL_BUMP_MAPS.includes(t[0])) {
+                const { file, bm } = mtlTextureArgs(t), texture = textures["linear:" + file];
+                if (!texture)
+                    continue;
+                if (MTL_NORMAL_MAPS.includes(t[0]) || isNormalMap(texture)) {
+                    curr.normalMap = texture;
+                    curr.normalScale = isFinite(bm) ? bm : 1;
+                }
+                else if (!ignored.has("height:" + t[0])) {
+                    ignored.add("height:" + t[0]);
+                    objLoaderWarn(`ignoring the height map${t[0].includes("isp") ? " (displacement)" : ""} ${file} in ${filename}: only normal maps are supported.`);
+                }
+            }
+
+            // Statements this loader doesn't use yet (alpha masks, reflection maps, and so on): the
             // material is still usable without them, so each kind is reported once per file and skipped.
             else if (!ignored.has(t[0])) {
                 ignored.add(t[0]);

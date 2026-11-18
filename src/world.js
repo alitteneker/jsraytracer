@@ -205,6 +205,15 @@ class Primitive extends WorldObject {
         let material_data = this.geometry.materialData(base_data, ray.direction);
         if ('normal' in material_data)
             material_data.normal = inv_transform.transposed().times(material_data.normal).to4(0).normalized();
+        // A tangent (see Triangle.tangent) is a direction along the surface, so it goes to the world by the transform
+        // itself; a mirroring transform flips its handedness.
+        if (material_data.tangent) {
+            const t = material_data.tangent, M = Mat4.inverse(inv_transform);
+            const det = M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0])
+                      + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+            const w = M.times(Vec.of(t[0], t[1], t[2], 0));
+            material_data.tangent = Vec.of(w[0], w[1], w[2], det < 0 ? -t[3] : t[3]);
+        }
         material_data.position = ray.getPoint(distance);
         return material_data;
     }

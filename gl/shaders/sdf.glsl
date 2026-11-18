@@ -42,6 +42,7 @@ GeometricMaterialData sdfBlendMaterialData(in float mix_factor, in GeometricMate
     if      (mix_factor <= 0.0) return data_a;
     else if (mix_factor >= 1.0) return data_b;
     GeometricMaterialData ret;
+    ret.tangent = vec4(0.0);
     ret.baseColor = mix(data_a.baseColor, data_b.baseColor, mix_factor);
     ret.UV = mix(data_a.UV, data_b.UV, mix_factor);
     return ret;

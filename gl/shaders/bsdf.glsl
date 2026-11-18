@@ -448,6 +448,25 @@ void buildPrincipledBSDF(in ivec4 m0, in ivec4 m1, in ivec4 m2, in vec4 rd, in v
     bsdfFinish(f);
 }
 
+// A Principled material's shading normal with its normal map (as PrincipledMaterial.shadingNormal): the map's x and y
+// along the tangent and bitangent, z along the normal. Kept to the viewer's side of the surface: where the tilted
+// normal would face away while the surface faces the viewer (grazing angles), the surface's own normal is used.
+vec4 principledShadingNormal(in int mapIndex, in int scaleIndex, in vec4 direction, in GeometricMaterialData geodata) {
+    vec3 N = normalize(geodata.normal.xyz), T = geodata.tangent.xyz - N * dot(N, geodata.tangent.xyz);
+    if (geodata.tangent.w == 0.0 || dot(T, T) < 1e-24)
+        return vec4(N, 0);
+    T = normalize(T);
+    vec3 B = cross(N, T) * geodata.tangent.w;
+    vec3 c = getMaterialColor(mapIndex, geodata.UV) * 2.0 - 1.0;
+    c.xy *= getMaterialColor(scaleIndex, geodata.UV).r;
+    vec3 n = T * c.x + B * c.y + N * c.z;
+    if (dot(n, n) < 1e-24)
+        return vec4(N, 0);
+    n = normalize(n);
+    vec3 V = -direction.xyz;
+    return dot(n, V) * dot(N, V) > 0.0 ? vec4(n, 0) : vec4(N, 0);
+}
+
 // ---- Generic: the surface interface (see materials.glsl) when BSDFs are compiled in ----
 // In path tracing every material is a BSDF: the integrator samples lights directly (with MIS), and the BSDF
 // chooses one direction to continue the path. In Whitted mode the legacy Phong materials keep their original
@@ -466,7 +485,8 @@ vec3 materialSurface(in int materialID, in vec4 rp, in Ray r, in GeometricMateri
     int type = m0[0];
     vec3 emission;
     if (type == MATERIAL_TYPE_PRINCIPLED)
-        buildPrincipledBSDF(m0, m1, m2, r.d, geodata.normal, geodata.UV, gBSDF, emission);
+        buildPrincipledBSDF(m0, m1, m2, r.d, m2[3] > 0 ? principledShadingNormal(m2[2], m2[3] - 1, r.d, geodata) : geodata.normal,
+                            geodata.UV, gBSDF, emission);
     else {
         PhongMaterialParameters matParams;
         getPhongMaterialParameters(materialID, geodata, matParams);

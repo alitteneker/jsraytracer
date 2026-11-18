@@ -392,7 +392,7 @@ vec3 worldObjectSurface(in int primID, in vec4 rp, in Ray r, in mat4 ancestorInv
     Primitive ids = getPrimitive(primID);
     mat4 inverseTransform = getTransform(ids.transform_id) * ancestorInvTransform;
     GeometricMaterialData geomatdata = getGeometricMaterialData(ids.geometry_id, inverseTransform * rp, inverseTransform * r.d);
-    geomatdata.normal = vec4(normalize((transpose(inverseTransform) * geomatdata.normal).xyz), 0);
+    geometricMaterialDataToWorld(geomatdata, inverseTransform);
     normal = geomatdata.normal.xyz;
     return materialSurface(ids.material_id, rp, r, geomatdata);
 }

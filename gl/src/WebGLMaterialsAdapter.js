@@ -9,7 +9,9 @@ class WebGLMaterialsAdapter {
     //   Phong types:  ambient, diffuse, specular, reflectivity, transmissivity, specularFactor, refractiveIndexRatio,
     //                 mirrorProbability, and for a light's stand-in its area
     //   Principled:   baseColor, metallic, roughness, ior, transmission, emission, then three albedo table indices
-    //                 (see AlbedoTable): the specular layer's, and the glass's seen from outside and from inside
+    //                 (see AlbedoTable): the specular layer's, and the glass's seen from outside and from inside, then
+    //                 its normal map's color index and its normal scale's plus 1 (0: no normal map; a scale is a
+    //                 solid color, whose index is never negative, while a texture's is)
     static MATERIAL_SLOTS = 12;
     static TYPE_PHONG = 0;            // PhongMaterial
     static TYPE_FRESNEL_PHONG = 1;    // FresnelPhongMaterial
@@ -85,7 +87,8 @@ class WebGLMaterialsAdapter {
     // The integers describing a material to the shader (see MATERIAL_SLOTS).
     static materialSlots(m) {
         const ids = m._type == WebGLMaterialsAdapter.TYPE_PRINCIPLED
-            ? WebGLMaterialsAdapter.PRINCIPLED_PROPERTIES.map(k => m[k]._id).concat(m._tables)
+            ? WebGLMaterialsAdapter.PRINCIPLED_PROPERTIES.map(k => m[k]._id).concat(m._tables,
+                  m.normalMap ? [m.normalMap._id, m.normalScale._id + 1] : [])
             : WebGLMaterialsAdapter.PHONG_PROPERTIES.map(k => m[k]._id).concat(m._area ? [m._area._id] : []);
         const ret = [m._type].concat(ids);
         while (ret.length < WebGLMaterialsAdapter.MATERIAL_SLOTS)
@@ -256,6 +259,10 @@ class WebGLMaterialsAdapter {
             material_data.transmission = this.visitMaterialParameter(material.transmission, webgl_helper);
             material_data.emission     = this.collapseMaterialColor(material.emission, webgl_helper,
                 Vec.of(1, 1, 1).times(PrincipledMaterial.scalar(material.emissionStrength, {})));
+            if (material.normalMap) {
+                WebGLMaterialsAdapter.hide(material_data, "normalMap", this.visitMaterialColor(material.normalMap, webgl_helper));
+                material_data.normalScale = this.bindToScene(this.visitMaterialScalar(material.normalScale), v => material.normalScale = v);
+            }
             for (const key of ["baseColor", "metallic", "roughness", "ior", "transmission"])
                 this.bindToScene(material_data[key], v => material[key] = v);
             this.bindToScene(material_data.emission, v => { material.emission = v; material.emissionStrength = 1; });

@@ -84,7 +84,7 @@ glass spheres in `refraction_path` lose the diffuse shading on their tops, and t
 ## PrincipledMaterial
 
 ```js
-new PrincipledMaterial({ baseColor, metallic, roughness, ior, transmission, emission, emissionStrength })
+new PrincipledMaterial({ baseColor, metallic, roughness, ior, transmission, emission, emissionStrength, normalMap, normalScale })
 ```
 
 The same parameters as Cycles' Principled BSDF and glTF's metallic-roughness model. Any parameter can be a number,
@@ -98,6 +98,36 @@ a color, or a `MaterialColor` (texture). It blends three materials:
 
 `roughness` is perceptual: the GGX alpha is `roughness^2`. Below alpha = 0.001 the lobes become perfect mirrors and
 refraction. `tests/pbr_materials` shows a grid of them.
+
+### Normal maps
+
+`normalMap` is a tangent-space normal map: a texture loaded in `"linear"` color space (it holds directions, not
+colors), whose red, green and blue store x, y and z in [-1, 1] as (v + 1) / 2. `normalScale` scales x and y, as glTF's
+`normalTexture.scale` does. Only triangles have tangents, so other geometry ignores the map.
+
+The tangent frame at a hit:
+
+- **T**, the tangent, is how position changes with u across the triangle, and the bitangent **B** how it changes
+  with v. Both come from the triangle's edges and UV deltas (`Triangle.tangent`), one per triangle, so there is no
+  per-vertex tangent data to load or interpolate. The cost is that faint seams can show where a smooth mesh's
+  triangles meet at a strong angle in UV space.
+- Only T is kept, plus a sign w: whether (N, T, B) is right-handed (w = 1) or mirrored (w = -1), as it is where UV
+  islands are flipped to share texture space. B is rebuilt as `w * cross(N, T)`.
+- T goes to the world by the object's transform (it lies along the surface), while N goes by the inverse transpose. A
+  mirroring transform flips w.
+- At shading, T is made perpendicular to the interpolated normal (Gram-Schmidt), and the map's (x, y, z) becomes
+  `x T + y B + z N`.
+
+The shading normal is used only for the BSDF; the geometric normal still decides which side of the surface a ray is on.
+Where the tilted normal would face away from the viewer while the surface faces them (at grazing angles) the surface's
+own normal is used, so those pixels don't shade black.
+
+MTL files name normal maps with `norm` or `map_Kn`; many use `bump`, `map_Bump` or `map_Disp` for them too (Sponza's
+`_ddn` maps are `map_Disp`), so those are looked at: a mostly blue image with red and green near the middle is taken as
+a normal map, and a gray one is a height map, which is skipped with a warning. `-bm` sets `normalScale`. glTF's
+`normalTexture` is read directly. `tests/normal_maps` shows a tiled map with plain and mirrored UVs and a mirrored
+object; the GPU's `principledShadingNormal` (in `bsdf.glsl`) matches the CPU's `shadingNormal` to the third digit of the
+image mean.
 
 OBJ files can use them too: `loadObjFile(file, defaultMaterial, callback, transform, minArea, "principled")` turns
 each MTL material into a `PrincipledMaterial` (`tests/sponza` does). MTL describes Phong materials, so the translation
@@ -196,6 +226,7 @@ Checked against the CPU renderer by averaging 16 x 16 blocks of both images: `pb
 | Light-only vs BSDF-only vs MIS images | Wrong light pdfs or MIS weights | 8 materials, all within 1.5 standard errors |
 | White furnace | Energy gained or lost | 0.99 to 1.00 for diffuse, plastic, metal and glass at every roughness |
 | Whitted vs the original renderer | Behavior changes | Identical on deterministic scenes |
+| Normal maps | Wrong tangent frames, handedness or transforms | Exact for plain and mirrored UVs, mirroring and rotated objects |
 
 ## Known gaps and next steps
 
@@ -203,7 +234,8 @@ Checked against the CPU renderer by averaging 16 x 16 blocks of both images: `pb
   `pbr_materials`). Leaving out lobe slots a scene never uses would cut that.
 - **Metal Fresnel.** Schlick's approximation misses the dip in reflectance that real metals show near grazing angles.
   Cycles uses the "F82-tint" model, which adds a second color for that.
-- **Normal maps and anisotropy.** Need tangents on triangles. `GGX` already supports two roughnesses.
-- **Clearcoat and sheen**, for full Principled and OpenPBR coverage, and **glTF loading**.
+- **Anisotropy.** Triangles have tangents now (see Normal maps), and `GGX` already supports two roughnesses.
+- **Height (bump) maps**, which would need the height's derivatives across the surface; only normal maps are read.
+- **Clearcoat and sheen**, for full Principled and OpenPBR coverage.
 - **Area light sampling** is uniform over the surface. Solid angle sampling would cut noise for big or close lights,
   and spheres scaled non-uniformly use an approximate area.

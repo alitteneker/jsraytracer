@@ -185,7 +185,6 @@ class GLTFLoader {
     // A glTF material as a PrincipledMaterial.
     async material(m, index) {
         const pbr = m.pbrMetallicRoughness || {}, ext = m.extensions || {};
-        if (m.normalTexture) this.warn("normal maps are ignored");
         if (m.occlusionTexture) this.warn("occlusion maps are ignored");
         if (m.alphaMode && m.alphaMode != "OPAQUE") this.warn(`alpha (${m.alphaMode.toLowerCase()}) is ignored: those surfaces are opaque`);
         const f = pbr.baseColorFactor || [1, 1, 1, 1];
@@ -208,7 +207,12 @@ class GLTFLoader {
         if (ext.KHR_materials_transmission && ext.KHR_materials_transmission.transmissionTexture)
             this.warn("transmission textures are ignored (their factor is used)");
         const ior = ext.KHR_materials_ior && ext.KHR_materials_ior.ior !== undefined ? ext.KHR_materials_ior.ior : 1.5;
-        const material = new PrincipledMaterial({ baseColor, metallic, roughness, emission, emissionStrength: strength, transmission, ior });
+        // Normal maps: tangent space as glTF defines it (x along +u, y "up" in the image, which with V flipped as we
+        // read it is +v), so they need no conversion. glTF's own TANGENT attribute is ignored: tangents come from UVs.
+        const normalMap = m.normalTexture ? await this.texture(m.normalTexture, "linear", px => px) : null;
+        const normalScale = m.normalTexture && m.normalTexture.scale !== undefined ? m.normalTexture.scale : 1;
+        const material = new PrincipledMaterial({ baseColor, metallic, roughness, emission, emissionStrength: strength,
+                                                  transmission, ior, normalMap, normalScale });
         if (m.name)
             material.name = m.name;
         return material;

@@ -466,9 +466,14 @@ class PhongPathTracingMaterial extends FresnelPhongMaterial {
 //   ior: index of refraction, for the specular layer and glass. 1.5 reflects 4% head on, like most plastics and glass.
 //   emission, emissionStrength: emitted radiance.
 class PrincipledMaterial extends Material {
+    // normalMap: a tangent-space normal map (a texture in linear color space, as normal maps are stored: x, y and z
+    // in [-1, 1] as red, green and blue), tilting the shading normal; normalScale scales its x and y (as glTF's
+    // normalTexture.scale). Surfaces without a tangent (no UVs; only triangles have them) ignore it.
     constructor({ baseColor = Vec.of(0.8, 0.8, 0.8), metallic = 0, roughness = 0.5, ior = 1.5, transmission = 0,
-                  emission = Vec.of(0, 0, 0), emissionStrength = 1 } = {}) {
+                  emission = Vec.of(0, 0, 0), emissionStrength = 1, normalMap = null, normalScale = 1 } = {}) {
         super();
+        this.normalMap = normalMap ? MaterialColor.coerce(normalMap) : null;
+        this.normalScale = normalScale;
         this.baseColor = MaterialColor.coerce(baseColor);
         this.metallic = metallic;
         this.roughness = roughness;
@@ -491,9 +496,30 @@ class PrincipledMaterial extends Material {
     // Multiple scattering compensation for rough metals (Kulla and Conty). Turn off to see single scattering alone.
     static MULTISCATTER = true;
 
+    // The shading normal: the surface's, tilted by the normal map if there is one. The map's x and y are along the
+    // tangent and the bitangent (normal x tangent, flipped for mirrored UVs), its z along the normal; the tangent is
+    // first made perpendicular to the (interpolated) normal.
+    shadingNormal(data) {
+        const N = data.normal.to3().normalized();
+        if (!this.normalMap || !data.tangent)
+            return N.to4(0);
+        const t = data.tangent, T0 = Vec.of(t[0], t[1], t[2]);
+        const T = T0.minus(N.times(N.dot(T0)));
+        if (!(T.norm() > 1e-12))
+            return N.to4(0);
+        const Tn = T.normalized(), B = N.cross(Tn).times(t[3]);
+        const c = this.normalMap.color(data), s = this.normalScale;
+        const x = (2 * c[0] - 1) * s, y = (2 * c[1] - 1) * s, z = 2 * c[2] - 1;
+        const n = Tn.times(x).plus(B.times(y)).plus(N.times(z));
+        return n.norm() > 1e-12 ? n.normalized().to4(0) : N.to4(0);
+    }
     surface(data) {
         const V = data.ray.direction.normalized().times(-1);
-        let N = data.normal.normalized();
+        let N = this.shadingNormal(data);
+        // Kept to the viewer's side of the surface (as the GPU's principledShadingNormal): at grazing angles a tilted
+        // normal can face away while the surface faces the viewer, which would shade black.
+        if (V.dot(N) * V.dot(data.normal) <= 0)
+            N = data.normal.to3().normalized().to4(0);
         const backside = V.dot(N) < 0;
         if (backside)
             N = N.times(-1);

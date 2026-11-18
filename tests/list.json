@@ -24,6 +24,7 @@
             {"name": "cornell_box_path", "description": "Global illumination from an area light"},
             {"name": "cornell_box_emissive"},
             {"name": "pbr_materials", "description": "Plastic, gold and glass, smooth to rough"},
+            {"name": "normal_maps", "description": "Normal maps with plain and mirrored UVs, and a mirrored object"},
             {"name": "BoxBall_path"},
             {"name": "bunny_path"},
             {"name": "cornell_box"}

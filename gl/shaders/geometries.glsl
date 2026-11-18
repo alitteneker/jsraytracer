@@ -15,7 +15,13 @@ struct GeometricMaterialData {
     vec3 baseColor;
     vec4 normal;
     vec2 UV;
+    // dP/du along the surface, and in w its handedness (1, or -1 for mirrored UVs), for normal maps (see
+    // Triangle.tangent in src/geometry.js); all 0 where a geometry has none (only triangles have one).
+    vec4 tangent;
 };
+// Takes a geometry's data from its own space to the world's: normals by the inverse transpose, tangents (directions
+// along the surface) by the transform itself, their handedness flipped by a mirroring transform.
+void geometricMaterialDataToWorld(inout GeometricMaterialData data, in mat4 inverseTransform);
 
 uniform sampler2D tTriangleData;
 uniform isampler2D tTriangleIndices;
@@ -34,6 +40,14 @@ float geometryIntersect(in int geometryID, in Ray r, in float minDistance);
 vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed);
 
 //#section helpers
+
+void geometricMaterialDataToWorld(inout GeometricMaterialData data, in mat4 inverseTransform) {
+    data.normal = vec4(normalize((transpose(inverseTransform) * data.normal).xyz), 0);
+    if (data.tangent.w != 0.0) {
+        mat3 M = inverse(mat3(inverseTransform));
+        data.tangent = vec4(M * data.tangent.xyz, determinant(M) < 0.0 ? -data.tangent.w : data.tangent.w);
+    }
+}
 
 float planeIntersect(in Ray r, in float minDistance, in vec4 n, in float delta) {
     float denom = dot(r.d, n);
@@ -324,6 +338,17 @@ void triangleMaterialData(in vec4 position, inout GeometricMaterialData data, in
 
     data.normal = baryBlend(bary,  n1,  n2,  n3);
     data.UV     = baryBlend(bary, uv1, uv2, uv3);
+
+    // The tangent: how position changes with u across the triangle (as Triangle.tangent).
+    vec2 duv1 = uv2 - uv1, duv2 = uv3 - uv1;
+    float det = duv1.x * duv2.y - duv2.x * duv1.y;
+    data.tangent = vec4(0.0);
+    if (abs(det) > 1e-12) {
+        vec3 e1 = p2.xyz - p1.xyz, e2 = p3.xyz - p1.xyz;
+        vec3 T = (e1 * duv2.y - e2 * duv1.y) / det, B = (e2 * duv1.x - e1 * duv2.x) / det;
+        if (dot(T, T) > 0.0)
+            data.tangent = vec4(T, dot(cross(cross(e1, e2), T), B) < 0.0 ? -1.0 : 1.0);
+    }
 }
 
 //#section case.return
@@ -346,6 +371,7 @@ vec4 sampleGeometrySurface(in int geometryID, inout vec2 random_seed) {
 GeometricMaterialData getSampleGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
     GeometricMaterialData data;
     data.baseColor = vec3(1.0);
+    data.tangent = vec4(0.0);
     switch(geometryID) {${sampleDataCases}
     }
     return data;
@@ -368,6 +394,7 @@ float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {
 GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
     GeometricMaterialData data;
     data.baseColor = vec3(1.0);
+    data.tangent = vec4(0.0);
     if (geometryID < GEOMETRY_SDF_MIN_INDEX) {
         switch(geometryID) {${dataCases}
         }
@@ -392,6 +419,7 @@ GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 positi
 GeometricMaterialData getGeometricMaterialData(in int geometryID, in vec4 position, in vec4 direction) {
     GeometricMaterialData data;
     data.baseColor = vec3(1.0);
+    data.tangent = vec4(0.0);
     return data;
 }
 float geometryIntersect(in int geometryID, in Ray r, in float minDistance) {

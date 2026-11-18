@@ -48,7 +48,7 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
   fractals like the Menger sponge and Sierpinski tetrahedron) and render them by ray marching, mixed freely with
   ordinary geometry.
 - **Physically based materials.** A Principled-style material (base color, metallic,
-  roughness, IOR, transmission) built from GGX microfacet lobes, with multiple scattering compensation so rough
+  roughness, IOR, transmission, normal maps) built from GGX microfacet lobes, with multiple scattering compensation so rough
   metals and glass keep their energy, as in Cycles. See [Materials.md](Materials.md).
 - **Path tracing or Whitted-style.** Unbiased path tracing with next-event estimation and multiple importance
   sampling, or classic Whitted shading with exact reflection and refraction. Materials only describe surfaces (a
@@ -266,7 +266,6 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 
 ## Roadmap
 
-- Normal maps, tangents and glTF loading
 - Clearcoat, sheen and the F82 metal Fresnel model
 - Adding meshes and grouping objects from the editor
 - Solid angle sampling for area lights

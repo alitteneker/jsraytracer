@@ -383,8 +383,33 @@ class Triangle extends Geometry {
         };
         for (let k in this.psdata)
             extend_data[k] = Triangle.blend(extend_data.bary, this.psdata[k]);
+        const tangent = this.tangent;
+        if (tangent)
+            extend_data.tangent = tangent;
         Object.assign(base_data, extend_data);
         return base_data;
+    }
+    // The direction U increases along the triangle (dP/du, which tangent-space normal maps are drawn against), and in w
+    // the handedness: 1 if V increases along normal x tangent (the bitangent), -1 if the UVs are mirrored. One per
+    // triangle, from its corners' UVs (so faces sharing a vertex may differ slightly, which normal maps baked with
+    // per-vertex tangents can show as faint seams). Null without UVs, or if they don't span the triangle.
+    get tangent() {
+        if (this._tangent !== undefined)
+            return this._tangent;
+        const uv = this.psdata.UV;
+        this._tangent = null;
+        if (uv) {
+            const du1 = uv[1][0] - uv[0][0], dv1 = uv[1][1] - uv[0][1], du2 = uv[2][0] - uv[0][0], dv2 = uv[2][1] - uv[0][1];
+            const det = du1 * dv2 - du2 * dv1;
+            if (Math.abs(det) > 1e-12) {
+                const T = this.v0.times(dv2).minus(this.v1.times(dv1)).times(1 / det);
+                const B = this.v1.times(du1).minus(this.v0.times(du2)).times(1 / det);
+                const w = this.normal.to3().cross(T).dot(B) < 0 ? -1 : 1;
+                if (T.norm() > 0)
+                    this._tangent = Vec.of(T[0], T[1], T[2], w);
+            }
+        }
+        return this._tangent;
     }
     getBoundingBox(transform, inv_transform) {
         return AABB.fromPoints(this.ps.map(p => transform.times(p)));
