@@ -1,18 +1,19 @@
 // Uploads the world's volumes (participating media, src/media.js) for gl/shaders/media.glsl: a handful of uniforms
-// per volume, and each voxel grid as two 3D textures: its brick atlas (bytes, R8, filtered trilinearly by the GPU as
-// VoxelGrid.codeAt does on the CPU), and its index, one texel per cell (RGBA8UI: the brick's place in the atlas, and
-// the cell's majorant). A volume glowing from a temperature grid adds that grid, its table of colors as a row of one
+// per volume, and the voxel grids as two 3D textures they all share: one brick atlas (bytes, R8, filtered trilinearly
+// by the GPU as VoxelGrid.codeAt does on the CPU) holding every grid's bricks, and one index (RGBA8UI: per cell, its
+// brick's place in the atlas, and its majorant) holding every grid's cells side by side. A volume glowing from a temperature grid adds that grid, its table of colors as a row of one
 // float texture, and its light sampling distribution (GridMedium.emissionSampler) to another. Only path tracing uses them (see WebGLRendererAdapter.pathTracing).
 class WebGLMediaAdapter {
     static MAX_VOLUMES = 8;
-    static MAX_GRIDS = 4;     // each grid takes two texture units (its atlas and its index)
+    static MAX_GRIDS = 8;
     static MAX_STEPS = 4096;  // see media.glsl
     static MAX_CELLS = 512;
 
     constructor(webgl_helper, worldadapter = null) {
         this.webgl_helper = webgl_helper;
         this.worldadapter = worldadapter;
-        this.grid_textures = new Map();   // VoxelGrid -> { texture, unit, index, indexUnit }, kept across visits
+        this.shared = null;   // the grids' shared textures: { grids, atlas, index, offsets }, kept while the grids are the same
+        this.atlas_unit = this.index_unit = null;
         this.free_units = [];
         this.table_texture = null;
         this.table_unit = null;
@@ -31,11 +32,11 @@ class WebGLMediaAdapter {
         if (this.sampling_texture)
             gl.deleteTexture(this.sampling_texture);
         this.table_texture = this.sampling_texture = null;
-        for (const g of this.grid_textures.values()) {
-            gl.deleteTexture(g.texture);
-            gl.deleteTexture(g.index);
+        if (this.shared) {
+            gl.deleteTexture(this.shared.atlas);
+            gl.deleteTexture(this.shared.index);
         }
-        this.grid_textures.clear();
+        this.shared = null;
     }
     // `instance` is an ObjectInstance of a Volume (World.volumes): the volume and the ancestors it's nested in.
     visit(instance) {
@@ -65,43 +66,13 @@ class WebGLMediaAdapter {
         return ShaderLibrary.render("media.glsl", "source", {
             maxSteps: WebGLMediaAdapter.MAX_STEPS,
             maxCells: WebGLMediaAdapter.MAX_CELLS,
-            gridCases: this.grids.map((_, i) => ShaderLibrary.render("media.glsl", "grid-case", { i: i })).join(""),
-            majorantCases: this.grids.map((_, i) => ShaderLibrary.render("media.glsl", "majorant-case", { i: i })).join("")
         });
     }
     writeShaderData(gl, program) {
-        // Grids no longer used give back their textures and units; new ones are uploaded once.
-        for (const [grid, g] of this.grid_textures)
-            if (!this.grids.includes(grid)) {
-                gl.deleteTexture(g.texture);
-                gl.deleteTexture(g.index);
-                this.free_units.push(g.unit, g.indexUnit);
-                this.grid_textures.delete(grid);
-            }
-        const upload = (dims, data, filter, internal = gl.R8, format = gl.RED) => {
-            const unit = this.free_units.pop() || this.webgl_helper.allocateTextureUnit(), texture = gl.createTexture();
-            gl.activeTexture(unit);
-            gl.bindTexture(gl.TEXTURE_3D, texture);
-            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-            gl.texImage3D(gl.TEXTURE_3D, 0, internal, dims[0], dims[1], dims[2], 0, format, gl.UNSIGNED_BYTE, data);
-            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, filter);
-            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, filter);
-            for (const wrap of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R])
-                gl.texParameteri(gl.TEXTURE_3D, wrap, gl.CLAMP_TO_EDGE);
-            return [texture, unit];
-        };
-        for (const grid of this.grids) {
-            if (this.grid_textures.has(grid))
-                continue;
-            const limit = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
-            if (Math.max(...grid.atlasBricks) > 255)   // the index holds a brick's place in bytes
-                throw `The voxel grid ${grid.source} has too many bricks (${grid.brickCount}) for its index`;
-            if (Math.max(...grid.atlasDims, ...grid.cellDims) > limit)
-                throw `The voxel grid ${grid.source} needs a ${grid.atlasDims.join(" x ")} 3D texture, but this GPU allows at most ${limit} on a side`;
-            const [texture, unit] = upload(grid.atlasDims, grid.atlas, gl.LINEAR);
-            const [index, indexUnit] = upload(grid.cellDims, WebGLMediaAdapter.indexTexels(grid), gl.NEAREST, gl.RGBA8UI, gl.RGBA_INTEGER);
-            this.grid_textures.set(grid, { texture: texture, unit: unit, index: index, indexUnit: indexUnit });
-        }
+        // The grids' shared textures, rebuilt only when the set of grids changes.
+        if (this.grids.length && !(this.shared && this.shared.grids.length == this.grids.length
+                                   && this.shared.grids.every((g, i) => g === this.grids[i])))
+            this.uploadGrids(gl);
         // The emission tables: rewritten every time (a few kilobytes), as a 256 x tables RGBA32F texture.
         if (this.tables.length) {
             if (!this.table_texture) {
@@ -199,23 +170,88 @@ class WebGLMediaAdapter {
         gl.uniform3fv(gl.getUniformLocation(program, "uMediaGridOrigin"), gridOrigin);
         gl.uniform3fv(gl.getUniformLocation(program, "uMediaCellSize"), cellSize);
         if (this.grids.length) {
-            gl.uniform1iv(gl.getUniformLocation(program, "uMediaGrids"),
-                this.grids.map(g => WebGLHelper.textureUnitIndex(this.grid_textures.get(g).unit)));
-            gl.uniform1iv(gl.getUniformLocation(program, "uMediaIndex"),
-                this.grids.map(g => WebGLHelper.textureUnitIndex(this.grid_textures.get(g).indexUnit)));
+            gl.uniform1i(gl.getUniformLocation(program, "uMediaAtlas"), WebGLHelper.textureUnitIndex(this.atlas_unit));
+            gl.uniform1i(gl.getUniformLocation(program, "uMediaIndex"), WebGLHelper.textureUnitIndex(this.index_unit));
+            gl.uniform3iv(gl.getUniformLocation(program, "uMediaGridIndexOffset"), this.shared.offsets.flatMap(x => [x, 0, 0]));
+            gl.uniform3iv(gl.getUniformLocation(program, "uMediaGridCells"), this.grids.flatMap(g => g.cellDims));
         }
     }
-    // The index texture's texels, one per cell: the brick's place in the atlas (in bricks), and the cell's largest byte
-    // (0 for a cell without a brick).
-    static indexTexels(grid) {
-        const cells = grid.cellBrick.length, texels = new Uint8Array(cells * 4);
-        for (let i = 0; i < cells; ++i) {
-            const b = grid.cellBrick[i];
-            if (b < 0)
-                continue;
-            const o = grid.brickOrigin(b);
-            texels.set([o[0] / VoxelGrid.BRICK, o[1] / VoxelGrid.BRICK, o[2] / VoxelGrid.BRICK, grid.cellMax[i]], i * 4);
+    // Packs every grid's bricks into one atlas (a single grid's own atlas as it is) and every grid's index into one,
+    // side by side along x, and uploads both.
+    uploadGrids(gl) {
+        const grids = this.grids.slice(), B = VoxelGrid.BRICK, limit = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
+        let atlas, atlasBricks, atlasDims;
+        const base = [];
+        if (grids.length == 1) {
+            ({ atlas, atlasBricks, atlasDims } = grids[0]);
+            base.push(0);
         }
-        return texels;
+        else {
+            const total = grids.reduce((sum, g) => sum + g.brickCount, 0), n = Math.max(1, Math.ceil(Math.cbrt(total)));
+            atlasBricks = [n, n, Math.max(1, Math.ceil(total / (n * n)))];
+            atlasDims = atlasBricks.map(k => k * B);
+            atlas = new Uint8Array(atlasDims[0] * atlasDims[1] * atlasDims[2]);
+            let next = 0;
+            for (const g of grids) {
+                base.push(next);
+                const [gx, gy] = g.atlasDims;
+                for (let b = 0; b < g.brickCount; ++b, ++next) {
+                    const from = g.brickOrigin(b), to = [(next % n) * B, (Math.floor(next / n) % n) * B, Math.floor(next / (n * n)) * B];
+                    for (let k = 0; k < B; ++k) for (let j = 0; j < B; ++j) {
+                        const src = ((from[2] + k) * gy + from[1] + j) * gx + from[0];
+                        atlas.set(g.atlas.subarray(src, src + B), ((to[2] + k) * atlasDims[1] + to[1] + j) * atlasDims[0] + to[0]);
+                    }
+                }
+            }
+        }
+        if (Math.max(...atlasBricks) > 255)   // the index holds a brick's place in bytes
+            throw `The voxel grids have too many bricks (${atlasBricks.join(" x ")}) for their index`;
+        const offsets = [];
+        let width = 0;
+        for (const g of grids) {
+            offsets.push(width);
+            width += g.cellDims[0];
+        }
+        const indexDims = [width, Math.max(...grids.map(g => g.cellDims[1])), Math.max(...grids.map(g => g.cellDims[2]))];
+        if (Math.max(...atlasDims, ...indexDims) > limit)
+            throw `The voxel grids need a ${atlasDims.join(" x ")} 3D texture, but this GPU allows at most ${limit} on a side`;
+        const texels = new Uint8Array(indexDims[0] * indexDims[1] * indexDims[2] * 4);
+        grids.forEach((g, i) => {
+            const [cx, cy, cz] = g.cellDims;
+            for (let z = 0, c = 0; z < cz; ++z) for (let y = 0; y < cy; ++y) for (let x = 0; x < cx; ++x, ++c) {
+                const b = g.cellBrick[c];
+                if (b < 0)
+                    continue;
+                const at = base[i] + b, n0 = atlasBricks[0], n1 = atlasBricks[1];
+                texels.set([at % n0, Math.floor(at / n0) % n1, Math.floor(at / (n0 * n1)), g.cellMax[c]],
+                           ((z * indexDims[1] + y) * indexDims[0] + offsets[i] + x) * 4);
+            }
+        });
+
+        if (this.shared) {
+            gl.deleteTexture(this.shared.atlas);
+            gl.deleteTexture(this.shared.index);
+        }
+        if (!this.atlas_unit) {
+            this.atlas_unit = this.free_units.pop() || this.webgl_helper.allocateTextureUnit();
+            this.index_unit = this.free_units.pop() || this.webgl_helper.allocateTextureUnit();
+        }
+        const upload = (unit, dims, data, filter, internal, format) => {
+            const texture = gl.createTexture();
+            gl.activeTexture(unit);
+            gl.bindTexture(gl.TEXTURE_3D, texture);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texImage3D(gl.TEXTURE_3D, 0, internal, dims[0], dims[1], dims[2], 0, format, gl.UNSIGNED_BYTE, data);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, filter);
+            gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, filter);
+            for (const wrap of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R])
+                gl.texParameteri(gl.TEXTURE_3D, wrap, gl.CLAMP_TO_EDGE);
+            return texture;
+        };
+        this.shared = {
+            grids: grids, offsets: offsets,
+            atlas: upload(this.atlas_unit, atlasDims, atlas, gl.LINEAR, gl.R8, gl.RED),
+            index: upload(this.index_unit, indexDims, texels, gl.NEAREST, gl.RGBA8UI, gl.RGBA_INTEGER)
+        };
     }
 }

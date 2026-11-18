@@ -1,10 +1,10 @@
 Participating media on the GPU: the same model and sampling as src/media.js (which explains them), for the volumes
 WebGLMediaAdapter uploads. Only path tracing sees media (renderer.glsl: rendererRayColor and rendererDirectLight).
 
-Holes in declarations: count (volumes), gridCount (distinct voxel grids, each two 3D textures: its brick atlas, and
-its index, see VoxelGrid in src/media.js), and tableCount (emission tables, one per volume glowing from a temperature
-grid: Le for each of the grid's bytes, as GridMedium.emissionTable, a row each of one RGBA32F texture). In source: gridCases, one media.grid-case per grid, majorantCases, one
-media.majorant-case per grid, maxSteps, the most tentative collisions a ray may take through one volume (a ray that would
+Holes in declarations: count (volumes), gridCount (distinct voxel grids, which share two 3D textures: one brick atlas
+and one index, see VoxelGrid in src/media.js and WebGLMediaAdapter), and tableCount (emission tables, one per volume
+glowing from a temperature grid: Le for each of the grid's bytes, as GridMedium.emissionTable, a row each of one
+RGBA32F texture). In source: maxSteps, the most tentative collisions a ray may take through one volume (a ray that would
 need more is treated as passing, a bias only for extremely thick or badly bounded grids), and maxCells, the most
 majorant cells it may cross.
 
@@ -23,17 +23,6 @@ float hgEval(in float g, in float cosTheta);
 vec3 hgSample(in float g, in vec3 d, inout vec2 seed, out float pdf);
 #endif
 
-//#section grid-case
-        case ${i}: {
-            ivec3 cell = clamp(ivec3(floor(f / 8.0)), ivec3(0), textureSize(uMediaIndex[${i}], 0) - 1);
-            uvec4 brick = texelFetch(uMediaIndex[${i}], cell, 0);
-            if (brick.a == 0u)
-                return 0.0;
-            vec3 g = clamp(f - 8.0 * vec3(cell), 0.0, 8.0);
-            return textureLod(uMediaGrids[${i}], (vec3(brick.rgb) * 9.0 + g + 0.5) / vec3(textureSize(uMediaGrids[${i}], 0)), 0.0).r;
-        }
-//#section majorant-case
-        case ${i}: dims = textureSize(uMediaIndex[${i}], 0); return float(texelFetch(uMediaIndex[${i}], clamp(cell, ivec3(0), dims - 1), 0).a) / 255.0;
 //#section source
 #if MEDIA_COUNT > 0
 // Per volume: its inverse world transform (into its own space), and
@@ -76,29 +65,30 @@ uniform vec3 uMediaCellSize[MEDIA_COUNT];
 #define MEDIA_MAX_CELLS ${maxCells}
 
 #if MEDIA_GRID_COUNT > 0
-// Per grid: its brick atlas (bytes, filtered trilinearly within a brick), and its index, one texel per cell: the cell's
-// brick's place in the atlas (in bricks) in rgb, and its largest byte in a (0: no brick, the cell is empty).
-uniform highp sampler3D uMediaGrids[MEDIA_GRID_COUNT];
-uniform highp usampler3D uMediaIndex[MEDIA_GRID_COUNT];
+// All grids share one brick atlas (bytes, filtered trilinearly within a brick) and one index (one texel per cell: the
+// cell's brick's place in the atlas, in bricks, in rgb, and its largest byte in a, 0 if it has no brick), each grid's
+// cells a box of the index starting at uMediaGridIndexOffset, uMediaGridCells across. One texture of each, rather
+// than a pair per grid, keeps the shader small: arrays of samplers can only be indexed by constants, which would take
+// a switch over every grid wherever a grid is read.
+uniform highp sampler3D uMediaAtlas;
+uniform highp usampler3D uMediaIndex;
+uniform ivec3 uMediaGridIndexOffset[MEDIA_GRID_COUNT];
+uniform ivec3 uMediaGridCells[MEDIA_GRID_COUNT];
 // A cell's largest byte (/ 255), its majorant, and the number of cells in each direction (dims). Cells outside are
 // clamped in.
 float mediaMajorantCode(in int grid, in ivec3 cell, out ivec3 dims) {
-    dims = ivec3(1);
-    switch (grid) {
-        ${majorantCases}
-        default: break;
-    }
-    return 0.0;
+    dims = uMediaGridCells[grid];
+    return float(texelFetch(uMediaIndex, uMediaGridIndexOffset[grid] + clamp(cell, ivec3(0), dims - 1), 0).a) / 255.0;
 }
 // The interpolated byte (/ 255) of a grid at f, in voxels from its first voxel's center (as VoxelGrid.codeAt): found
-// in the brick of the cell f is in, which holds every voxel interpolation there needs. Samplers in an array need
-// constant indices, hence the switch.
+// in the brick of the cell f is in, which holds every voxel interpolation there needs.
 float mediaGridCode(in int grid, in vec3 f) {
-    switch (grid) {
-        ${gridCases}
-        default: break;
-    }
-    return 0.0;
+    ivec3 cell = clamp(ivec3(floor(f / 8.0)), ivec3(0), uMediaGridCells[grid] - 1);
+    uvec4 brick = texelFetch(uMediaIndex, uMediaGridIndexOffset[grid] + cell, 0);
+    if (brick.a == 0u)
+        return 0.0;
+    vec3 g = clamp(f - 8.0 * vec3(cell), 0.0, 8.0);
+    return textureLod(uMediaAtlas, (vec3(brick.rgb) * 9.0 + g + 0.5) / vec3(textureSize(uMediaAtlas, 0)), 0.0).r;
 }
 #endif
 

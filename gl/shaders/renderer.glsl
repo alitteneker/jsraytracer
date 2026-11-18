@@ -89,98 +89,74 @@ float powerHeuristic(in float f, in float g) {
     return r * r / (1.0 + r * r);
 }
 
-#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
-vec3 rendererGlowLight(in vec4 rp, in vec4 toPoint, in vec3 glow, in float pdfLight, in float majorant, in float pdf, inout vec2 random_seed);
-#endif
-
-// Direct light at the current surface (see materialSurface) from every light: one sample on each, a shadow ray
-// to it, and the surface's response. In path tracing (MIS), each light sample is weighed against the chance that
-// sampling the BSDF would have found the same light; in Whitted mode it counts fully.
-vec3 rendererDirectLight(in vec4 rp, inout vec2 random_seed) {
+// Direct light at rp from every light (one sample on each) and, in path tracing, every glowing volume (one point in
+// each, see mediaSampleGlow), each with a shadow ray and, through volumes, their transmittance. The response is the
+// current surface's (see materialSurface), or, if medium >= 0, that volume's phase function for light continuing
+// along d (no cosine: a medium has no surface to tilt), as where a path scatters in a volume. In path tracing each
+// sample is weighed by MIS against the chance that the response's own sampling would have found the same light: for
+// a glowing point, a ray cast with that density finding it by tracking, at the majorant's rate (see
+// PathIntegrator.volumeLight). In Whitted mode lights count fully.
+// Everything goes through one shadow ray and one transmittance call on purpose: shader compilers inline each call, and
+// the tracking loop behind mediaTransmittance is big (Direct3D's compiler, which Chrome uses on Windows, can take
+// minutes over a few copies of it).
+vec3 rendererDirectLight(in vec4 rp, in int medium, in vec3 d, inout vec2 random_seed) {
     vec3 L = vec3(0.0);
-    for (int i = 0; i < uNumLights; ++i) {
-        LightSample ls = sampleLight(i, rp, random_seed);
-        float pdf, cosFactor;
-        vec3 f = surfaceEval(ls.direction, pdf, cosFactor);
-        // The surface reflects none of this light, so its shadow ray can't change anything.
+    int count = uNumLights;
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+    count += MEDIA_COUNT;
+#endif
+    for (int k = 0; k < count; ++k) {
+        vec4 direction;
+        vec3 Le;              // what the sample brings, before the response, MIS and transmittance
+        float lightPdf, otherPdfScale = 1.0;   // the response's pdf times otherPdfScale is its density for this sample
+        if (k < uNumLights) {
+            LightSample ls = sampleLight(k, rp, random_seed);
+            direction = ls.direction;
+            Le = ls.color;
+            lightPdf = ls.pdf;
+        }
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+        else {
+            vec3 glow;
+            float majorant;
+            if (!mediaGlows(k - uNumLights) || !mediaSampleGlow(k - uNumLights, rp, random_seed, direction, glow, lightPdf, majorant))
+                continue;
+            float r2 = dot(direction.xyz, direction.xyz);
+            Le = glow / (r2 * lightPdf);
+            otherPdfScale = majorant / r2;
+        }
+#endif
+        float pdf, cosFactor = 1.0;
+        vec3 f;
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+        if (medium >= 0) {
+            pdf = hgEval(mediaG(medium), dot(d, normalize(direction.xyz)));
+            f = vec3(pdf);
+        }
+        else
+#endif
+            f = surfaceEval(direction, pdf, cosFactor);
+        // The response passes none of this light, so its shadow ray can't change anything.
         if (max(max(f.r, f.g), f.b) <= 0.0)
             continue;
 #if !DEBUG_NO_SHADOWS
-        float shadowIntersection = worldRayCast(Ray(rp, ls.direction), EPSILON, 1.0, true);
+        float shadowIntersection = worldRayCast(Ray(rp, direction), EPSILON, 1.0, true);
         if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
             continue;
 #endif
 #ifdef PATH_TRACING
-        float w = ls.pdf > 0.0 ? powerHeuristic(ls.pdf, pdf) : 1.0;
+        float w = lightPdf > 0.0 ? powerHeuristic(lightPdf, pdf * otherPdfScale) : 1.0;
 #else
         float w = 1.0;
 #endif
 #if MEDIA_COUNT > 0 && defined(PATH_TRACING)
-        // Light reaching the surface through volumes is dimmed by their transmittance.
-        w *= mediaTransmittance(Ray(rp, ls.direction), EPSILON, 1.0, random_seed);
+        // Light reaching rp through volumes is dimmed by their transmittance.
+        w *= mediaTransmittance(Ray(rp, direction), EPSILON, 1.0, random_seed);
 #endif
-        L += f * ls.color * cosFactor * w;
-    }
-#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
-    // Glowing volumes as lights: a point in each (see rendererGlowLight).
-    for (int v = 0; v < MEDIA_COUNT; ++v) {
-        vec4 toPoint;
-        vec3 glow;
-        float pdfLight, majorant;
-        if (!mediaGlows(v) || !mediaSampleGlow(v, rp, random_seed, toPoint, glow, pdfLight, majorant))
-            continue;
-        float pdf, cosFactor;
-        vec3 f = surfaceEval(toPoint, pdf, cosFactor);
-        if (max(max(f.r, f.g), f.b) > 0.0)
-            L += f * cosFactor * rendererGlowLight(rp, toPoint, glow, pdfLight, majorant, pdf, random_seed);
-    }
-#endif
-    return L;
-}
-
-#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
-// The light a point sampled in a glowing volume (mediaSampleGlow) sends to rp, before the response there: its glow over
-// r^2 and the density of picking it, through whatever lies between, weighed by MIS against path sampling, which finds
-// the same glow along a ray cast with density pdf (the BSDF's or phase function's) at the majorant's rate (see
-// PathIntegrator.volumeLight).
-vec3 rendererGlowLight(in vec4 rp, in vec4 toPoint, in vec3 glow, in float pdfLight, in float majorant, in float pdf, inout vec2 random_seed) {
-#if !DEBUG_NO_SHADOWS
-    float shadowIntersection = worldRayCast(Ray(rp, toPoint), EPSILON, 1.0, true);
-    if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
-        return vec3(0);
-#endif
-    float r2 = dot(toPoint.xyz, toPoint.xyz);
-    float w = powerHeuristic(pdfLight, pdf * majorant / r2);
-    return glow * w * mediaTransmittance(Ray(rp, toPoint), EPSILON, 1.0, random_seed) / (r2 * pdfLight);
-}
-
-// Direct light at a point where light scatters in a volume: as rendererDirectLight, with the phase function in place
-// of the BSDF (and no cosine: a medium has no surface to tilt), for light arriving against the direction d.
-vec3 rendererMediumDirectLight(in vec4 p, in vec3 d, in float g, inout vec2 random_seed) {
-    vec3 L = vec3(0.0);
-    for (int i = 0; i < uNumLights; ++i) {
-        LightSample ls = sampleLight(i, p, random_seed);
-        float phase = hgEval(g, dot(d, normalize(ls.direction.xyz)));
-#if !DEBUG_NO_SHADOWS
-        float shadowIntersection = worldRayCast(Ray(p, ls.direction), EPSILON, 1.0, true);
-        if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
-            continue;
-#endif
-        float w = ls.pdf > 0.0 ? powerHeuristic(ls.pdf, phase) : 1.0;
-        L += ls.color * phase * w * mediaTransmittance(Ray(p, ls.direction), EPSILON, 1.0, random_seed);
-    }
-    for (int v = 0; v < MEDIA_COUNT; ++v) {
-        vec4 toPoint;
-        vec3 glow;
-        float pdfLight, majorant;
-        if (!mediaGlows(v) || !mediaSampleGlow(v, p, random_seed, toPoint, glow, pdfLight, majorant))
-            continue;
-        float phase = hgEval(g, dot(d, normalize(toPoint.xyz)));
-        L += phase * rendererGlowLight(p, toPoint, glow, pdfLight, majorant, phase, random_seed);
+        L += f * Le * cosFactor * w;
     }
     return L;
 }
-#endif
 
 // The integrator: follows a path from the camera, adding at each hit its emission and the direct light it reflects,
 // then continuing in a direction the surface chooses.
@@ -241,8 +217,7 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
                 mediumEvent = true;
                 intersect_position = mediumPosition;
                 intersect_normal = vec3(0);
-                surface_color = mediaAlbedo(mediumVolume) * rendererMediumDirectLight(mediumPosition,
-                    normalize(r.d.xyz), mediaG(mediumVolume), random_seed);
+                surface_color = vec3(0);   // its direct light comes below, with the surfaces'
             }
         }
 #endif
@@ -258,8 +233,20 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
         surface_color += mediumEmitted;
 #endif
 #if !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
-        if (surfaceWantsDirectLight())
-            surface_color += rendererDirectLight(intersect_position, random_seed);
+        {
+            // Where the path scatters in a volume, its direct light goes through the phase function, scaled by the
+            // albedo; otherwise through the surface. One call either way (see rendererDirectLight).
+            int lightMedium = -1;
+            vec3 lightScale = vec3(1);
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+            if (mediumEvent) {
+                lightMedium = mediumVolume;
+                lightScale = mediaAlbedo(mediumVolume);
+            }
+#endif
+            if (lightMedium >= 0 || surfaceWantsDirectLight())
+                surface_color += lightScale * rendererDirectLight(intersect_position, lightMedium, normalize(r.d.xyz), random_seed);
+        }
         surfaceSampleNextRays(random_seed, nextRays);
 #endif
         vec3 contribution = attenuation_color * surface_color;
