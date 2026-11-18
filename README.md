@@ -96,6 +96,8 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
   and smoke from voxel grids, with a per-channel albedo and a Henyey-Greenstein phase function
 - Delta tracking for scattering and ratio tracking for shadow rays, against majorants kept per block of voxels, so
   thin and empty regions are crossed in long steps
+- Sparse voxel grids: only the 8³-voxel cells with something in them are stored, as bricks in one 3D texture, so the
+  full-resolution OpenVDB bunny (577 × 572 × 438 voxels) takes 51 MB on the GPU rather than 145 MB
 - OpenVDB grids converted with `tools/vdb_to_grid.py` (see Writing a scene)
 
 **Cameras and sampling**
@@ -195,7 +197,8 @@ objects.push(new Volume(new HomogeneousMedium({ shape: "sphere", density: 1.2, a
 
 // A voxel grid, from an OpenVDB file converted once with
 //     python3 tools/vdb_to_grid.py bunny_cloud.vdb assets/volumes/bunny_cloud.vol.gz --downsample 2
-// (needs OpenVDB's Python module, pyopenvdb). The grid keeps the VDB's own units.
+// (needs OpenVDB's Python module, pyopenvdb; leave out --downsample for full resolution, as bunny_cloud_full does).
+// The grid keeps the VDB's own units.
 GridMedium.load("../assets/volumes/bunny_cloud.vol.gz", { density: 3, albedo: 0.98, g: 0.6 }).then(cloud => {
     objects.push(new Volume(cloud, Mat4.scale(0.1)));
     // ...then hand back the renderer as usual
@@ -254,7 +257,7 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 - Solid angle sampling for area lights
 - Adaptive multisampling
 - Volumes: emission (fire and explosions, from temperature grids), colored extinction, media bounded by meshes and
-  overlapping volumes, and large sparse grids (NanoVDB)
+  overlapping volumes, several grids per volume, and loading .vdb files directly
 
 ## License
 

@@ -15,7 +15,7 @@
 //
 // Two media:
 //   HomogeneousMedium: the same density everywhere, inside a box ([-1, 1]^3) or a sphere (radius 1).
-//   GridMedium: density from a voxel grid (VoxelGrid, loaded from a file made by tools/vdb_to_grid.py), filling the
+//   GridMedium: density from a sparse voxel grid (VoxelGrid, loaded from a file made by tools/vdb_to_grid.py), filling the
 //       grid's box. The grid's values are multiplied by the medium's density.
 //
 // Sampling (shared by the CPU and the GPU, see gl/shaders/media.glsl): where light first interacts along a ray is
@@ -92,52 +92,184 @@ class HomogeneousMedium extends Medium {
     }
 }
 
-// Density values on a regular grid of voxels, filling a box. Stored as the bytes tools/vdb_to_grid.py writes: a byte
-// b stands for max * (b / 255)^2, and sampling interpolates the bytes trilinearly before decoding (as the GPU's
-// texture filtering does), with the edge voxels extending beyond the box.
+// Density values on a regular lattice of voxels, stored sparsely: the lattice is split into cells of 8^3 voxels (as
+// OpenVDB's leaves are), and only cells near something nonzero keep their values. Each such cell gets a brick of 9^3
+// bytes in one big array, the atlas: its own 8^3 voxels plus the first voxel of each neighbor above it in x, y and z.
+// That one extra layer is all trilinear interpolation needs, since a point in cell c only ever mixes voxels 8c to 8c + 8,
+// so the GPU can upload the atlas as one 3D texture and filter within a brick (WebGLMediaAdapter), and the CPU reads the
+// same bytes the same way (codeAt). A small index, one entry per cell, says which brick holds a cell, or that it's
+// empty; it also keeps each brick's largest byte, which is exactly the majorant for that cell (majorantCodes).
+//
+// A byte b stands for max * (b / 255)^2, as tools/vdb_to_grid.py writes it, and values are interpolated as bytes before
+// decoding (as the GPU's texture filtering does). Voxel k's center is at origin + k * voxelSize, in the grid's own
+// space, and the grid's values only count inside bounds (the medium's box, where Volume.interval clips rays).
 class VoxelGrid {
-    constructor({ dims, bounds, max }, codes, source = "") {
-        this.dims = dims;
+    static MAJORANT_CELL = 8;   // voxels per cell along each axis
+    static BRICK = 9;           // bytes per brick along each axis: a cell, plus one more voxel above
+
+    // cellLeaf: per cell (x fastest), the index of its leaf in leaves (8^3 bytes each, x fastest), or -1 for all zero.
+    constructor({ cellDims, origin, voxelSize, bounds, max }, cellLeaf, leaves, source = "") {
+        this.cellDims = cellDims.slice();
+        this.dims = cellDims.map(n => n * VoxelGrid.MAJORANT_CELL);
+        this.origin = origin.slice();
+        this.voxelSize = voxelSize.slice();
         this.bounds = { min: Vec.of(...bounds.min), max: Vec.of(...bounds.max) };
         this.max = max;
-        this.codes = codes;
         this.source = source;
-        this.voxelSize = [0, 1, 2].map(i => (bounds.max[i] - bounds.min[i]) / dims[i]);
+        this.leafCount = leaves.length / 512;
+        this.buildBricks(cellLeaf, leaves);
     }
-    // Loads a .vol.gz file (see tools/vdb_to_grid.py).
+    buildBricks(cellLeaf, leaves) {
+        const [cx, cy, cz] = this.cellDims, B = VoxelGrid.BRICK;
+        const leafAt = (x, y, z) => x < cx && y < cy && z < cz ? cellLeaf[(z * cy + y) * cx + x] : -1;
+        // What a cell's brick borrows from the neighbor at offset d (bits: x, y, z) is that leaf's voxels at 0 along
+        // each axis in d: a face, an edge or a corner. borrows[l * 8 + d] is whether those are nonzero for leaf l.
+        const leafCount = leaves.length / 512, borrows = new Uint8Array(leafCount * 8);
+        for (let l = 0; l < leafCount; ++l)
+            for (let d = 0; d < 8; ++d) {
+                const nx = d & 1 ? 1 : 8, ny = d & 2 ? 1 : 8, nz = d & 4 ? 1 : 8;
+                let any = 0;
+                for (let k = 0; k < nz && !any; ++k) for (let j = 0; j < ny && !any; ++j) for (let h = 0; h < nx; ++h)
+                    any |= leaves[l * 512 + (k * 8 + j) * 8 + h];
+                borrows[l * 8 + d] = any ? 1 : 0;
+            }
+        // A cell needs a brick if it has a leaf, or borrows nonzero voxels from a neighbor's.
+        const cellBrick = new Int32Array(cx * cy * cz).fill(-1);
+        let count = 0;
+        for (let z = 0, i = 0; z < cz; ++z) for (let y = 0; y < cy; ++y) for (let x = 0; x < cx; ++x, ++i)
+            for (let d = 0; d < 8; ++d) {
+                const l = leafAt(x + (d & 1), y + (d >> 1 & 1), z + (d >> 2));
+                if (l >= 0 && borrows[l * 8 + d]) {
+                    cellBrick[i] = count++;
+                    break;
+                }
+            }
+        // The atlas: bricks in a roughly cubic block, so its sides stay well under the GPU's 3D texture limit.
+        const n = Math.max(1, Math.ceil(Math.cbrt(count)));
+        this.atlasBricks = [n, n, Math.max(1, Math.ceil(count / (n * n)))];
+        this.atlasDims = this.atlasBricks.map(k => k * B);
+        const [ax, ay] = this.atlasDims, atlas = new Uint8Array(ax * ay * this.atlasDims[2]);
+        const cellMax = new Uint8Array(cx * cy * cz);
+        for (let z = 0, i = 0; z < cz; ++z) for (let y = 0; y < cy; ++y) for (let x = 0; x < cx; ++x, ++i) {
+            const b = cellBrick[i];
+            if (b < 0)
+                continue;
+            const [ox, oy, oz] = this.brickOrigin(b);
+            for (let k = 0; k < B; ++k) {
+                const zc = z + (k >> 3), zl = k & 7;
+                for (let j = 0; j < B; ++j) {
+                    const yc = y + (j >> 3), yl = j & 7, row = (zl * 8 + yl) * 8;
+                    const dst = ((oz + k) * ay + oy + j) * ax + ox;
+                    const l0 = leafAt(x, yc, zc), l1 = leafAt(x + 1, yc, zc);
+                    if (l0 >= 0)
+                        atlas.set(leaves.subarray(l0 * 512 + row, l0 * 512 + row + 8), dst);
+                    if (l1 >= 0)
+                        atlas[dst + 8] = leaves[l1 * 512 + row];
+                }
+            }
+            let m = 0;
+            for (let k = 0; k < B; ++k) for (let j = 0; j < B; ++j) {
+                const row = ((oz + k) * ay + oy + j) * ax + ox;
+                for (let x = 0; x < B; ++x)
+                    if (atlas[row + x] > m)
+                        m = atlas[row + x];
+            }
+            cellMax[i] = m;
+            if (m == 0)
+                cellBrick[i] = -1;   // only borrowed zeros: leave its slot unused
+        }
+        this.cellBrick = cellBrick;
+        this.cellMax = cellMax;
+        this.brickCount = count;
+        this.atlas = atlas;
+    }
+    // Where brick b starts in the atlas, in bytes along each axis.
+    brickOrigin(b) {
+        const [nx, ny] = this.atlasBricks, B = VoxelGrid.BRICK;
+        return [(b % nx) * B, (Math.floor(b / nx) % ny) * B, Math.floor(b / (nx * ny)) * B];
+    }
+
+    // A grid from dense bytes ({ dims, bounds, max }, codes x fastest), filling bounds the way the first file format
+    // (JSVOL1) did: voxel centers half a voxel in from its faces, and values held constant past the outermost ones. The
+    // lattice gets one more voxel on every side, copying its neighbor, which reproduces that exactly.
+    static fromDense({ dims, bounds, max }, codes, source = "") {
+        const size = [0, 1, 2].map(i => (bounds.max[i] - bounds.min[i]) / dims[i]), C = VoxelGrid.MAJORANT_CELL;
+        const cellDims = dims.map(n => Math.ceil((n + 2) / C));
+        const cellLeaf = new Int32Array(cellDims[0] * cellDims[1] * cellDims[2]).fill(-1), leaves = [];
+        const leaf = new Uint8Array(512), clamp = (v, n) => Math.min(n - 1, Math.max(0, v));
+        for (let z = 0, i = 0; z < cellDims[2]; ++z) for (let y = 0; y < cellDims[1]; ++y) for (let x = 0; x < cellDims[0]; ++x, ++i) {
+            let any = 0;
+            for (let k = 0; k < 8; ++k) for (let j = 0; j < 8; ++j) for (let h = 0; h < 8; ++h) {
+                const v = codes[(clamp(z * C + k - 1, dims[2]) * dims[1] + clamp(y * C + j - 1, dims[1])) * dims[0] + clamp(x * C + h - 1, dims[0])];
+                leaf[(k * 8 + j) * 8 + h] = v;
+                any |= v;
+            }
+            if (any) {
+                cellLeaf[i] = leaves.length;
+                leaves.push(leaf.slice());
+            }
+        }
+        const all = new Uint8Array(leaves.length * 512);
+        leaves.forEach((l, i) => all.set(l, i * 512));
+        return new VoxelGrid({ cellDims: cellDims, origin: bounds.min.map((m, i) => m - 0.5 * size[i]), voxelSize: size,
+                               bounds: bounds, max: max }, cellLeaf, all, source);
+    }
+    // Loads a .vol.gz file made by tools/vdb_to_grid.py: sparse leaves (JSVOL2), or a dense grid (JSVOL1, older files).
     static async load(url) {
         const response = await fetch(url);
         if (!response.ok)
             throw `Could not load the voxel grid ${url}: ${response.status} ${response.statusText}`;
-        const bytes = new Uint8Array(await new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
-        const magic = "JSVOL1\n";
-        if (String.fromCharCode(...bytes.subarray(0, magic.length)) != magic)
+        return VoxelGrid.parse(new Uint8Array(await new Response(response.body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()), url);
+    }
+    // A grid from a .vol.gz file's bytes, once decompressed.
+    static parse(bytes, url = "") {
+        const magic = String.fromCharCode(...bytes.subarray(0, 7));
+        if (magic != "JSVOL1\n" && magic != "JSVOL2\n")
             throw `${url} is not a voxel grid made by tools/vdb_to_grid.py`;
-        const end = bytes.indexOf(10, magic.length);
-        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(magic.length, end)));
+        const end = bytes.indexOf(10, 7);
+        const header = JSON.parse(new TextDecoder().decode(bytes.subarray(7, end)));
         if (header.encoding != "u8-squared")
             throw `${url}: unknown voxel encoding ${header.encoding}`;
-        const codes = bytes.subarray(end + 1);
-        if (codes.length != header.dims[0] * header.dims[1] * header.dims[2])
-            throw `${url}: expected ${header.dims.join(" x ")} voxels, found ${codes.length} bytes`;
-        return new VoxelGrid(header, codes, url);
+        const data = bytes.subarray(end + 1);
+        if (magic == "JSVOL1\n") {
+            if (data.length != header.dims[0] * header.dims[1] * header.dims[2])
+                throw `${url}: expected ${header.dims.join(" x ")} voxels, found ${data.length} bytes`;
+            return VoxelGrid.fromDense(header, data, url);
+        }
+        // JSVOL2: one byte per cell (1 if it has a leaf), then the leaves in cell order.
+        const [cx, cy, cz] = header.cellDims, cells = cx * cy * cz;
+        if (data.length != cells + header.leaves * 512)
+            throw `${url}: expected ${cells} cells and ${header.leaves} leaves, found ${data.length} bytes`;
+        const cellLeaf = new Int32Array(cells);
+        let n = 0;
+        for (let i = 0; i < cells; ++i)
+            cellLeaf[i] = data[i] ? n++ : -1;
+        return new VoxelGrid(header, cellLeaf, data.subarray(cells), url);
     }
-    // Byte value (0 to 255, interpolated) at a point in the grid's space.
+
+    // The cell a point (in the grid's space) falls in, clamped into the grid, as [x, y, z], and its continuous voxel
+    // coordinates.
+    locate(p) {
+        const f = [0, 1, 2].map(i => (p[i] - this.origin[i]) / this.voxelSize[i]);
+        const c = f.map((v, i) => Math.min(this.cellDims[i] - 1, Math.max(0, Math.floor(v / VoxelGrid.MAJORANT_CELL))));
+        return [c, f];
+    }
+    cellIndex(c) {
+        return (c[2] * this.cellDims[1] + c[1]) * this.cellDims[0] + c[0];
+    }
+    // Byte value (0 to 255, interpolated) at a point in the grid's space: trilinear within the cell's brick.
     codeAt(p) {
-        const [nx, ny, nz] = this.dims;
-        const f = [0, 1, 2].map(i => (p[i] - this.bounds.min[i]) / this.voxelSize[i] - 0.5);
-        const i0 = f.map(Math.floor), t = f.map((v, i) => v - i0[i]);
-        const clamp = (v, n) => v < 0 ? 0 : v >= n ? n - 1 : v;
+        const [c, f] = this.locate(p), b = this.cellBrick[this.cellIndex(c)];
+        if (b < 0)
+            return 0;
+        const g = f.map((v, i) => Math.min(8, Math.max(0, v - c[i] * VoxelGrid.MAJORANT_CELL)));
+        const i0 = g.map(v => Math.min(7, Math.floor(v))), t = g.map((v, i) => v - i0[i]);
+        const o = this.brickOrigin(b), [ax, ay] = this.atlasDims, atlas = this.atlas;
+        const base = ((o[2] + i0[2]) * ay + o[1] + i0[1]) * ax + o[0] + i0[0];
         let sum = 0;
-        for (let dz = 0; dz < 2; ++dz) {
-            const z = clamp(i0[2] + dz, nz), wz = dz ? t[2] : 1 - t[2];
-            for (let dy = 0; dy < 2; ++dy) {
-                const y = clamp(i0[1] + dy, ny), wy = dy ? t[1] : 1 - t[1];
-                for (let dx = 0; dx < 2; ++dx) {
-                    const x = clamp(i0[0] + dx, nx), wx = dx ? t[0] : 1 - t[0];
-                    sum += wx * wy * wz * this.codes[(z * ny + y) * nx + x];
-                }
-            }
+        for (let dz = 0; dz < 2; ++dz) for (let dy = 0; dy < 2; ++dy) {
+            const row = base + (dz * ay + dy) * ax, w = (dz ? t[2] : 1 - t[2]) * (dy ? t[1] : 1 - t[1]);
+            sum += w * ((1 - t[0]) * atlas[row] + t[0] * atlas[row + 1]);
         }
         return sum;
     }
@@ -146,46 +278,19 @@ class VoxelGrid {
         return this.max * c * c;
     }
 
-    // Majorants per cell of MAJORANT_CELL^3 voxels: the largest byte that interpolation inside the cell can reach,
-    // which includes the voxels one beyond it on each side. (Decoding is increasing, so the decoded largest byte
-    // bounds the decoded interpolated ones.) Built on first use, x fastest like the voxels.
-    static MAJORANT_CELL = 8;
+    // Majorants per cell: the largest byte in its brick, which bounds every value interpolated inside the cell.
+    // (Decoding is increasing, so the decoded largest byte bounds the decoded interpolated ones.) x fastest.
     get majorantDims() {
-        return this.dims.map(n => Math.ceil(n / VoxelGrid.MAJORANT_CELL));
+        return this.cellDims;
     }
     get majorantCodes() {
-        if (!this._majorants) {
-            const c = VoxelGrid.MAJORANT_CELL, [nx, ny, nz] = this.dims, [cx, cy, cz] = this.majorantDims;
-            // Separable: the largest byte over each cell's x range (plus one voxel each side), then y, then z.
-            const range = (i, n) => [Math.max(0, i * c - 1), Math.min(n - 1, i * c + c)];
-            const mx = new Uint8Array(cx * ny * nz), my = new Uint8Array(cx * cy * nz), out = new Uint8Array(cx * cy * cz);
-            for (let z = 0; z < nz; ++z) for (let y = 0; y < ny; ++y) for (let i = 0; i < cx; ++i) {
-                const [a, b] = range(i, nx), row = (z * ny + y) * nx;
-                let m = 0;
-                for (let x = a; x <= b; ++x) m = Math.max(m, this.codes[row + x]);
-                mx[(z * ny + y) * cx + i] = m;
-            }
-            for (let z = 0; z < nz; ++z) for (let j = 0; j < cy; ++j) for (let i = 0; i < cx; ++i) {
-                const [a, b] = range(j, ny);
-                let m = 0;
-                for (let y = a; y <= b; ++y) m = Math.max(m, mx[(z * ny + y) * cx + i]);
-                my[(z * cy + j) * cx + i] = m;
-            }
-            for (let k = 0; k < cz; ++k) for (let j = 0; j < cy; ++j) for (let i = 0; i < cx; ++i) {
-                const [a, b] = range(k, nz);
-                let m = 0;
-                for (let z = a; z <= b; ++z) m = Math.max(m, my[(z * cy + j) * cx + i]);
-                out[(k * cy + j) * cx + i] = m;
-            }
-            Object.defineProperty(this, "_majorants", { value: out, enumerable: false });
-        }
-        return this._majorants;
+        return this.cellMax;
     }
     // Calls visit(ta, tb, majorant) for each majorant cell a ray (in the grid's space) crosses within [t0, t1], in
     // order, until visit returns true. A 3D DDA over the cells (Amanatides and Woo).
     traverse(local, t0, t1, visit) {
         const cs = this.voxelSize.map(v => v * VoxelGrid.MAJORANT_CELL), cd = this.majorantDims, codes = this.majorantCodes;
-        const o = local.origin, d = local.direction, min = this.bounds.min;
+        const o = local.origin, d = local.direction, min = this.origin;
         const idx = [0, 0, 0], step = [0, 0, 0], tNext = [0, 0, 0], tDelta = [0, 0, 0];
         for (let i = 0; i < 3; ++i) {
             const q = (o[i] + d[i] * t0 - min[i]) / cs[i], dq = d[i] / cs[i];

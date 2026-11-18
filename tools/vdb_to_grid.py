@@ -1,18 +1,23 @@
-"""Converts a float grid in an OpenVDB file (a fog volume's "density", say) to the dense grid format the tracer loads
+"""Converts a float grid in an OpenVDB file (a fog volume's "density", say) to the sparse grid format the tracer loads
 (GridMedium.load in src/media.js):
 
-    python3 tools/vdb_to_grid.py bunny_cloud.vdb assets/volumes/bunny_cloud.vol.gz --downsample 2
+    python3 tools/vdb_to_grid.py bunny_cloud.vdb assets/volumes/bunny_cloud.vol.gz
 
 Needs OpenVDB's Python module (pyopenvdb, e.g. the python3-openvdb package on Debian and Ubuntu) and numpy.
 
-The output is gzip compressed: the line "JSVOL1", a line of JSON describing the grid, then one byte per voxel, x
-fastest, then y, then z. The JSON gives:
-    dims      [nx, ny, nz]
-    bounds    {"min": [x, y, z], "max": [x, y, z]}: the box the voxels fill, in the VDB's world units
+The voxels are split into cells of 8^3 (like OpenVDB's leaves), and only cells with something in them are written. The
+output is gzip compressed: the line "JSVOL2", a line of JSON describing the grid, one byte per cell (1 if it has a leaf,
+x fastest, then y, then z), then each of those cells' 512 voxels in the same order, one byte each. The JSON gives:
+    cellDims  [cx, cy, cz], the number of cells along each axis
+    origin    [x, y, z], the center of the first voxel, in the VDB's world units; voxel k is at origin + k * voxelSize
+    voxelSize [x, y, z]
+    bounds    {"min": [x, y, z], "max": [x, y, z]}: the box where values can be nonzero (one voxel past the data)
     max       the largest value; a byte b stands for max * (b / 255)^2. The square spends more of the 256 levels on
               thin regions, where clouds and smoke have their wisps. Values are interpolated before decoding, on the CPU
               and the GPU alike.
+    leaves    the number of cells written
     encoding  "u8-squared", the encoding above
+The lattice starts one voxel before the data, so the falloff from the outermost voxels to zero is inside it too.
 Downsampling averages blocks of voxels, which keeps the cloud's total density.
 """
 import argparse, gzip, json, sys
@@ -44,17 +49,31 @@ if n > 1:
     dense = padded.reshape(s[0] // n, n, s[1] // n, n, s[2] // n, n).mean(axis=(1, 3, 5))
     dims = list(dense.shape)
 
-# Voxel i of the VDB is centered at i * voxel size, so the voxels fill from (imin - 1/2) voxels on.
-lo = (np.array(imin) - 0.5) * voxel
-hi = lo + np.array(dims) * voxel * n
+# Voxel i of the VDB is centered at i * voxel size, so averaged voxel k (of n^3) is at imin + n k + (n - 1) / 2.
+size = voxel * n
+first = (np.array(imin) + (n - 1) / 2) * voxel
 dense = np.maximum(dense, 0)
 peak = float(dense.max())
-codes = np.round(np.sqrt(dense / peak) * 255).astype(np.uint8)
+if not peak > 0:
+    sys.exit(f"The grid {args.grid} is empty.")
 
-header = {"dims": dims, "bounds": {"min": lo.tolist(), "max": hi.tolist()}, "max": peak, "encoding": "u8-squared",
-          "source": args.vdb.split("/")[-1], "grid": args.grid}
+# The lattice: one zero voxel, then the data, padded with zeros to whole cells.
+cells = [(d + 2 + 7) // 8 for d in dims]
+codes = np.zeros([c * 8 for c in cells], dtype=np.uint8)
+codes[1:dims[0] + 1, 1:dims[1] + 1, 1:dims[2] + 1] = np.round(np.sqrt(dense / peak) * 255).astype(np.uint8)
+del dense
+# Leaves in cell order, each x fastest: [cz, cy, cx, 8z, 8y, 8x].
+leaves = codes.reshape(cells[0], 8, cells[1], 8, cells[2], 8).transpose(4, 2, 0, 5, 3, 1).reshape(-1, 512)
+mask = leaves.any(axis=1)
+origin = first - size
+lo, hi = origin, origin + (np.array(dims) + 1) * size
+
+header = {"cellDims": cells, "origin": origin.tolist(), "voxelSize": size.tolist(), "bounds": {"min": lo.tolist(), "max": hi.tolist()},
+          "max": peak, "leaves": int(mask.sum()), "encoding": "u8-squared", "source": args.vdb.split("/")[-1], "grid": args.grid}
 with gzip.open(args.output, "wb", compresslevel=9) as f:
-    f.write(b"JSVOL1\n")
+    f.write(b"JSVOL2\n")
     f.write((json.dumps(header) + "\n").encode())
-    f.write(np.ascontiguousarray(codes.transpose(2, 1, 0)).tobytes())  # x fastest, then y, then z
-print(f"{args.output}: {dims[0]} x {dims[1]} x {dims[2]} voxels, max {peak:.4g}, bounds {lo.round(3).tolist()} to {hi.round(3).tolist()}")
+    f.write(mask.astype(np.uint8).tobytes())
+    f.write(np.ascontiguousarray(leaves[mask]).tobytes())
+print(f"{args.output}: {dims[0]} x {dims[1]} x {dims[2]} voxels in {cells[0]} x {cells[1]} x {cells[2]} cells, "
+      f"{header['leaves']} with data ({100 * header['leaves'] / mask.size:.1f}%), max {peak:.4g}")

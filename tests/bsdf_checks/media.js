@@ -29,8 +29,38 @@ const makeGrid = (n, f) => {
         const p = [x, y, z].map(i => -1 + (i + 0.5) * 2 / n);
         codes[(z * n + y) * n + x] = Math.round(Math.sqrt(Math.min(1, f(...p) / max)) * 255);
     }
-    return new VoxelGrid({ dims: [n, n, n], bounds: { min: [-1, -1, -1], max: [1, 1, 1] }, max: max }, codes);
+    return VoxelGrid.fromDense({ dims: [n, n, n], bounds: { min: [-1, -1, -1], max: [1, 1, 1] }, max: max }, codes);
 };
+// The dense interpolation the sparse grid must reproduce (VoxelGrid.fromDense): trilinear over voxel centers half a voxel
+// in from the box's faces, holding the outermost values beyond them.
+const denseCodeAt = (n, codes, p) => {
+    const f = [0, 1, 2].map(i => (p[i] + 1) / 2 * n - 0.5), i0 = f.map(Math.floor), t = f.map((v, i) => v - i0[i]);
+    const clamp = v => Math.min(n - 1, Math.max(0, v));
+    let sum = 0;
+    for (let dz = 0; dz < 2; ++dz) for (let dy = 0; dy < 2; ++dy) for (let dx = 0; dx < 2; ++dx)
+        sum += (dx ? t[0] : 1 - t[0]) * (dy ? t[1] : 1 - t[1]) * (dz ? t[2] : 1 - t[2])
+             * codes[(clamp(i0[2] + dz) * n + clamp(i0[1] + dy)) * n + clamp(i0[0] + dx)];
+    return sum;
+};
+{
+    // A grid with sharp features right at cell borders and empty cells next to full ones, so bricks borrow voxels.
+    // Dense voxel d is the lattice's voxel d + 1, so cells hold dense voxels -1..6, 7..14, 15..22, ...: a block in the
+    // first cell, and a wall at dense x = 15, the first voxel of the third cell, which the empty second cell must borrow.
+    const n = 30, codes = new Uint8Array(n * n * n);
+    for (let z = 0, i = 0; z < n; ++z) for (let y = 0; y < n; ++y) for (let x = 0; x < n; ++x, ++i) {
+        const inside = (x < 6 && y < 6 && z < 6) || (x == 15 && y > 2 && y < 13 && z > 2 && z < 13);
+        codes[i] = inside ? 1 + ((i * 2654435761 >>> 24) % 255) : 0;
+    }
+    const grid = VoxelGrid.fromDense({ dims: [n, n, n], bounds: { min: [-1, -1, -1], max: [1, 1, 1] }, max: 1 }, codes);
+    let worst = 0;
+    for (let k = 0; k < 50000; ++k) {
+        const p = [0, 1, 2].map(() => -1 + 2 * Math.random());
+        worst = Math.max(worst, Math.abs(grid.codeAt(p) - denseCodeAt(n, codes, p)));
+    }
+    check("sparse grid matches dense interpolation", worst < 1e-9,
+        `largest difference ${worst.toExponential(2)} over 50000 points, ${grid.brickCount} bricks of ${grid.cellDims.join(" x ")} cells`);
+}
+
 const quadrature = (medium, local, t0, t1, steps = 4000) => {
     let tau = 0;
     const dt = (t1 - t0) / steps, speed = local.direction.norm();
@@ -62,8 +92,7 @@ for (const [name, medium] of [
     let worst = 0;
     for (let k = 0; k < 20000; ++k) {
         const p = Vec.of(...[0, 1, 2].map(() => -1 + 2 * Math.random()));
-        const c = [0, 1, 2].map(i => Math.min(grid.majorantDims[i] - 1, Math.floor((p[i] + 1) / (grid.voxelSize[i] * VoxelGrid.MAJORANT_CELL))));
-        const code = grid.majorantCodes[(c[2] * grid.majorantDims[1] + c[1]) * grid.majorantDims[0] + c[0]];
+        const code = grid.majorantCodes[grid.cellIndex(grid.locate(p)[0])];
         worst = Math.max(worst, grid.codeAt(p) - code);
     }
     check("majorant cells bound the grid", worst <= 1e-9, `largest excess of an interpolated byte over its cell's ${worst.toFixed(6)}`);

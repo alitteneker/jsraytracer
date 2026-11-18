@@ -1,8 +1,8 @@
 Participating media on the GPU: the same model and sampling as src/media.js (which explains them), for the volumes
 WebGLMediaAdapter uploads. Only path tracing sees media (renderer.glsl: rendererRayColor and rendererDirectLight).
 
-Holes in declarations: count (volumes) and gridCount (distinct voxel grids, each two sampler3Ds: its bytes, and its
-majorant cells, see VoxelGrid.majorantCodes). In source: gridCases, one media.grid-case per grid, majorantCases, one
+Holes in declarations: count (volumes) and gridCount (distinct voxel grids, each two 3D textures: its brick atlas, and
+its index, see VoxelGrid in src/media.js). In source: gridCases, one media.grid-case per grid, majorantCases, one
 media.majorant-case per grid, maxSteps, the most tentative collisions a ray may take through one volume (a ray that would
 need more is treated as passing, a bias only for extremely thick or badly bounded grids), and maxCells, the most
 majorant cells it may cross.
@@ -20,32 +20,44 @@ vec3 hgSample(in float g, in vec3 d, inout vec2 seed, out float pdf);
 #endif
 
 //#section grid-case
-        case ${i}: return textureLod(uMediaGrids[${i}], uvw, 0.0).r;
+        case ${i}: {
+            ivec3 cell = clamp(ivec3(floor(f / 8.0)), ivec3(0), textureSize(uMediaIndex[${i}], 0) - 1);
+            uvec4 brick = texelFetch(uMediaIndex[${i}], cell, 0);
+            if (brick.a == 0u)
+                return 0.0;
+            vec3 g = clamp(f - 8.0 * vec3(cell), 0.0, 8.0);
+            return textureLod(uMediaGrids[${i}], (vec3(brick.rgb) * 9.0 + g + 0.5) / vec3(textureSize(uMediaGrids[${i}], 0)), 0.0).r;
+        }
 //#section majorant-case
-        case ${i}: dims = textureSize(uMediaMajorants[${i}], 0); return texelFetch(uMediaMajorants[${i}], clamp(cell, ivec3(0), dims - 1), 0).r;
+        case ${i}: dims = textureSize(uMediaIndex[${i}], 0); return float(texelFetch(uMediaIndex[${i}], clamp(cell, ivec3(0), dims - 1), 0).a) / 255.0;
 //#section source
 #if MEDIA_COUNT > 0
 // Per volume: its inverse world transform (into its own space), and
 //   uMediaParams:  density, majorant (the largest density anywhere in it), g, kind (0: homogeneous box,
 //                  1: homogeneous sphere, 2: grid)
 //   uMediaAlbedo:  albedo, and in w the grid index (for grids)
-//   uMediaBounds*: its box in its own space (a sphere's is [-1, 1]^3), which a grid fills
+//   uMediaBounds*: its box in its own space (a sphere's is [-1, 1]^3), where a grid's values count
 //   uMediaGridMax: a grid's largest value: a texel holding c stands for max * c^2 (see VoxelGrid in src/media.js)
-//   uMediaCellSize: the size of a grid's majorant cell, in its own space
+//   uMediaGridOrigin: where a grid's first voxel is centered, in the volume's own space
+//   uMediaCellSize: the size of a grid's cell (8^3 voxels, one brick), in its own space
 uniform mat4 uMediaInvTransforms[MEDIA_COUNT];
 uniform vec4 uMediaParams[MEDIA_COUNT];
 uniform vec4 uMediaAlbedo[MEDIA_COUNT];
 uniform vec3 uMediaBoundsMin[MEDIA_COUNT];
 uniform vec3 uMediaBoundsMax[MEDIA_COUNT];
 uniform float uMediaGridMax[MEDIA_COUNT];
+uniform vec3 uMediaGridOrigin[MEDIA_COUNT];
 uniform vec3 uMediaCellSize[MEDIA_COUNT];
 #define MEDIA_MAX_STEPS ${maxSteps}
 #define MEDIA_MAX_CELLS ${maxCells}
 
 #if MEDIA_GRID_COUNT > 0
+// Per grid: its brick atlas (bytes, filtered trilinearly within a brick), and its index, one texel per cell: the cell's
+// brick's place in the atlas (in bricks) in rgb, and its largest byte in a (0: no brick, the cell is empty).
 uniform highp sampler3D uMediaGrids[MEDIA_GRID_COUNT];
-uniform highp sampler3D uMediaMajorants[MEDIA_GRID_COUNT];
-// A majorant cell's byte (/ 255), and the number of cells in each direction (dims). Cells outside are clamped in.
+uniform highp usampler3D uMediaIndex[MEDIA_GRID_COUNT];
+// A cell's largest byte (/ 255), its majorant, and the number of cells in each direction (dims). Cells outside are
+// clamped in.
 float mediaMajorantCode(in int grid, in ivec3 cell, out ivec3 dims) {
     dims = ivec3(1);
     switch (grid) {
@@ -54,9 +66,10 @@ float mediaMajorantCode(in int grid, in ivec3 cell, out ivec3 dims) {
     }
     return 0.0;
 }
-// The interpolated texel value (the byte / 255) of a grid at uvw in [0, 1]^3. Samplers in an array need constant
-// indices, hence the switch.
-float mediaGridCode(in int grid, in vec3 uvw) {
+// The interpolated byte (/ 255) of a grid at f, in voxels from its first voxel's center (as VoxelGrid.codeAt): found
+// in the brick of the cell f is in, which holds every voxel interpolation there needs. Samplers in an array need
+// constant indices, hence the switch.
+float mediaGridCode(in int grid, in vec3 f) {
     switch (grid) {
         ${gridCases}
         default: break;
@@ -76,7 +89,7 @@ float mediaG(in int volume) {
 float mediaDensity(in int i, in vec3 p) {
 #if MEDIA_GRID_COUNT > 0
     if (uMediaParams[i].w == 2.0) {
-        float c = mediaGridCode(int(uMediaAlbedo[i].w), (p - uMediaBoundsMin[i]) / (uMediaBoundsMax[i] - uMediaBoundsMin[i]));
+        float c = mediaGridCode(int(uMediaAlbedo[i].w), (p - uMediaGridOrigin[i]) / uMediaCellSize[i] * 8.0);
         return uMediaParams[i].x * uMediaGridMax[i] * c * c;
     }
 #endif
@@ -113,7 +126,7 @@ bool mediaInterval(in int i, in Ray local, in float tMin, in float tMax, out flo
 float mediaGridTrack(in int i, in Ray local, in float t0, in float t1, in bool ratio, inout vec2 seed) {
     int grid = int(uMediaAlbedo[i].w);
     float speed = length(local.d.xyz), scale = uMediaParams[i].x * uMediaGridMax[i];
-    vec3 q = (local.o.xyz + t0 * local.d.xyz - uMediaBoundsMin[i]) / uMediaCellSize[i];
+    vec3 q = (local.o.xyz + t0 * local.d.xyz - uMediaGridOrigin[i]) / uMediaCellSize[i];
     vec3 dq = local.d.xyz / uMediaCellSize[i];
     ivec3 dims;
     mediaMajorantCode(grid, ivec3(0), dims);
