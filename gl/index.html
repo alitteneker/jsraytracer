@@ -32,6 +32,8 @@
         <script src="../src/media.js" defer></script>
         <script src="../src/sdf.js" defer></script>
         <script src="../src/objloader.js" defer></script>
+        <script src="../src/vdb.js" defer></script>
+        <script src="../src/gltf.js" defer></script>
         <script src="../src/aggregates.js" defer></script>
         <script src="../src/serializer.js" defer></script>
         
@@ -50,6 +52,7 @@
         <script src="./src/WebGLSDFEditor.js" defer></script>
         <script src="./src/WebGLMaterialEditor.js" defer></script>
         <script src="./src/WebGLUtilHelpers.js" defer></script>
+        <script src="./src/WebGLImporter.js" defer></script>
         
         <!-- <script src="https://greggman.github.io/webgl-lint/webgl-lint.js" defer crossorigin></script> -->
     </head>
@@ -57,6 +60,8 @@
     <body>
         <div id="controls">
             <button id="scene-button" title="Choose a scene">Choose a scene</button>
+            <button id="import-button" title="Add models (.obj with its .mtl and textures, .gltf with its .bin and images, .glb) or voxel grids (.vdb, .vol.gz) from your computer, in front of the camera. They're read here in the browser, not uploaded. You can also drop files on the page.">Import</button>
+            <input type="file" id="import-files" multiple style="display: none">
             <button id="render-toggle-button" title="Stop drawing new samples (the image stays as it is)">Stop rendering</button>
             <label for="unthrottled-toggle" title="Draw as many samples each frame as fit in about 33 ms of GPU time, rather than one per display refresh: faster to converge, at a lower frame rate">Unthrottled</label>
             <input type="checkbox" id="unthrottled-toggle">

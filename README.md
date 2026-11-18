@@ -36,6 +36,11 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
   selected; with `?worldEditable=true` the shader is built to handle any scene, so these edits apply in milliseconds
   without recompiling. The World tree lists the scene's materials with how many primitives use each: assign one to
   an object, give an object its own copy ("Make unique"), or add, rename and delete them.
+- **Import your own models and volumes.** The Import button (or dropping files on the page) adds models and voxel grids
+  from your computer, read right there in the browser, nothing uploaded: OBJ with its MTL and textures, glTF (`.gltf`
+  with its `.bin` and images, or `.glb`) with its PBR materials, and OpenVDB `.vdb` files (read directly, see
+  `src/vdb.js`; a `temperature` grid makes the volume glow). Pick a model's files together. The World tree's +
+  menus also add fog boxes and spheres.
 - **Lights you can see.** Area lights are part of the scene like any other object. Look at one directly, or in a
   mirror or through glass, and you see a glowing surface, consistent with the light it casts. Lights can be nested
   inside transformed groups like any other object.

@@ -180,7 +180,7 @@ class WebGLEditorInterface {
             source: [
                 { title: heading("Objects",   "objects"),   key: "_objects",   folder: true, clickFolderMode: 2 },
                 { title: heading("Lights",    "lights"),    key: "_lights",    folder: true, clickFolderMode: 2 },
-                { title: "Volumes",                         key: "_volumes",   folder: true, clickFolderMode: 2 },
+                { title: heading("Volumes",   "volumes"),   key: "_volumes",   folder: true, clickFolderMode: 2 },
                 { title: heading("Materials", "materials"), key: "_materials", folder: true, clickFolderMode: 2 }
             ],
             activate: this.selectObjectTree.bind(this),
@@ -195,11 +195,28 @@ class WebGLEditorInterface {
         $("#tree-add-menu").menu({ select: (e, ui) => {
             $("#tree-add-menu").hide();
             const value = ui.item.attr("data-value"), kind = $("#tree-add-menu").attr("data-kind");
-            if (kind == "materials")
+            if (value == "import")
+                $("#import-files").trigger("click");
+            else if (kind == "materials")
                 this.addLibraryMaterial(value);
             else
                 this.addObject(value);
         }});
+
+        // Importing models and grids from disk (see WebGLImporter): the Import button, the + menus' "from a file"
+        // entries, or files dropped anywhere on the page.
+        $("#import-files").attr("accept", WebGLImporter.ACCEPT).on("change", e => {
+            const files = [...e.target.files];
+            e.target.value = "";
+            WebGLImporter.importFiles(files, this);
+        });
+        $("#import-button").button({ icon: "ui-icon-folder-open" }).on("click", () => $("#import-files").trigger("click"));
+        $(document).on("dragover", e => e.preventDefault()).on("drop", e => {
+            e.preventDefault();
+            const files = e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files;
+            if (files && files.length)
+                WebGLImporter.importFiles(files, this);
+        });
         $(document).on("mousedown", e => {
             if (!$(e.target).closest("#tree-add-menu, .tree-add").length)
                 $("#tree-add-menu").hide();
@@ -796,19 +813,32 @@ class WebGLEditorInterface {
     static defaultMaterial() {
         return new PhongMaterial(Vec.of(0.8, 0.8, 0.8), 0.1, 0.6, 0.3, 50, 0.1);
     }
+    // Where new things go: in front of the camera, at roughly the distance of the scene, sized to match, but well in
+    // front of whatever is in the middle of the view (so a new object isn't buried inside an old one).
+    placementInFrontOfCamera() {
+        const ra = this.renderer_adapter, world = ra.renderer.world, box = world.getFiniteBoundingBox();
+        let distance = Math.min(50, Math.max(1, box.isFinite() ? ra.getCameraPosition().minus(box.center).norm() : 5));
+        const ray = ra.getRayForPixel(ra.canvas.width / 2, ra.canvas.height / 2), hit = world.cast(ray);
+        if (hit.object && isFinite(hit.distance) && hit.distance > 0)
+            distance = Math.max(0.1, Math.min(distance, 0.6 * hit.distance * ray.direction.norm()));
+        const position = ra.getCameraTransform().times(Vec.of(0, 0, -distance, 1));
+        return { box, distance, size: 0.15 * distance, position, T: Mat4.translation(position.to3()),
+                 facingCamera: ra.getCameraTransform().times(Mat4.translation(Vec.of(0, 0, -distance))) };
+    }
+    // Adds objects made elsewhere (imports, see WebGLImporter) to the scene, selecting the last.
+    addObjects(objects) {
+        const ra = this.renderer_adapter;
+        if (!ra || ra.rebuildingShaders || !objects.length)
+            return;
+        ra.renderer.world.objects.push(...objects);
+        this.rebuildWorld(objects[objects.length - 1]);
+    }
     addObject(kind) {
         const ra = this.renderer_adapter;
         if (!ra || ra.rebuildingShaders)
             return;
         const world = ra.renderer.world;
-
-        // Place the new object in front of the camera, at roughly the distance of the scene, sized to match.
-        const box = world.getFiniteBoundingBox();
-        const distance = Math.min(50, Math.max(1, box.isFinite() ? ra.getCameraPosition().minus(box.center).norm() : 5));
-        const size = 0.15 * distance;
-        const position = ra.getCameraTransform().times(Vec.of(0, 0, -distance, 1));
-        const T = Mat4.translation(position.to3());
-        const facingCamera = ra.getCameraTransform().times(Mat4.translation(Vec.of(0, 0, -distance)));
+        const { box, distance, size, position, T, facingCamera } = this.placementInFrontOfCamera();
         const brightness = 4 * Math.PI * distance * distance;   // about unit irradiance at the scene
 
         let obj = null;
@@ -822,6 +852,8 @@ class WebGLEditorInterface {
                                     WebGLEditorInterface.defaultMaterial(), T.times(Mat4.scale(size)));      break;
             case "plane":       obj = new Primitive(new Plane(),    WebGLEditorInterface.defaultMaterial(),
                                     Mat4.translation([0, box.isFinite() ? box.min[1] : 0, 0]).times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)))); break;
+            case "fog-box":     obj = new Volume(new HomogeneousMedium({ shape: "box",    density: 1, albedo: 0.9 }), T.times(Mat4.scale(size)));   break;
+            case "fog-sphere":  obj = new Volume(new HomogeneousMedium({ shape: "sphere", density: 1, albedo: 0.9 }), T.times(Mat4.scale(size)));   break;
             case "point-light": obj = new SimplePointLight(position, Vec.of(1, 1, 1), brightness);                                      break;
             case "area-light":  obj = new RandomSampleAreaLight(new Square(), facingCamera.times(Mat4.scale(2 * size)), Vec.of(1, 1, 1), brightness); break;
             case "directional-light": {
@@ -896,6 +928,8 @@ class WebGLEditorInterface {
                     this.selectObject(ra.getLights().find(l => l.light === selectAfter) || null);
                 else if (selectAfter instanceof Volume)
                     this.selectObject(ra.getVolumes().find(v => v.object === selectAfter) || null);
+                else if (selectAfter instanceof Aggregate)
+                    this.selectObject(wa.aggregates.find(a => a.object === selectAfter) || null);
                 else if (selectAfter.OBJECT_UID in wa.primitive_id_index_map)
                     this.selectObject(wa.primitives[wa.primitive_id_index_map[selectAfter.OBJECT_UID]].toInstance([]));
             } catch (e) {
@@ -1077,7 +1111,10 @@ class WebGLEditorInterface {
         if (!this.renderer_adapter || this.renderer_adapter.rebuildingShaders)
             return;
         const options = kind == "materials" ? Object.entries(WebGLMaterialEditor.TYPES)
-                      : $(kind == "lights" ? "#add-light-type option" : "#add-object-type option").toArray().map(o => [o.value, o.textContent]);
+                      : kind == "volumes" ? [["fog-box", "Fog box"], ["fog-sphere", "Fog sphere"], ["import", "Grid from a file (.vdb, .vol.gz)..."]]
+                      : kind == "lights" ? $("#add-light-type option").toArray().map(o => [o.value, o.textContent])
+                      : $("#add-object-type option").toArray().map(o => [o.value, o.textContent])
+                            .concat([["import", "Model from a file (.obj, .gltf, .glb)..."]]);
         const menu = $("#tree-add-menu");
         menu.attr("data-kind", kind)
             .html(options.map(([value, label]) => `<li data-value="${value}"><div>${label}</div></li>`).join(""))

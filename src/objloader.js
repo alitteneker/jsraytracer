@@ -56,11 +56,20 @@ function makePrincipledMaterial(data, transparent, refractionIndex) {
     });
 }
 
+// Files picked from disk (the editor's Import, see gl/src/WebGLImporter.js): name -> Blob, by lowercased base name.
+// Looked up before fetching anything, so an OBJ's mtllib and an MTL's textures resolve among the files picked with it,
+// whatever folders their paths name.
+const objLoaderLocalFiles = new Map();
+function objLoaderFetch(filename) {
+    const local = objLoaderLocalFiles.get(filename.split(/[\\/]/).pop().toLowerCase());
+    return local ? Promise.resolve(new Response(local)) : fetch(filename);
+}
+
 function textFetch(filename) {
     if (new Function("try { return !(typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) && this!==window } catch(e) { return true }")()) {
         return fspromise.readFile(filename, { encoding: 'utf8' });
     }
-    return fetch(filename).then(function(response) {
+    return objLoaderFetch(filename).then(function(response) {
         if (!response.ok)
             throw "Attempt to fetch " + filename + " was not successful.";
         return response.text();
@@ -137,7 +146,7 @@ function decodeTGA(buffer) {
 
 // Textures named in MTL files repeat outside [0, 1], as OBJ texture coordinates expect.
 async function loadTexture(filename) {
-    const response = await fetch(filename);
+    const response = await objLoaderFetch(filename);
     if (!response.ok)
         throw `${response.status} ${response.statusText}`;
     if (/\.tga$/i.test(filename))
