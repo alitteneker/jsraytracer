@@ -239,4 +239,10 @@ class ObjectInstance {
     getInvTransform() {
         return this.ancestors.length ? this.object.getInvTransform().times(this.getAncestorInvTransform()) : this.object.getInvTransform();
     }
+    // Sets the object's own (local) transform so that its world transform becomes the one given.
+    setWorldTransform(transform, inv_transform=Mat4.inverse(transform)) {
+        if (!this.ancestors.length)
+            return this.object.setTransform(transform, inv_transform);
+        this.object.setTransform(this.getAncestorInvTransform().times(transform), inv_transform.times(this.getAncestorTransform()));
+    }
 }

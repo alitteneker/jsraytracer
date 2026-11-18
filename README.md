@@ -31,7 +31,8 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 - **A 100,000-triangle dragon at about 2.6 ms per sample pass**, down from 6 ms after a round of traversal
   optimizations. See [Performance.md](Performance.md) for the full story.
 - **Edit the scene live.** Click any object to select it, then drag it, rotate it, scale it or change its material,
-  and the render keeps converging. That includes lights. Add spheres, boxes, planes and lights, or delete what's
+  and the render keeps converging. That includes lights, and volumes (fog, clouds, fire), whose density, albedo and
+  anisotropy can be changed too; click inside a volume's box, or pick it from the World tree. Add spheres, boxes, planes and lights, or delete what's
   selected; with `?worldEditable=true` the shader is built to handle any scene, so these edits apply in milliseconds
   without recompiling. The World tree lists the scene's materials with how many primitives use each: assign one to
   an object, give an object its own copy ("Make unique"), or add, rename and delete them.

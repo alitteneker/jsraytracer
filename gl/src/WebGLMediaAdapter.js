@@ -59,6 +59,13 @@ class WebGLMediaAdapter {
             emission = medium instanceof GridMedium ? [2, gridIndex(medium.temperature), this.tables.push(medium.emissionTable) - 1, 0] : [1, 0, 0, 0];
         this.volumes.push({ instance: instance, medium: medium, grid: grid, emission: emission });
     }
+    // Re-sends every volume's uniforms (after the editor moves a volume or changes its medium) and starts the image
+    // over. The grids' textures stay as they are.
+    refresh(renderer_adapter) {
+        renderer_adapter.useTracerProgram();
+        this.writeShaderData(renderer_adapter.gl, renderer_adapter.tracerShaderProgram);
+        renderer_adapter.resetDrawCount();
+    }
     getShaderSourceDeclarations() {
         return ShaderLibrary.render("media.glsl", "declarations", { count: this.volumes.length, gridCount: this.grids.length, tableCount: this.tables.length });
     }

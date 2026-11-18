@@ -328,10 +328,4 @@ class LightInstance extends ObjectInstance {
             ? this.light.sampleLi(surface_position, this.getTransform(), this.getInvTransform())
             : this.light.sampleLi(surface_position);
     }
-    // Sets the light's own (local) transform so that its world transform becomes the one given.
-    setWorldTransform(transform, inv_transform=Mat4.inverse(transform)) {
-        if (!this.ancestors.length)
-            return this.light.setTransform(transform, inv_transform);
-        this.light.setTransform(this.getAncestorInvTransform().times(transform), inv_transform.times(this.getAncestorTransform()));
-    }
 }

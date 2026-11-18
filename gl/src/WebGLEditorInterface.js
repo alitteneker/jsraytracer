@@ -180,6 +180,7 @@ class WebGLEditorInterface {
             source: [
                 { title: heading("Objects",   "objects"),   key: "_objects",   folder: true, clickFolderMode: 2 },
                 { title: heading("Lights",    "lights"),    key: "_lights",    folder: true, clickFolderMode: 2 },
+                { title: "Volumes",                         key: "_volumes",   folder: true, clickFolderMode: 2 },
                 { title: heading("Materials", "materials"), key: "_materials", folder: true, clickFolderMode: 2 }
             ],
             activate: this.selectObjectTree.bind(this),
@@ -593,11 +594,11 @@ class WebGLEditorInterface {
                 this.transformObject.aabb = this.transformObject.getBoundingBox();
             
             const fancytree = $.ui.fancytree.getTree("#world-objects");
-            const selecttreenode = fancytree.getNodeByKey((selectedObject.worldtype == "light" ? "l" : "o") + selectedObject.ID);
+            const selecttreenode = fancytree.getNodeByKey(WebGLEditorInterface.treeKey(selectedObject));
             if (selecttreenode)
                 selecttreenode.setActive(true, {noEvents: true});
             else {
-                const transformtreenode = fancytree.getNodeByKey((this.transformObject.worldtype == "light" ? "l" : "o") + this.transformObject.ID);
+                const transformtreenode = fancytree.getNodeByKey(WebGLEditorInterface.treeKey(this.transformObject));
                 if (transformtreenode)
                     transformtreenode.setActive(true, {noEvents: true});
                 else
@@ -617,6 +618,10 @@ class WebGLEditorInterface {
             //$("#selected-object-controls").empty();
         }
         this.refreshPausedView();
+    }
+    // A selected thing's key in the World tree: "l" for lights, "v" for volumes, "o" for objects, then its ID.
+    static treeKey(o) {
+        return ({ light: "l", volume: "v" }[o.worldtype] || "o") + o.ID;
     }
     selectObjectTree(e, d) {
         if (d.node.data._material)
@@ -843,12 +848,13 @@ class WebGLEditorInterface {
         if (!ra || ra.rebuildingShaders || !this.selectedObject)
             return;
         const world = ra.renderer.world;
-        let target = this.selectedObject.worldtype == "light" ? this.selectedObject : (this.transformObject || this.selectedObject);
+        const own = ["light", "volume"].includes(this.selectedObject.worldtype);
+        let target = own ? this.selectedObject : (this.transformObject || this.selectedObject);
 
         // The CPU objects to remove, and the chain of CPU containers above it (outermost first).
         let obj, containers;
-        if (target.worldtype == "light") {
-            obj = target.light;
+        if (own) {
+            obj = target.object;
             containers = target.instance.ancestors.slice();
         }
         else {
@@ -888,6 +894,8 @@ class WebGLEditorInterface {
                     this.selectMaterial(selectAfter);
                 else if (selectAfter instanceof Light)
                     this.selectObject(ra.getLights().find(l => l.light === selectAfter) || null);
+                else if (selectAfter instanceof Volume)
+                    this.selectObject(ra.getVolumes().find(v => v.object === selectAfter) || null);
                 else if (selectAfter.OBJECT_UID in wa.primitive_id_index_map)
                     this.selectObject(wa.primitives[wa.primitive_id_index_map[selectAfter.OBJECT_UID]].toInstance([]));
             } catch (e) {
@@ -1119,6 +1127,16 @@ class WebGLEditorInterface {
             };
         }));
         lights_root.setExpanded(true);
+
+        const volumes_root = fancytree.getNodeByKey("_volumes");
+        volumes_root.removeChildren();
+        volumes_root.addChildren(adapter.getVolumes().map(v => ({
+            key: WebGLEditorInterface.treeKey(v),
+            _worldtype: "volume",
+            _worldobj: v,
+            title: `${v.label} : ${v.index}`
+        })));
+        volumes_root.setExpanded(true);
 
         this.refreshMaterialsTree();
     }

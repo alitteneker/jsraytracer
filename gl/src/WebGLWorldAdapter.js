@@ -469,6 +469,21 @@ class WebGLWorldAdapter {
     
     intersectRay(ray, renderer_adapter, gl, program) {
         const intersect = this.world.cast(ray);
+        // Rays pass through volumes, so a volume is picked by its box instead: when the ray crosses the whole box
+        // before reaching any surface. A surface inside a volume's box wins (fog around a scene would otherwise take
+        // every click on what's in it), and so does any box the ray starts in. Of several boxes, the smallest wins: a
+        // box inside another's (a cloud in a fog bank) is the more specific choice.
+        const surface = intersect.object ? intersect.distance : Infinity;
+        let volume = null, smallest = Infinity;
+        for (const v of this.getVolumes()) {
+            const box = v.getBoundingBox(), t = box.get_intersects(ray);
+            if (t && t.min > 0 && t.max < surface && box.volume() < smallest) {
+                smallest = box.volume();
+                volume = v;
+            }
+        }
+        if (volume)
+            return volume;
         if (!intersect.object)
             return null;
         if (intersect.object instanceof Light) {
@@ -485,6 +500,9 @@ class WebGLWorldAdapter {
     }
     getLights(renderer_adapter, gl, program) {
         return this.adapters.lights.getLights().map(l => new WrappedLight(l, this));
+    }
+    getVolumes() {
+        return this.adapters.media.volumes.map((v, i) => new WrappedVolume(v, i, this));
     }
     getSceneTree(renderer_adapter, gl, program) {
         return this.aggregates[0];
@@ -933,6 +951,56 @@ class WrappedLight extends AbstractWrappedWorldObject {
     }
     // Half the width of the box the editor shows around a point light.
     static pointHandleSize = 1;
+}
+
+// A volume (participating media, see WebGLMediaAdapter) as the editor sees it. Like a light, its transforms are its
+// world transforms (it may be nested in aggregates) and its box is in world space. Moving it, or changing its medium's
+// density, albedo or g, only re-sends the media's uniforms; anything else about a medium needs a new shader.
+class WrappedVolume extends AbstractWrappedWorldObject {
+    constructor(volume_data, index, worldadapter) {
+        super("volume", volume_data.instance.object, [], worldadapter);
+        this.instance = volume_data.instance;
+        this.medium = volume_data.medium;
+        this.index = this.ID = index;
+        this.worldtype = "volume";
+    }
+    getTransform()         { return this.instance.getTransform(); }
+    getInvTransform()      { return this.instance.getInvTransform(); }
+    getWorldTransform()    { return this.instance.getTransform(); }
+    getWorldInvTransform() { return this.instance.getInvTransform(); }
+    getBoundingBox() {
+        const { min, max } = this.medium.bounds;
+        return AABB.fromMinMax(min.to4(1), max.to4(1)).getBoundingBox(this.instance.getTransform(), this.instance.getInvTransform());
+    }
+    intersect(ray) {
+        const t = this.getBoundingBox().intersect(ray);
+        return { object: t > 0 ? this.object : null, ancestors: [], distance: t };
+    }
+    setWorldTransform(new_transform, new_inv_transform) {
+        this.instance.setWorldTransform(new_transform, new_inv_transform);
+        this.worldadapter.adapters.media.refresh(this.worldadapter.renderer_adapter);
+    }
+    getMaterialValues() {
+        return {};
+    }
+    // A short description for the World tree.
+    get label() {
+        const m = this.medium;
+        const kind = m instanceof GridMedium ? `Grid ${(m.grid.source || "").split("/").pop().replace(/\.vol\.gz$/, "")}`
+                                             : `Fog ${m.shape}`;
+        return kind + (m.emissive ? " (glowing)" : "");
+    }
+    getMutableObjectProperties() {
+        const m = this.medium, changed = () => this.worldadapter.adapters.media.refresh(this.worldadapter.renderer_adapter);
+        return {
+            "volume-density": { type: "number", key: "density", title: "Density", value: m.density, step: 0.01, min: 0,
+                modifyFn: (key, value) => { if (value >= 0) { m.density = value; changed(); } } },
+            "volume-albedo":  { type: "vec", key: "albedo", title: "Albedo (r, g, b)", value: Array.from(m.albedo.slice(0, 3)), step: 0.01, min: 0, max: 1,
+                modifyFn: (key, value) => { m.albedo = Vec.of(...[0, 1, 2].map(i => Math.min(1, Math.max(0, value[i])))); changed(); } },
+            "volume-g":       { type: "number", key: "g", title: "Anisotropy (g)", value: m.g, step: 0.01, min: -0.99, max: 0.99,
+                modifyFn: (key, value) => { m.g = Math.min(0.99, Math.max(-0.99, value)); changed(); } }
+        };
+    }
 }
 
 class WrappedAggregate extends AbstractWrappedWorldObject {

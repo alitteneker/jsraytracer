@@ -494,6 +494,9 @@ class WebGLRendererAdapter {
     getLights() {
         return this.adapters.world.getLights(this, this.gl, this.tracerShaderProgram);
     }
+    getVolumes() {
+        return this.adapters.world.getVolumes();
+    }
     getLight(index) {
         return this.adapters.world.getLight(index, this, this.gl, this.tracerShaderProgram);
     }
