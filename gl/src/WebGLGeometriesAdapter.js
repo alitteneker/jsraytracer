@@ -61,9 +61,11 @@ class WebGLGeometriesAdapter {
         new WebGLStaticGeometryShaderSource("plane",       { intersect: true,  sample: false }),
         new WebGLStaticGeometryShaderSource("sphere",      { intersect: true,  sample: true  }),
         new WebGLStaticGeometryShaderSource("unitBox",     { intersect: true,  sample: false }),
-        new WebGLStaticGeometryShaderSource("circle",      { intersect: true,  sample: true  }),
-        new WebGLStaticGeometryShaderSource("square",      { intersect: true,  sample: true  }),
-        new WebGLStaticGeometryShaderSource("cylinder",    { intersect: true,  sample: false }),
+        // A circle and a square are bounded planes: their GLSL calls the plane's (planeIntersect, planeMaterialData).
+        new WebGLStaticGeometryShaderSource("circle",      { intersect: true,  sample: true, requires: ["plane"] }),
+        new WebGLStaticGeometryShaderSource("square",      { intersect: true,  sample: true, requires: ["plane"] }),
+        // A cylinder intersects its side as a sphere flattened along z (sphereIntersect).
+        new WebGLStaticGeometryShaderSource("cylinder",    { intersect: true,  sample: false, requires: ["sphere"] }),
         new WebGLStaticGeometryShaderSource("originPoint", { intersect: false, sample: true, materialNeedsDirection: true }),
         new WebGLStaticGeometryShaderSource("unitLine",    { intersect: false, sample: true, materialNeedsDirection: true }),
         
@@ -210,8 +212,9 @@ class WebGLGeometriesAdapter {
             minSdfId:      WebGLGeometriesAdapter.MIN_SDF_ID,
             minTriangleId: WebGLGeometriesAdapter.MIN_TRIANGLE_ID
         });
+        const needed = this.neededModules();
         for (let [type_index, shader_src_module] of this.ShaderSourceModules.entries()) {
-            const usage = this.geometry_usage_map[type_index];
+            const usage = needed[type_index];
             if (sceneEditable || usage.intersect || usage.sample)
                 ret += "\n\n" + shader_src_module.getShaderSourceDeclarations(sceneEditable || usage.intersect, sceneEditable || usage.sample);
         }
@@ -219,12 +222,33 @@ class WebGLGeometriesAdapter {
             ret += ShaderLibrary.render("geometries.glsl", "declarations.generics");
         return ret + "\n\n" + this.sdf_adapter.getShaderSourceDeclarations(sceneEditable);
     }
+    // Which parts of each module's GLSL the shader needs: what the scene uses (geometry_usage_map), plus what those
+    // parts call in other modules (their `requires`), whose intersection code and material data come along. Only the
+    // code: the generic functions' switches still get cases for the types the scene actually uses.
+    neededModules() {
+        const needed = {};
+        for (const [i, usage] of Object.entries(this.geometry_usage_map))
+            needed[i] = { intersect: usage.intersect, sample: usage.sample };
+        for (const [i, m] of this.ShaderSourceModules.entries()) {
+            const usage = needed[i];
+            if (!usage || !(usage.intersect || usage.sample))
+                continue;
+            for (const name of m.requires || []) {
+                const j = this.ShaderSourceModules.findIndex(other => other.type_name === name);
+                if (j < 0)
+                    throw `Geometry ${m.type_name} requires unknown geometry ${name}`;
+                needed[j].intersect = Math.max(needed[j].intersect, 1);
+            }
+        }
+        return needed;
+    }
     getShaderSource(sceneEditable, needs_generics) {
         let ret = ShaderLibrary.render("geometries.glsl", "helpers");
+        const needed = this.neededModules();
         for (let [type_index, shader_src_module] of this.ShaderSourceModules.entries()) {
-            const usage = this.geometry_usage_map[type_index];
+            const usage = needed[type_index];
             if (sceneEditable || usage.intersect || usage.sample)
-            ret += "\n\n" + shader_src_module.getShaderSource(sceneEditable || usage.intersect, sceneEditable || usage.sample);
+                ret += "\n\n" + shader_src_module.getShaderSource(sceneEditable || usage.intersect, sceneEditable || usage.sample);
         }
 
         // The generic functions switch on the geometry type, with a case for each type the scene uses.
@@ -292,7 +316,7 @@ class WebGLAbstractGeometryShaderSource {
 // A primitive whose GLSL is fixed: sections <type_name>.intersect, .sample and .material of geometries.glsl.
 class WebGLStaticGeometryShaderSource extends WebGLAbstractGeometryShaderSource {
     static indent = "            ";
-    constructor(type_name, { intersect, sample, materialNeedsDirection=false }) {
+    constructor(type_name, { intersect, sample, materialNeedsDirection=false, requires=[] }) {
         super();
         this.type_name = type_name;
         this.src_type_name = `GEOMETRY_${this.type_name.toUpperCase()}_TYPE`;
@@ -302,6 +326,7 @@ class WebGLStaticGeometryShaderSource extends WebGLAbstractGeometryShaderSource 
         this.has_intersect = intersect;
         this.has_sample = sample;
         this.mat_needs_dir = materialNeedsDirection;
+        this.requires = requires;   // other modules whose GLSL this one calls (see WebGLGeometriesAdapter.neededModules)
     }
     canIntersect() { return this.has_intersect; }
     canSample() { return this.has_sample; }
