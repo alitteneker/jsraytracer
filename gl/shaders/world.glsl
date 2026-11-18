@@ -187,11 +187,14 @@ bool worldRayCastBVHObject(in int prim_id, in Ray r, in float minT, in float max
 #endif
     return worldRayCastObject(prim_id, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
 }
+// Only BVHs whose leaves hold lists need it (as above), and worldRayCastList only exists then.
+#if (WORLD_EDITABLE || !WORLD_BVH_LEAVES_SINGULAR)
 bool worldRayCastBVHList(in int listStartIndex, in int listLength, in Ray r, in float minT, in float maxT, in bool shadowFlag,
     inout float min_found_t, inout int min_prim_id)
 {
     return worldRayCastList(listStartIndex, listLength, r, minT, maxT, shadowFlag, min_found_t, min_prim_id);
 }
+#endif
 #endif
 
 // BVH nodes are read from uWorldAABBs in the child-box layout (see WebGLWorldAdapter.buildChildBoxBVHData).
