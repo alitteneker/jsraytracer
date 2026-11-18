@@ -7,6 +7,8 @@
 //   mis            a lit medium rendered with light sampling, phase function sampling and MIS: all three agree
 //   emission       blackbody colors, and the light glowing media emit (delta tracking's collision estimator, and the
 //                  path integrator's use of it) against quadrature, for a homogeneous sphere and a temperature grid
+//   glow as light  glowing media lighting themselves and a floor, rendered with light sampling (points sampled in the
+//                  media), path sampling (the glow paths happen to cross) and MIS: all three agree
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const src = path.join(__dirname, "..", "..", "src");
 for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','media.js','aggregates.js'])
@@ -199,6 +201,29 @@ for (const [name, medium] of [
         const m = s / 1e5, zz = (m - want[0]) / Math.sqrt((s2 / 1e5 - m * m) / 1e5);
         check("emission, through the path integrator", Math.abs(zz) < 4, `quadrature ${want[0].toFixed(4)}, rendered ${m.toFixed(4)}, z ${zz.toFixed(2)}`);
     }
+}
+
+// Glowing media as lights: the three strategies must agree, which checks light sampling's densities (cells, points,
+// a stretched volume's change of volume) and the MIS weights on both sides.
+for (const [name, medium, transform] of [
+    ["homogeneous sphere", new HomogeneousMedium({ shape: "sphere", density: 1.2, albedo: 0.5, g: 0.2, emission: Vec.of(2, 1, 0.5) }),
+        Mat4.translation([0.1, 0.3, 0]).times(Mat4.scale([0.8, 0.6, 0.7]))],
+    ["temperature grid", new GridMedium(makeGrid(20, (x, y, z) => 1.4 * Math.exp(-3 * (x * x + y * y + z * z))),
+        { density: 2, albedo: 0.6, g: 0.3, emission: { temperature: makeGrid(20, (x, y, z) => Math.max(0, 1 - 1.2 * Math.hypot(x, y - 0.2, z))), kelvin: 2500, scale: 3 } }),
+        Mat4.translation([0, 0.4, 0]).times(Mat4.scale([1.0, 0.7, 0.9]))]]) {
+    const floor = new Primitive(new Plane(), new PrincipledMaterial({ baseColor: Vec.of(0.8, 0.8, 0.8), roughness: 0.8 }),
+        Mat4.translation([0, -0.5, 0]).times(Mat4.rotation(-Math.PI / 2, Vec.of(1, 0, 0))));
+    const world = new World([new Volume(medium, transform), floor], [], Vec.of(0, 0, 0));
+    const result = {};
+    for (const strategy of ["mis", "light", "bsdf"]) {
+        PathIntegrator.STRATEGY = strategy;
+        result[strategy] = pixels(world, 40, 600, 8);
+    }
+    PathIntegrator.STRATEGY = "mis";
+    const z = (a, b) => (result[a][0] - result[b][0]) / Math.hypot(result[a][1], result[b][1]);
+    check(`glow as light, ${name}`, Math.abs(z("light", "mis")) < 4 && Math.abs(z("bsdf", "mis")) < 4,
+        Object.entries(result).map(([k, v]) => `${k} ${v[0].toFixed(5)}+-${v[1].toFixed(5)}`).join("  ")
+        + `  z(light-mis) ${z("light", "mis").toFixed(2)}  z(path-mis) ${z("bsdf", "mis").toFixed(2)}`);
 }
 
 process.exit(failures ? 1 : 0);

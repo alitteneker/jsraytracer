@@ -92,6 +92,11 @@ const Blackbody = {
 // of it. Le is a color for homogeneous media ({ emission: Vec.of(...) }); grid media take it from a temperature grid on
 // the same lattice, as a blackbody: Le = scale * Blackbody.rgb((temperature - offset) * kelvin). Explosions from
 // Houdini and the like store temperature normalized (about 0 to 1), so kelvin says what 1 means.
+//
+// Glowing media are also lights: the path integrator samples points in them (sampleEmissionPoint, with density
+// emissionPdf per unit of the medium's own volume) and weighs those against the emission its paths collect anyway,
+// by MIS (see PathIntegrator.volumeLight). Homogeneous media sample uniformly; grids pick a cell in proportion to an
+// estimate of its power, then a point in it uniformly.
 class Medium {
     constructor({ density = 1, albedo = Vec.of(1, 1, 1), g = 0, emission = null } = {}) {
         this.density = density;
@@ -101,6 +106,11 @@ class Medium {
     }
     get emissive() {
         return false;
+    }
+    // What a glowing medium adds per unit length at p: sigma_a * Le.
+    emittedAt(p) {
+        const density = this.densityAt(p), Le = this.emissionAt(p);
+        return Vec.of(0, 1, 2).map(k => density * (1 - this.albedo[k]) * Le[k]);
     }
     get homogeneous() {
         return false;
@@ -138,6 +148,25 @@ class HomogeneousMedium extends Medium {
     }
     emissionAt(p) {
         return this.emission;
+    }
+    majorantAt(p) {
+        return this.density;
+    }
+    // A point uniformly inside the shape ([-1, 1]^3 or the unit sphere), and its density per unit volume.
+    sampleEmissionPoint() {
+        const r = () => 2 * Math.random() - 1;
+        if (this._shape == "box")
+            return { p: Vec.of(r(), r(), r(), 1), pdf: 1 / 8 };
+        for (;;) {
+            const p = Vec.of(r(), r(), r(), 1);
+            if (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] <= 1)
+                return { p: p, pdf: 3 / (4 * Math.PI) };
+        }
+    }
+    emissionPdf(p) {
+        const inside = this._shape == "box" ? Math.max(Math.abs(p[0]), Math.abs(p[1]), Math.abs(p[2])) <= 1
+                                            : p[0] * p[0] + p[1] * p[1] + p[2] * p[2] <= 1;
+        return inside ? (this._shape == "box" ? 1 / 8 : 3 / (4 * Math.PI)) : 0;
     }
 }
 
@@ -400,6 +429,76 @@ class GridMedium extends Medium {
     get emissive() {
         return !!this.emissionTable;
     }
+    // The majorant tracking uses around p: its cell's.
+    majorantAt(p) {
+        const c = this.grid.cellMax[this.grid.cellIndex(this.grid.locate(p)[0])] / 255;
+        return this.density * this.grid.max * c * c;
+    }
+    // Light sampling's distribution, built once: per cell with a density brick, an estimate of its power (luminance
+    // of sigma_a * Le) as the brick's total density times its mean Le. A product of sums rather than a sum of products,
+    // so it's positive wherever interpolation can make the glow positive (density and heat at different voxels of the
+    // brick still mix in between).
+    get emissionSampler() {
+        if (this._sampler)
+            return this._sampler;
+        const g = this.grid, tg = this.temperature, B = VoxelGrid.BRICK, n = GridMedium.EMISSION_TABLE, table = this.emissionTable;
+        const absorb = [0, 1, 2].map(k => 1 - this.albedo[k]);
+        const lum = i => 0.2126 * absorb[0] * table[i * 3] + 0.7152 * absorb[1] * table[i * 3 + 1] + 0.0722 * absorb[2] * table[i * 3 + 2];
+        const lumOfByte = new Float64Array(256);
+        for (let b = 0; b < 256; ++b)
+            lumOfByte[b] = lum(Math.round(b / 255 * (n - 1)));
+        const brickSum = (grid, b, f) => {
+            const o = grid.brickOrigin(b), [ax, ay] = grid.atlasDims;
+            let sum = 0;
+            for (let k = 0; k < B; ++k) for (let j = 0; j < B; ++j) {
+                const row = ((o[2] + k) * ay + o[1] + j) * ax + o[0];
+                for (let i = 0; i < B; ++i)
+                    sum += f(grid.atlas[row + i]);
+            }
+            return sum;
+        };
+        const cells = g.cellBrick.length, pmf = new Float32Array(cells), list = [];
+        let total = 0;
+        for (let c = 0; c < cells; ++c) {
+            const b = g.cellBrick[c], bt = tg.cellBrick[c];
+            if (b < 0 || bt < 0)
+                continue;
+            const density = brickSum(g, b, v => (v / 255) * (v / 255)) * this.density * g.max;
+            const power = density * brickSum(tg, bt, v => lumOfByte[v]) / (B * B * B);
+            if (power > 0) {
+                pmf[c] = power;
+                list.push(c);
+                total += power;
+            }
+        }
+        const cdf = new Float64Array(list.length);
+        let run = 0;
+        list.forEach((c, k) => { pmf[c] /= total; run += pmf[c]; cdf[k] = run; });
+        const size = g.voxelSize.map(v => v * VoxelGrid.MAJORANT_CELL);
+        return this._sampler = { cells: Int32Array.from(list), cdf: cdf, pmf: pmf, cellVolume: size[0] * size[1] * size[2], cellSize: size };
+    }
+    sampleEmissionPoint() {
+        const S = this.emissionSampler, g = this.grid;
+        if (!S.cells.length)
+            return null;
+        const u = Math.random() * S.cdf[S.cdf.length - 1];
+        let lo = 0, hi = S.cdf.length - 1;
+        while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (S.cdf[mid] < u) lo = mid + 1; else hi = mid;
+        }
+        const c = S.cells[lo], [cx, cy] = g.cellDims;
+        const cell = [c % cx, Math.floor(c / cx) % cy, Math.floor(c / (cx * cy))];
+        const p = Vec.of(...[0, 1, 2].map(i => g.origin[i] + (cell[i] + Math.random()) * S.cellSize[i]), 1);
+        return { p: p, pdf: S.pmf[c] / S.cellVolume };
+    }
+    emissionPdf(p) {
+        const S = this.emissionSampler, g = this.grid;
+        const cell = [0, 1, 2].map(i => Math.floor((p[i] - g.origin[i]) / S.cellSize[i]));
+        if (cell.some((v, i) => v < 0 || v >= g.cellDims[i]))
+            return 0;
+        return S.pmf[g.cellIndex(cell)] / S.cellVolume;
+    }
     emissionAt(p) {
         const x = this.temperature.codeAt(p) / 255 * (GridMedium.EMISSION_TABLE - 1);
         const i = Math.min(GridMedium.EMISSION_TABLE - 2, Math.floor(x)), f = x - i, t = this.emissionTable;
@@ -465,11 +564,13 @@ class Volume extends WorldObject {
     // collision estimator: every tentative collision, real or null, adds sigma_a * Le / majorant. A tentative collision
     // at t is reached with probability T(t) and they come at rate majorant, so on average that's the integral of
     // T * sigma_a * Le, the emitted light reaching the ray's start.
-    static sampleCollision(medium, local, t0, t1, emitted = null) {
-        const glow = emitted && medium.emissive ? (p, density, majorant) => {
-            const Le = medium.emissionAt(p);
-            for (let k = 0; k < 3; ++k)
-                emitted[k] += density * (1 - medium.albedo[k]) * Le[k] / majorant;
+    // weightAt(p, t, majorant), if given, is an MIS weight for each of those (see PathIntegrator.mediumScatter).
+    static sampleCollision(medium, local, t0, t1, emitted = null, weightAt = null) {
+        const glow = emitted && medium.emissive ? (p, density, majorant, t) => {
+            const Le = medium.emissionAt(p), w = weightAt ? weightAt(p, t, majorant) : 1;
+            if (w > 0)
+                for (let k = 0; k < 3; ++k)
+                    emitted[k] += w * density * (1 - medium.albedo[k]) * Le[k] / majorant;
         } : null;
         if (medium instanceof GridMedium) {
             const speed = local.direction.norm();
@@ -484,7 +585,7 @@ class Volume extends WorldObject {
                         return false;
                     const p = local.getPoint(t), density = medium.densityAt(p);
                     if (glow)
-                        glow(p, density, majorant);
+                        glow(p, density, majorant, t);
                     if (Math.random() * majorant < density) {
                         result = t;
                         return true;
@@ -503,7 +604,7 @@ class Volume extends WorldObject {
                 return null;
             const p = local.getPoint(t), density = medium.homogeneous ? majorant : medium.densityAt(p);
             if (glow)
-                glow(p, density, majorant);
+                glow(p, density, majorant, t);
             if (medium.homogeneous || Math.random() * majorant < density)
                 return t;
         }

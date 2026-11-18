@@ -99,7 +99,8 @@ Both renderers read the same scene graph, so the CPU tracer doubles as a referen
 - Sparse voxel grids: only the 8³-voxel cells with something in them are stored, as bricks in one 3D texture, so the
   full-resolution OpenVDB bunny (577 × 572 × 438 voxels) takes 51 MB on the GPU rather than 145 MB
 - Glowing media: fire and explosions emit as blackbodies from a temperature grid (or with a constant color), in
-  proportion to how much they absorb
+  proportion to how much they absorb, and light their surroundings as lights do: points sampled in them by power,
+  weighed by MIS against the glow paths find on their own
 - OpenVDB grids converted with `tools/vdb_to_grid.py` (see Writing a scene)
 
 **Cameras and sampling**
@@ -264,8 +265,7 @@ The GPU renderer has measurement tools built in, controlled by static flags or U
 - Adding meshes and grouping objects from the editor
 - Solid angle sampling for area lights
 - Adaptive multisampling
-- Volumes: glowing media as lights (sampled directly, so fire lights its surroundings without noise), motion blur from
-  velocity grids, colored extinction, media bounded by meshes and overlapping volumes, and loading .vdb files directly
+- Volumes: motion blur from velocity grids, finer light sampling in glowing grids (by voxel rather than by cell), colored extinction, media bounded by meshes and overlapping volumes, and loading .vdb files directly
 
 ## License
 

@@ -13,7 +13,9 @@ majorant cells it may cross.
 #define MEDIA_GRID_COUNT ${gridCount}
 #define MEDIA_TABLE_COUNT ${tableCount}
 #if MEDIA_COUNT > 0
-bool mediaScatter(in Ray r, in float tMin, in float tMax, inout vec2 seed, out vec4 position, out int volume, out vec3 emitted);
+bool mediaScatter(in Ray r, in float tMin, in float tMax, inout vec2 seed, out vec4 position, out int volume, out vec3 emitted, in float misPdf);
+bool mediaGlows(in int volume);
+bool mediaSampleGlow(in int i, in vec4 P, inout vec2 seed, out vec4 toPoint, out vec3 glow, out float pdf, out float majorant);
 float mediaTransmittance(in Ray r, in float tMin, in float tMax, inout vec2 seed);
 vec3 mediaAlbedo(in int volume);
 float mediaG(in int volume);
@@ -40,6 +42,11 @@ vec3 hgSample(in float g, in vec3 d, inout vec2 seed, out float pdf);
 //   uMediaAlbedo:  albedo, and in w the grid index (for grids)
 //   uMediaEmission: x: 0 if it doesn't glow, 1 for a constant Le (in uMediaEmissionColor), 2 for Le from a temperature
 //                  grid (y: that grid's index, z: its row of uMediaEmissionTable), as src/media.js's Emission
+//   uMediaTransforms: its own space to the world's (uMediaInvTransforms back), for light sampling
+//   uMediaEmitInfo: light sampling a glowing volume (see GridMedium.emissionSampler): where its cells' CDF starts in
+//                  uMediaEmitSampling and how many entries it has (0 for a homogeneous medium, sampled uniformly),
+//                  where its per-cell probabilities start, and the factor making a cell's probability (or 1 for a
+//                  homogeneous medium) a density per unit of world volume
 //   uMediaBounds*: its box in its own space (a sphere's is [-1, 1]^3), where a grid's values count
 //   uMediaGridMax: a grid's largest value: a texel holding c stands for max * c^2 (see VoxelGrid in src/media.js)
 //   uMediaGridOrigin: where a grid's first voxel is centered, in the volume's own space
@@ -49,8 +56,16 @@ uniform vec4 uMediaParams[MEDIA_COUNT];
 uniform vec4 uMediaAlbedo[MEDIA_COUNT];
 uniform vec4 uMediaEmission[MEDIA_COUNT];
 uniform vec3 uMediaEmissionColor[MEDIA_COUNT];
+uniform mat4 uMediaTransforms[MEDIA_COUNT];
+uniform vec4 uMediaEmitInfo[MEDIA_COUNT];
 #if MEDIA_TABLE_COUNT > 0
 uniform highp sampler2D uMediaEmissionTable;
+// Light sampling data, as one long array of texels 2048 to a row: per glowing grid, its cells' CDF (r: the CDF up to and
+// including the entry, g: the cell), then a probability per cell (r).
+uniform highp sampler2D uMediaEmitSampling;
+vec4 mediaEmitTexel(in int k) {
+    return texelFetch(uMediaEmitSampling, ivec2(k % 2048, k / 2048), 0);
+}
 #endif
 uniform vec3 uMediaBoundsMin[MEDIA_COUNT];
 uniform vec3 uMediaBoundsMax[MEDIA_COUNT];
@@ -119,6 +134,90 @@ vec3 mediaEmission(in int i, in vec3 p) {
     return uMediaEmissionColor[i];
 }
 
+bool mediaGlows(in int i) {
+    return uMediaEmission[i].x != 0.0;
+}
+// Light sampling's density for picking p (in the volume's space), per unit of world volume.
+float mediaEmissionPdf(in int i, in vec3 p) {
+#if MEDIA_TABLE_COUNT > 0 && MEDIA_GRID_COUNT > 0
+    if (uMediaEmission[i].x == 2.0) {
+        ivec3 dims;
+        mediaMajorantCode(int(uMediaAlbedo[i].w), ivec3(0), dims);
+        ivec3 c = ivec3(floor((p - uMediaGridOrigin[i]) / uMediaCellSize[i]));
+        if (any(lessThan(c, ivec3(0))) || any(greaterThanEqual(c, dims)))
+            return 0.0;
+        return mediaEmitTexel(int(uMediaEmitInfo[i].z) + (c.z * dims.y + c.y) * dims.x + c.x).r * uMediaEmitInfo[i].w;
+    }
+#endif
+    bool inside = uMediaParams[i].w == 1.0 ? dot(p, p) <= 1.0 : all(lessThanEqual(abs(p), vec3(1.0)));
+    return inside ? uMediaEmitInfo[i].w : 0.0;
+}
+// The majorant tracking uses around p (its cell's, for a grid), per unit of the volume's own length.
+float mediaMajorantAt(in int i, in vec3 p) {
+#if MEDIA_GRID_COUNT > 0
+    if (uMediaParams[i].w == 2.0) {
+        ivec3 dims;
+        float c = mediaMajorantCode(int(uMediaAlbedo[i].w), ivec3(floor((p - uMediaGridOrigin[i]) / uMediaCellSize[i])), dims);
+        return uMediaParams[i].x * uMediaGridMax[i] * c * c;
+    }
+#endif
+    return uMediaParams[i].x;
+}
+// Light sampling a glowing volume, as PathIntegrator.volumeLight: a point picked in it (a cell by its power, then
+// uniformly within, for a grid), seen from P. toPoint: P to the point; glow: sigma_a * Le there, per unit of world
+// length along that direction; pdf: the density of picking it, per unit of world volume; majorant: the majorant there,
+// per unit of world length along that direction (for the MIS weight against path sampling). False if nothing glows.
+bool mediaSampleGlow(in int i, in vec4 P, inout vec2 seed, out vec4 toPoint, out vec3 glow, out float pdf, out float majorant) {
+    vec3 p;
+#if MEDIA_TABLE_COUNT > 0 && MEDIA_GRID_COUNT > 0
+    if (uMediaEmission[i].x == 2.0) {
+        int first = int(uMediaEmitInfo[i].x), n = int(uMediaEmitInfo[i].y);
+        if (n == 0)
+            return false;
+        float u = randf(seed);
+        int lo = 0, hi = n - 1;
+        for (int k = 0; k < 32 && lo < hi; ++k) {
+            int mid = (lo + hi) / 2;
+            if (mediaEmitTexel(first + mid).r < u)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        int cell = int(mediaEmitTexel(first + lo).g);
+        ivec3 dims;
+        mediaMajorantCode(int(uMediaAlbedo[i].w), ivec3(0), dims);
+        ivec3 c = ivec3(cell % dims.x, (cell / dims.x) % dims.y, cell / (dims.x * dims.y));
+        p = uMediaGridOrigin[i] + (vec3(c) + vec3(randf(seed), randf(seed), randf(seed))) * uMediaCellSize[i];
+    }
+    else
+#endif
+    if (uMediaParams[i].w == 1.0) {   // uniformly in the unit sphere
+        float z = 2.0 * randf(seed) - 1.0, phi = 6.283185307 * randf(seed), r = pow(randf(seed), 1.0 / 3.0);
+        p = r * vec3(sqrt(max(0.0, 1.0 - z * z)) * vec2(cos(phi), sin(phi)), z);
+    }
+    else
+        p = 2.0 * vec3(randf(seed), randf(seed), randf(seed)) - 1.0;
+    pdf = mediaEmissionPdf(i, p);
+    if (!(pdf > 0.0))
+        return false;
+    toPoint = vec4((uMediaTransforms[i] * vec4(p, 1.0)).xyz - P.xyz, 0.0);
+    // Densities are per unit of the volume's own length; along this direction a world unit is localPerWorld of those.
+    float localPerWorld = length((uMediaInvTransforms[i] * vec4(normalize(toPoint.xyz), 0.0)).xyz);
+    glow = mediaDensity(i, p) * (1.0 - uMediaAlbedo[i].rgb) * mediaEmission(i, p) * localPerWorld;
+    majorant = mediaMajorantAt(i, p) * localPerWorld;
+    return max(max(glow.r, glow.g), glow.b) > 0.0;
+}
+// The MIS weight of glow found by tracking at p (t along a ray whose direction was sampled with density misPdf, from
+// a point that also light sampled glowing volumes), against light sampling: as PathIntegrator.mediumScatter. 1 if
+// misPdf is 0 (from the camera, or after an exact bounce). speed and worldSpeed: the ray direction's length in the
+// volume's space and the world's.
+float mediaGlowWeight(in int i, in vec3 p, in float t, in float majorant, in float speed, in float misPdf, in float worldSpeed) {
+    if (!(misPdf > 0.0))
+        return 1.0;
+    float r = t * worldSpeed;
+    return powerHeuristic(misPdf * majorant * speed / worldSpeed / (r * r), mediaEmissionPdf(i, p));
+}
+
 bool mediaInterval(in int i, in Ray local, in float tMin, in float tMax, out float t0, out float t1) {
     t0 = tMin;
     t1 = tMax;
@@ -147,7 +246,8 @@ bool mediaInterval(in int i, in Ray local, in float tMin, in float tMax, out flo
 // first real collision's parameter, or -1; ratio tracking (ratio == true) returns the transmittance.
 // Delta tracking also adds the light a glowing medium emits up to the collision to `emitted`, by the collision estimator
 // (sigma_a * Le / majorant at every tentative collision; see Volume.sampleCollision).
-float mediaGridTrack(in int i, in Ray local, in float t0, in float t1, in bool ratio, inout vec2 seed, inout vec3 emitted) {
+float mediaGridTrack(in int i, in Ray local, in float t0, in float t1, in bool ratio, inout vec2 seed, inout vec3 emitted,
+                     in float misPdf, in float worldSpeed) {
     int grid = int(uMediaAlbedo[i].w);
     float speed = length(local.d.xyz), scale = uMediaParams[i].x * uMediaGridMax[i];
     vec3 q = (local.o.xyz + t0 * local.d.xyz - uMediaGridOrigin[i]) / uMediaCellSize[i];
@@ -176,7 +276,8 @@ float mediaGridTrack(in int i, in Ray local, in float t0, in float t1, in bool r
                 vec3 p = (local.o + s * local.d).xyz;
                 float density = mediaDensity(i, p);
                 if (glows)
-                    emitted += density * (1.0 - uMediaAlbedo[i].rgb) * mediaEmission(i, p) / majorant;
+                    emitted += mediaGlowWeight(i, p, s, majorant, speed, misPdf, worldSpeed)
+                             * density * (1.0 - uMediaAlbedo[i].rgb) * mediaEmission(i, p) / majorant;
                 if (ratio) {
                     T *= 1.0 - density / majorant;
                     if (T < 0.1) {
@@ -202,14 +303,15 @@ float mediaGridTrack(in int i, in Ray local, in float t0, in float t1, in bool r
 #endif
 
 // Delta tracking: the parameter of the first real collision in [t0, t1], or -1 if the ray passes through.
-float mediaSampleCollision(in int i, in Ray local, in float t0, in float t1, inout vec2 seed, inout vec3 emitted) {
+float mediaSampleCollision(in int i, in Ray local, in float t0, in float t1, inout vec2 seed, inout vec3 emitted,
+                           in float misPdf, in float worldSpeed) {
     float majorant = uMediaParams[i].y, rate = majorant * length(local.d.xyz);
     if (!(rate > 0.0))
         return -1.0;
     bool homogeneous = uMediaParams[i].w != 2.0;
 #if MEDIA_GRID_COUNT > 0
     if (!homogeneous)
-        return mediaGridTrack(i, local, t0, t1, false, seed, emitted);
+        return mediaGridTrack(i, local, t0, t1, false, seed, emitted, misPdf, worldSpeed);
 #endif
     float t = t0;
     for (int k = 0; k < MEDIA_MAX_STEPS; ++k) {
@@ -219,7 +321,8 @@ float mediaSampleCollision(in int i, in Ray local, in float t0, in float t1, ino
         vec3 p = (local.o + t * local.d).xyz;
         float density = homogeneous ? majorant : mediaDensity(i, p);
         if (uMediaEmission[i].x != 0.0)
-            emitted += density * (1.0 - uMediaAlbedo[i].rgb) * mediaEmission(i, p) / majorant;
+            emitted += mediaGlowWeight(i, p, t, majorant, length(local.d.xyz), misPdf, worldSpeed)
+                     * density * (1.0 - uMediaAlbedo[i].rgb) * mediaEmission(i, p) / majorant;
         if (homogeneous || randf(seed) * majorant < density)
             return t;
     }
@@ -235,7 +338,7 @@ float mediaSegmentTransmittance(in int i, in Ray local, in float t0, in float t1
         return exp(-rate * (t1 - t0));
 #if MEDIA_GRID_COUNT > 0
     vec3 unused = vec3(0);
-    return mediaGridTrack(i, local, t0, t1, true, seed, unused);
+    return mediaGridTrack(i, local, t0, t1, true, seed, unused, 0.0, 1.0);
 #endif
     float T = 1.0, t = t0;
     for (int k = 0; k < MEDIA_MAX_STEPS; ++k) {
@@ -256,7 +359,9 @@ float mediaSegmentTransmittance(in int i, in Ray local, in float t0, in float t1
 // each one's first collision independently and keeping the nearest is the same as tracking them in order. `emitted`
 // gets the light glowing volumes emit before that collision: each volume's is kept apart until the nearest collision
 // is known, since one tracked early may turn out to lie behind it (and none starts before it but ends after it).
-bool mediaScatter(in Ray r, in float tMin, in float tMax, inout vec2 seed, out vec4 position, out int volume, out vec3 emitted) {
+// misPdf: as PathIntegrator.mediumScatter's, for weighing the glow found against light sampling.
+bool mediaScatter(in Ray r, in float tMin, in float tMax, inout vec2 seed, out vec4 position, out int volume, out vec3 emitted, in float misPdf) {
+    float worldSpeed = length(r.d.xyz);
     float nearest = tMax;
     volume = -1;
     vec3 glow[MEDIA_COUNT];
@@ -269,7 +374,7 @@ bool mediaScatter(in Ray r, in float tMin, in float tMax, inout vec2 seed, out v
         if (!mediaInterval(i, local, tMin, nearest, t0, t1))
             continue;
         start[i] = t0;
-        float t = mediaSampleCollision(i, local, t0, t1, seed, glow[i]);
+        float t = mediaSampleCollision(i, local, t0, t1, seed, glow[i], misPdf, worldSpeed);
         if (t >= 0.0 && t < nearest) {
             nearest = t;
             volume = i;

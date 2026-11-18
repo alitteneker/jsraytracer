@@ -89,6 +89,10 @@ float powerHeuristic(in float f, in float g) {
     return r * r / (1.0 + r * r);
 }
 
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+vec3 rendererGlowLight(in vec4 rp, in vec4 toPoint, in vec3 glow, in float pdfLight, in float majorant, in float pdf, inout vec2 random_seed);
+#endif
+
 // Direct light at the current surface (see materialSurface) from every light: one sample on each, a shadow ray
 // to it, and the surface's response. In path tracing (MIS), each light sample is weighed against the chance that
 // sampling the BSDF would have found the same light; in Whitted mode it counts fully.
@@ -117,10 +121,39 @@ vec3 rendererDirectLight(in vec4 rp, inout vec2 random_seed) {
 #endif
         L += f * ls.color * cosFactor * w;
     }
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+    // Glowing volumes as lights: a point in each (see rendererGlowLight).
+    for (int v = 0; v < MEDIA_COUNT; ++v) {
+        vec4 toPoint;
+        vec3 glow;
+        float pdfLight, majorant;
+        if (!mediaGlows(v) || !mediaSampleGlow(v, rp, random_seed, toPoint, glow, pdfLight, majorant))
+            continue;
+        float pdf, cosFactor;
+        vec3 f = surfaceEval(toPoint, pdf, cosFactor);
+        if (max(max(f.r, f.g), f.b) > 0.0)
+            L += f * cosFactor * rendererGlowLight(rp, toPoint, glow, pdfLight, majorant, pdf, random_seed);
+    }
+#endif
     return L;
 }
 
 #if MEDIA_COUNT > 0 && defined(PATH_TRACING)
+// The light a point sampled in a glowing volume (mediaSampleGlow) sends to rp, before the response there: its glow over
+// r^2 and the density of picking it, through whatever lies between, weighed by MIS against path sampling, which finds
+// the same glow along a ray cast with density pdf (the BSDF's or phase function's) at the majorant's rate (see
+// PathIntegrator.volumeLight).
+vec3 rendererGlowLight(in vec4 rp, in vec4 toPoint, in vec3 glow, in float pdfLight, in float majorant, in float pdf, inout vec2 random_seed) {
+#if !DEBUG_NO_SHADOWS
+    float shadowIntersection = worldRayCast(Ray(rp, toPoint), EPSILON, 1.0, true);
+    if (shadowIntersection > 0.0 && shadowIntersection < 1.0)
+        return vec3(0);
+#endif
+    float r2 = dot(toPoint.xyz, toPoint.xyz);
+    float w = powerHeuristic(pdfLight, pdf * majorant / r2);
+    return glow * w * mediaTransmittance(Ray(rp, toPoint), EPSILON, 1.0, random_seed) / (r2 * pdfLight);
+}
+
 // Direct light at a point where light scatters in a volume: as rendererDirectLight, with the phase function in place
 // of the BSDF (and no cosine: a medium has no surface to tilt), for light arriving against the direction d.
 vec3 rendererMediumDirectLight(in vec4 p, in vec3 d, in float g, inout vec2 random_seed) {
@@ -135,6 +168,15 @@ vec3 rendererMediumDirectLight(in vec4 p, in vec3 d, in float g, inout vec2 rand
 #endif
         float w = ls.pdf > 0.0 ? powerHeuristic(ls.pdf, phase) : 1.0;
         L += ls.color * phase * w * mediaTransmittance(Ray(p, ls.direction), EPSILON, 1.0, random_seed);
+    }
+    for (int v = 0; v < MEDIA_COUNT; ++v) {
+        vec4 toPoint;
+        vec3 glow;
+        float pdfLight, majorant;
+        if (!mediaGlows(v) || !mediaSampleGlow(v, p, random_seed, toPoint, glow, pdfLight, majorant))
+            continue;
+        float phase = hgEval(g, dot(d, normalize(toPoint.xyz)));
+        L += phase * rendererGlowLight(p, toPoint, glow, pdfLight, majorant, phase, random_seed);
     }
     return L;
 }
@@ -194,7 +236,7 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
             float worldT = intersect_position.w == 0.0 ? 1e30
                 : dot(intersect_position.xyz - r.o.xyz, r.d.xyz) / dot(r.d.xyz, r.d.xyz);
             vec4 mediumPosition;
-            if (mediaScatter(r, EPSILON, worldT, random_seed, mediumPosition, mediumVolume, mediumEmitted)) {
+            if (mediaScatter(r, EPSILON, worldT, random_seed, mediumPosition, mediumVolume, mediumEmitted, prevBsdfPdf)) {
                 surfaceClear();
                 mediumEvent = true;
                 intersect_position = mediumPosition;

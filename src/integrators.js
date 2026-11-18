@@ -55,21 +55,40 @@ class Integrator {
             const medium = instance.object.medium, local = ray.getTransformed(instance.getInvTransform());
             const interval = Volume.interval(medium, local, tMin, tMax);
             if (interval)
-                segments.push({ medium: medium, local: local, t0: interval[0], t1: interval[1] });
+                segments.push({ medium: medium, local: local, t0: interval[0], t1: interval[1], detInv: Integrator.detInv(instance) });
         }
         return segments.sort((a, b) => a.t0 - b.t0);
     }
     // Where light traveling along ray first scatters in a volume before tMax: { position, medium }, or null if it
     // reaches tMax (where the surface is) without interacting. Each volume's chance of letting it through is its
     // transmittance, so a path that gets through carries no extra weight.
-    // Light emitted by glowing media along the way (up to the collision, if any) is added to `emitted`.
-    mediumScatter(ray, tMin, tMax, emitted = null) {
+    // Light emitted by glowing media along the way (up to the collision, if any) is added to `emitted`. misPdf: the
+    // solid angle density the ray's direction was sampled with, if its origin also sampled glowing media as lights
+    // (PathIntegrator.volumeLight); then each bit of glow is weighed by MIS against that, and 0 means it counts fully.
+    mediumScatter(ray, tMin, tMax, emitted = null, misPdf = 0) {
+        const worldSpeed = ray.direction.norm();
         for (const seg of this.volumeSegments(ray, tMin, tMax)) {
-            const t = Volume.sampleCollision(seg.medium, seg.local, seg.t0, seg.t1, emitted);
+            const medium = seg.medium;
+            let weightAt = null;
+            if (emitted && misPdf > 0 && medium.emissive && PathIntegrator.STRATEGY != "bsdf") {
+                const detInv = seg.detInv, localPerWorld = seg.local.direction.norm() / worldSpeed;
+                weightAt = PathIntegrator.STRATEGY == "light" ? () => 0 : (p, t, majorant) => {
+                    const r = t * worldSpeed;
+                    return PathIntegrator.powerHeuristic(1, misPdf * majorant * localPerWorld / (r * r), 1, medium.emissionPdf(p) * detInv);
+                };
+            }
+            const t = Volume.sampleCollision(medium, seg.local, seg.t0, seg.t1, emitted, weightAt);
             if (t !== null)
-                return { position: ray.getPoint(t), medium: seg.medium };
+                return { position: ray.getPoint(t), medium: medium };
         }
         return null;
+    }
+    // How much a volume's transform shrinks volume, world to local: densities per unit of local volume times this are
+    // per unit of world volume.
+    static detInv(instance) {
+        const m = instance.getInvTransform();
+        return Math.abs(m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                      + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]));
     }
     transmittance(ray, tMin, tMax) {
         let T = 1;
@@ -136,6 +155,45 @@ class PathIntegrator extends Integrator {
         return (f * f) / (f * f + g * g);
     }
 
+    // Direct light from glowing volumes at P: one point sampled in each (sampleEmissionPoint), its glow sigma_a * Le
+    // carried back through whatever lies between, and response(wi) giving the BSDF times cosine (or the phase function)
+    // toward it, as { f, pdf }. Weighed by MIS against finding the same glow along a ray response's sampling would cast:
+    // that ray's tentative collisions come at the majorant's rate, so its density for reaching x is the direction's pdf
+    // times majorant / r^2, times the transmittance to x. That last factor is left out, here and in mediumScatter
+    // alike: MIS stays unbiased with any weights that add up to 1, and near P, where 1 / r^2 would make light sampling's
+    // variance infinite, the path's weight goes to 1 and takes over.
+    volumeLight(P, response) {
+        const sum = [0, 0, 0];
+        for (const instance of this.world.volumes) {
+            const medium = instance.object.medium;
+            if (!medium.emissive)
+                continue;
+            const s = medium.sampleEmissionPoint();
+            if (!s)
+                continue;
+            const E = medium.emittedAt(s.p);
+            if (!(E[0] > 0 || E[1] > 0 || E[2] > 0))
+                continue;
+            const x = instance.getTransform().times(s.p), dir = Vec.of(x[0] - P[0], x[1] - P[1], x[2] - P[2], 0);
+            const r2 = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2], wi = dir.times(1 / Math.sqrt(r2));
+            const { f, pdf } = response(wi);
+            if (!(f[0] > 0 || f[1] > 0 || f[2] > 0))
+                continue;
+            const T = this.shadowTransmittance(P, dir);
+            if (!T)
+                continue;
+            // Densities are per unit of the volume's own length: along wi, a world unit is localPerWorld of those (so a
+            // stretched volume is thinner along its stretch), which scales both the glow and the majorant.
+            const detInv = Integrator.detInv(instance), pL = s.pdf * detInv;
+            const localPerWorld = instance.getInvTransform().times(wi).norm();
+            const pB = pdf * medium.majorantAt(s.p) * localPerWorld / r2;
+            const w = PathIntegrator.STRATEGY == "light" ? 1 : PathIntegrator.powerHeuristic(1, pL, 1, pB);
+            for (let k = 0; k < 3; ++k)
+                sum[k] += f[k] * E[k] * localPerWorld * T * w / (r2 * pL);
+        }
+        return sum;
+    }
+
     radiance(ray, maxDepth) {
         let L = [0, 0, 0], beta = [1, 1, 1];
         let prevDelta = true, prevPdf = 0, minDistance = 0;
@@ -148,7 +206,8 @@ class PathIntegrator extends Integrator {
             // from there: next-event estimation with the phase function in place of the BSDF, then a direction
             // sampled from the phase function (whose weight is exactly 1, so only the albedo changes beta).
             const emitted = Vec.of(0, 0, 0);
-            const scatter = this.world.volumes.length ? this.mediumScatter(ray, minDistance, hit ? hit.distance : Infinity, emitted) : null;
+            const scatter = this.world.volumes.length
+                ? this.mediumScatter(ray, minDistance, hit ? hit.distance : Infinity, emitted, prevDelta ? 0 : prevPdf) : null;
             if (emitted[0] || emitted[1] || emitted[2])
                 add(emitted, 1);
             if (scatter) {
@@ -165,6 +224,7 @@ class PathIntegrator extends Integrator {
                             add(ls.value, phase * T * w / ls.count);
                         }
                     }
+                    add(this.volumeLight(P, wi => { const phase = HenyeyGreenstein.eval(medium.g, d.dot(wi)); return { f: [phase, phase, phase], pdf: phase }; }));
                 }
                 const ps = HenyeyGreenstein.sample(medium.g, d);
                 prevDelta = false;
@@ -223,6 +283,10 @@ class PathIntegrator extends Integrator {
                         add([f[0] * s.value[0] * k, f[1] * s.value[1] * k, f[2] * s.value[2] * k]);
                     }
                 }
+                add(this.volumeLight(data.position, wi => {
+                    const f = bsdf.eval(wo, wi), cos = Math.abs(bsdf.n[0] * wi[0] + bsdf.n[1] * wi[1] + bsdf.n[2] * wi[2]);
+                    return { f: [f[0] * cos, f[1] * cos, f[2] * cos], pdf: bsdf.pdf(wo, wi) };
+                }));
             }
 
             // Continue the path in a direction chosen by the BSDF.

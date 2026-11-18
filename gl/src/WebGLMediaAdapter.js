@@ -1,8 +1,8 @@
 // Uploads the world's volumes (participating media, src/media.js) for gl/shaders/media.glsl: a handful of uniforms
 // per volume, and each voxel grid as two 3D textures: its brick atlas (bytes, R8, filtered trilinearly by the GPU as
 // VoxelGrid.codeAt does on the CPU), and its index, one texel per cell (RGBA8UI: the brick's place in the atlas, and
-// the cell's majorant). A volume glowing from a temperature grid adds that grid, and its table of colors as a row of one
-// float texture. Only path tracing uses them (see WebGLRendererAdapter.pathTracing).
+// the cell's majorant). A volume glowing from a temperature grid adds that grid, its table of colors as a row of one
+// float texture, and its light sampling distribution (GridMedium.emissionSampler) to another. Only path tracing uses them (see WebGLRendererAdapter.pathTracing).
 class WebGLMediaAdapter {
     static MAX_VOLUMES = 8;
     static MAX_GRIDS = 4;     // each grid takes two texture units (its atlas and its index)
@@ -16,6 +16,8 @@ class WebGLMediaAdapter {
         this.free_units = [];
         this.table_texture = null;
         this.table_unit = null;
+        this.sampling_texture = null;
+        this.sampling_unit = null;
         this.reset();
     }
     reset() {
@@ -26,7 +28,9 @@ class WebGLMediaAdapter {
     destroy(gl) {
         if (this.table_texture)
             gl.deleteTexture(this.table_texture);
-        this.table_texture = null;
+        if (this.sampling_texture)
+            gl.deleteTexture(this.sampling_texture);
+        this.table_texture = this.sampling_texture = null;
         for (const g of this.grid_textures.values()) {
             gl.deleteTexture(g.texture);
             gl.deleteTexture(g.index);
@@ -116,17 +120,62 @@ class WebGLMediaAdapter {
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
             gl.uniform1i(gl.getUniformLocation(program, "uMediaEmissionTable"), WebGLHelper.textureUnitIndex(this.table_unit));
         }
+        // Light sampling for glowing grids: per volume, its cells' CDF (normalized, with each entry's cell) and then
+        // every cell's probability, as texels of an RGBA32F texture 2048 wide (media.glsl, mediaEmitTexel).
+        const emitInfo = [];
+        if (this.tables.length) {
+            const parts = [];
+            let used = 0;
+            for (const v of this.volumes) {
+                const m = v.medium, detInv = Integrator.detInv(v.instance);
+                if (v.emission[0] != 2) {
+                    emitInfo.push(0, 0, 0, v.emission[0] == 1 ? detInv / (m.shape == "sphere" ? 4 / 3 * Math.PI : 8) : 0);
+                    continue;
+                }
+                const S = m.emissionSampler, n = S.cells.length, total = n ? S.cdf[n - 1] : 1;
+                emitInfo.push(used, n, used + n, detInv / S.cellVolume);
+                const part = new Float32Array((n + S.pmf.length) * 4);
+                for (let k = 0; k < n; ++k) {
+                    part[k * 4] = S.cdf[k] / total;
+                    part[k * 4 + 1] = S.cells[k];
+                }
+                S.pmf.forEach((p, c) => part[(n + c) * 4] = p);
+                parts.push(part);
+                used += n + S.pmf.length;
+            }
+            const width = 2048, rows = Math.max(1, Math.ceil(used / width)), texels = new Float32Array(width * rows * 4);
+            let at = 0;
+            for (const part of parts) {
+                texels.set(part, at);
+                at += part.length;
+            }
+            if (!this.sampling_texture) {
+                this.sampling_texture = gl.createTexture();
+                this.sampling_unit = this.free_units.pop() || this.webgl_helper.allocateTextureUnit();
+            }
+            gl.activeTexture(this.sampling_unit);
+            gl.bindTexture(gl.TEXTURE_2D, this.sampling_texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, width, rows, 0, gl.RGBA, gl.FLOAT, texels);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.uniform1i(gl.getUniformLocation(program, "uMediaEmitSampling"), WebGLHelper.textureUnitIndex(this.sampling_unit));
+        }
+        else
+            for (const v of this.volumes)
+                emitInfo.push(0, 0, 0, v.emission[0] == 1 ? Integrator.detInv(v.instance) / (v.medium.shape == "sphere" ? 4 / 3 * Math.PI : 8) : 0);
         if (!this.volumes.length)
             return;
 
         const inv = [], params = [], albedo = [], bmin = [], bmax = [], gridMax = [], gridOrigin = [], cellSize = [];
-        const emission = [], emissionColor = [];
+        const emission = [], emissionColor = [], fwd = [];
         for (const v of this.volumes) {
             const m = v.medium, kind = v.grid >= 0 ? 2 : (m.shape == "sphere" ? 1 : 0);
-            const M = v.instance.getInvTransform();
+            const M = v.instance.getInvTransform(), F = v.instance.getTransform();
             for (let r = 0; r < 4; ++r)
-                for (let c = 0; c < 4; ++c)
+                for (let c = 0; c < 4; ++c) {
                     inv.push(M[r][c]);
+                    fwd.push(F[r][c]);
+                }
             params.push(m.density, m.majorant, m.g, kind);
             albedo.push(m.albedo[0], m.albedo[1], m.albedo[2], Math.max(v.grid, 0));
             bmin.push(...m.bounds.min.slice(0, 3));
@@ -140,6 +189,8 @@ class WebGLMediaAdapter {
         gl.uniform4fv(gl.getUniformLocation(program, "uMediaEmission"), emission);
         gl.uniform3fv(gl.getUniformLocation(program, "uMediaEmissionColor"), emissionColor);
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uMediaInvTransforms"), true, inv);
+        gl.uniformMatrix4fv(gl.getUniformLocation(program, "uMediaTransforms"), true, fwd);
+        gl.uniform4fv(gl.getUniformLocation(program, "uMediaEmitInfo"), emitInfo);
         gl.uniform4fv(gl.getUniformLocation(program, "uMediaParams"), params);
         gl.uniform4fv(gl.getUniformLocation(program, "uMediaAlbedo"), albedo);
         gl.uniform3fv(gl.getUniformLocation(program, "uMediaBoundsMin"), bmin);

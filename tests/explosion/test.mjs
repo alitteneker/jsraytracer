@@ -1,8 +1,8 @@
 // An explosion from the OpenVDB project's explosion.vdb: its density and temperature grids (each converted by
 // tools/vdb_to_grid.py with --grid) make a medium that scatters, absorbs and glows. Hot gas emits as a blackbody, in
 // proportion to how much it absorbs (see Emission in src/media.js), with temperature 1 standing for `kelvin`. The scene
-// is a dusk: a dim sky and a low, weak sun to show the smoke's shape, so the fire stands out. (The fire lights the ground
-// too, but only by paths that happen to reach it, since nothing samples glowing media as lights yet: that light is noisy.)
+// is a dusk: a dim sky and a low, weak sun to show the smoke's shape, so the fire stands out, lighting the smoke around
+// it and the ground (glowing media are sampled as lights, see PathIntegrator.volumeLight).
 export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 4, 1.5,
         Mat4.translation([0, 2.6, 9]).times(Mat4.rotation(0.05, Vec.of(1, 0, 0))));
