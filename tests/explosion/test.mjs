@@ -18,8 +18,8 @@ export function configureTest(callback) {
         emission: { temperature: "../assets/volumes/explosion_temperature.vol.gz", kelvin: 3800, offset: 0.05, scale: 40 }
     }).then(fire => {
         const objects = [
-            // The VDB is in voxels, about 200 across, with its base at y = 39 voxels: about 6 units tall here.
-            new Volume(fire, Mat4.scale(0.022).times(Mat4.translation([-164, -39, -155]))),
+            // The VDB is in voxels, about 200 across, its base at y = -35.5 in its own units: about 6 units tall here.
+            new Volume(fire, Mat4.scale(0.022).times(Mat4.translation([-14.5, 35.5, -5.5]))),
             new Primitive(new Plane(), new PrincipledMaterial({ baseColor: Vec.of(0.3, 0.28, 0.26), roughness: 0.9 }),
                 Mat4.rotation(-Math.PI / 2, Vec.of(1, 0, 0))),
             sun

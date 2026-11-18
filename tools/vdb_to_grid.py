@@ -49,9 +49,13 @@ if n > 1:
     dense = padded.reshape(s[0] // n, n, s[1] // n, n, s[2] // n, n).mean(axis=(1, 3, 5))
     dims = list(dense.shape)
 
-# Voxel i of the VDB is centered at i * voxel size, so averaged voxel k (of n^3) is at imin + n k + (n - 1) / 2.
+# Voxel i of the VDB is centered at i * voxel size + t (its transform's translation; only scaling and translating
+# transforms are supported), so averaged voxel k (of n^3) is at imin + n k + (n - 1) / 2.
+t = np.array(grid.transform.indexToWorld((0, 0, 0)))
+if not np.allclose(np.array(grid.transform.indexToWorld((1, 1, 1))) - t, voxel):
+    sys.exit(f"The grid {args.grid} has a rotated or non-linear transform, which isn't supported.")
 size = voxel * n
-first = (np.array(imin) + (n - 1) / 2) * voxel
+first = (np.array(imin) + (n - 1) / 2) * voxel + t
 dense = np.maximum(dense, 0)
 peak = float(dense.max())
 if not peak > 0:
