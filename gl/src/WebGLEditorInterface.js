@@ -448,13 +448,18 @@ class WebGLEditorInterface {
         
         // draw the world, and request the next frame of animation
         if (this.renderer_adapter) {
-            // Compute a running average of delta times and display a stable FPS count.
+            // Stats, averaged over the last few frames: the wall time per frame (what a frame costs, but never below the
+            // display's refresh interval, since frames wait for it), and where the browser can measure it, the GPU
+            // time of one sample (one tracer pass), the real cost of the scene, free of vsync and CPU work.
             this.timeDeltaHistory.push(timeDelta);
             this.timeDeltaHistorySum += timeDelta;
             if (this.timeDeltaHistory.length > this.timeDeltaHistoryMaxLength)
                 this.timeDeltaHistorySum -= this.timeDeltaHistory.shift();
             const avgTimeDelta = this.timeDeltaHistorySum / this.timeDeltaHistory.length;
-            $('#fps-display').text((1000 / avgTimeDelta).toFixed(1) + " FPS - " + this.renderer_adapter.drawCount + " samples");
+            const gpu = this.renderer_adapter.gpuMsPerSample;
+            $('#fps-display').text(`${avgTimeDelta.toFixed(1)} ms/frame (${(1000 / avgTimeDelta).toFixed(1)} FPS)`
+                + (gpu !== null ? ` - GPU ${gpu.toFixed(gpu < 10 ? 2 : 1)} ms/sample` : "")
+                + ` - ${this.renderer_adapter.drawCount} samples`);
             
             // Deal with any camera movements or object transforms that might be present since last frame.
             this.handleMovement(timeDelta);

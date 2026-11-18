@@ -62,6 +62,9 @@ class WebGLRendererAdapter {
     // the GPU reports a disjoint event (e.g. a power-state change), so the first report after enabling may be sparse.
     static debugGPUTimer = false;
     static debugGPUTimerIntervalMs = 1000;
+    // The same timing, kept up continuously for the stats in the top bar (gpuMsPerSample): a cheap query per draw.
+    static liveGPUTimer = true;
+    static liveGPUTimerWindow = 30;   // draws averaged
 
     // Benchmark harness (normally set from URL parameters by webgl-demo.js, e.g. ?test=dragon&bench=5&debugNoShadows=1).
     // bench > 0: after benchWarmupMs of drawing, collect GPU tracer-pass times for `bench` seconds, then publish a
@@ -119,6 +122,7 @@ class WebGLRendererAdapter {
         this.timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2');
         this.pendingTimerQueries = [];
         this.gpuTimesMs = [];
+        this.recentGPUTimesMs = [];
         this.lastGPUTimerReport = performance.now();
         this.warnedNoTimerExt = false;
         
@@ -588,10 +592,11 @@ class WebGLRendererAdapter {
 
     // ---- GPU timer queries (debugGPUTimer) ----
     beginGPUTimer() {
-        if (!WebGLRendererAdapter.debugGPUTimer && !(this.benchState && this.benchState.collecting))
+        const B = WebGLRendererAdapter;
+        if (!B.debugGPUTimer && !B.liveGPUTimer && !(this.benchState && this.benchState.collecting))
             return null;
         if (!this.timerExt) {
-            if (!this.warnedNoTimerExt)
+            if (B.debugGPUTimer && !this.warnedNoTimerExt)
                 myconsole.error("debugGPUTimer: EXT_disjoint_timer_query_webgl2 is not available in this browser/GPU.");
             this.warnedNoTimerExt = true;
             return null;
@@ -622,7 +627,11 @@ class WebGLRendererAdapter {
         while (this.pendingTimerQueries.length && gl.getQueryParameter(this.pendingTimerQueries[0], gl.QUERY_RESULT_AVAILABLE)) {
             const q = this.pendingTimerQueries.shift();
             const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6; // ns -> ms
-            this.gpuTimesMs.push(ms);
+            if (WebGLRendererAdapter.debugGPUTimer)
+                this.gpuTimesMs.push(ms);
+            this.recentGPUTimesMs.push(ms);
+            if (this.recentGPUTimesMs.length > WebGLRendererAdapter.liveGPUTimerWindow)
+                this.recentGPUTimesMs.shift();
             if (this.benchState && this.benchState.collecting && !this.benchState.done)
                 this.benchState.samples.push(ms);
             gl.deleteQuery(q);
@@ -645,6 +654,13 @@ class WebGLRendererAdapter {
                     + `(~${(1000 / mean).toFixed(0)} tracer passes/s)`);
             }
         }
+    }
+
+    // The GPU time of one tracer pass (one sample per pixel), averaged over the last few draws, in ms; null if the
+    // browser doesn't offer timer queries (or none has come back yet).
+    get gpuMsPerSample() {
+        const t = this.recentGPUTimesMs;
+        return t && t.length ? t.reduce((a, b) => a + b, 0) / t.length : null;
     }
 
     // ---- Benchmark harness (see the static bench* fields) ----
