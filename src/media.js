@@ -53,11 +53,54 @@ class HenyeyGreenstein {
     }
 }
 
+// Blackbody colors: the linear sRGB color of Planck's spectrum at a temperature (Kelvin), scaled so the spectrum's
+// peak is 1 (as pbrt's BlackbodySpectrum does), so a flat spectrum of 1 would be white with luminance 1. Below about
+// 1000 K the peak is far in the infrared and almost nothing is left in the visible, so cool gas fades to black on its
+// own, then glows red, orange, yellow and white as it heats up, getting brighter up to about 5000 K; hotter than that the
+// peak moves into the ultraviolet and the brightness levels off (the color turns bluish). The CIE 1931 color matching functions are the
+// multi-lobe Gaussian fits of Wyman, Sloan and Shirley (2013), integrated every 5 nm from 360 to 830.
+const Blackbody = {
+    xyzBar(nm) {
+        const g = (x, mu, s1, s2) => { const t = (x - mu) / (x < mu ? s1 : s2); return Math.exp(-0.5 * t * t); };
+        return [1.056 * g(nm, 599.8, 37.9, 31.0) + 0.362 * g(nm, 442.0, 16.0, 26.7) - 0.065 * g(nm, 501.1, 20.4, 26.2),
+                0.821 * g(nm, 568.8, 46.9, 40.5) + 0.286 * g(nm, 530.9, 16.3, 31.1),
+                1.217 * g(nm, 437.0, 11.8, 36.0) + 0.681 * g(nm, 459.0, 26.0, 13.8)];
+    },
+    planck(nm, kelvin) {   // spectral radiance, up to a constant factor
+        const l = nm * 1e-9;
+        return 1 / (l ** 5 * (Math.exp(0.0143877688 / (l * kelvin)) - 1));
+    },
+    rgb(kelvin) {
+        if (!(kelvin > 0))
+            return [0, 0, 0];
+        const peak = this.planck(2.897771955e6 / kelvin, kelvin);   // Wien's law: the peak is at 2.898e6 / T nm
+        let X = 0, Y = 0, Z = 0, norm = 0;
+        for (let nm = 360; nm <= 830; nm += 5) {
+            const [x, y, z] = this.xyzBar(nm), v = this.planck(nm, kelvin) / peak;
+            X += x * v; Y += y * v; Z += z * v; norm += y;
+        }
+        X /= norm; Y /= norm; Z /= norm;
+        return [ 3.2404542 * X - 1.5371385 * Y - 0.4985314 * Z,
+                -0.9692660 * X + 1.8760108 * Y + 0.0415560 * Z,
+                 0.0556434 * X - 0.2040259 * Y + 1.0572252 * Z].map(v => Math.max(0, v));
+    }
+};
+
+// Emission: a medium glows by emitting light in proportion to how much it absorbs (Kirchhoff's law): per unit length,
+// the light added along a ray is sigma_a * Le, where sigma_a = density * (1 - albedo). So a white (albedo 1) medium
+// can't glow, and emission is hidden wherever there is nothing to absorb, which lets the density's majorants find all
+// of it. Le is a color for homogeneous media ({ emission: Vec.of(...) }); grid media take it from a temperature grid on
+// the same lattice, as a blackbody: Le = scale * Blackbody.rgb((temperature - offset) * kelvin). Explosions from
+// Houdini and the like store temperature normalized (about 0 to 1), so kelvin says what 1 means.
 class Medium {
-    constructor({ density = 1, albedo = Vec.of(1, 1, 1), g = 0 } = {}) {
+    constructor({ density = 1, albedo = Vec.of(1, 1, 1), g = 0, emission = null } = {}) {
         this.density = density;
         this.albedo = Vec.from(Array.isArray(albedo) || albedo instanceof Float32Array ? albedo : [albedo, albedo, albedo]);
         this.g = g;
+        this.emission = emission;
+    }
+    get emissive() {
+        return false;
     }
     get homogeneous() {
         return false;
@@ -89,6 +132,12 @@ class HomogeneousMedium extends Medium {
     }
     densityAt(p) {
         return this.density;
+    }
+    get emissive() {
+        return !!this.emission && (this.emission[0] > 0 || this.emission[1] > 0 || this.emission[2] > 0);
+    }
+    emissionAt(p) {
+        return this.emission;
     }
 }
 
@@ -315,13 +364,46 @@ class VoxelGrid {
     }
 }
 
+// emission: { temperature: a VoxelGrid (or, for load, its URL) on the same lattice as the density, kelvin (default
+// 3000), offset (default 0), scale (default 1) }; see Emission above.
 class GridMedium extends Medium {
+    static EMISSION_TABLE = 256;   // entries in a temperature grid's table of colors, over its bytes 0 to 255
+
     constructor(grid, params = {}) {
         super(params);
         this.grid = grid;
+        if (this.emission) {
+            const { temperature, kelvin = 3000, offset = 0, scale = 1 } = this.emission;
+            if (!(temperature instanceof VoxelGrid))
+                throw "A grid medium's emission needs a temperature grid";
+            // The GPU reads both grids at the same voxel coordinates (media.glsl, mediaEmission).
+            const same = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 1e-6 * Math.max(1, Math.abs(v)));
+            if (!same(temperature.cellDims, grid.cellDims) || !same(temperature.origin, grid.origin) || !same(temperature.voxelSize, grid.voxelSize))
+                throw `The temperature grid ${temperature.source} isn't on the same voxels as the density grid ${grid.source}`;
+            this.temperature = temperature;
+            // Le for every byte a temperature texel can hold (interpolated bytes are looked up between entries; see
+            // emissionAt), shared by the CPU and the GPU (WebGLMediaAdapter uploads it).
+            const n = GridMedium.EMISSION_TABLE, table = new Float32Array(n * 3);
+            for (let i = 0; i < n; ++i) {
+                const c = i / (n - 1), rgb = Blackbody.rgb((temperature.max * c * c - offset) * kelvin);
+                for (let k = 0; k < 3; ++k)
+                    table[i * 3 + k] = scale * rgb[k];
+            }
+            this.emissionTable = table;
+        }
     }
     static async load(url, params = {}) {
+        if (params.emission && typeof params.emission.temperature == "string")
+            params = { ...params, emission: { ...params.emission, temperature: await VoxelGrid.load(params.emission.temperature) } };
         return new GridMedium(await VoxelGrid.load(url), params);
+    }
+    get emissive() {
+        return !!this.emissionTable;
+    }
+    emissionAt(p) {
+        const x = this.temperature.codeAt(p) / 255 * (GridMedium.EMISSION_TABLE - 1);
+        const i = Math.min(GridMedium.EMISSION_TABLE - 2, Math.floor(x)), f = x - i, t = this.emissionTable;
+        return Vec.of(0, 1, 2).map(k => (1 - f) * t[i * 3 + k] + f * t[i * 3 + 3 + k]);
     }
     get bounds() {
         return this.grid.bounds;
@@ -379,7 +461,16 @@ class Volume extends WorldObject {
         return t0 < t1 ? [t0, t1] : null;
     }
     // Delta tracking: the parameter of the first real collision in [t0, t1], or null if the ray passes through.
-    static sampleCollision(medium, local, t0, t1) {
+    // If the medium glows, the light it emits along the way (up to the collision) is added to `emitted`, by the
+    // collision estimator: every tentative collision, real or null, adds sigma_a * Le / majorant. A tentative collision
+    // at t is reached with probability T(t) and they come at rate majorant, so on average that's the integral of
+    // T * sigma_a * Le, the emitted light reaching the ray's start.
+    static sampleCollision(medium, local, t0, t1, emitted = null) {
+        const glow = emitted && medium.emissive ? (p, density, majorant) => {
+            const Le = medium.emissionAt(p);
+            for (let k = 0; k < 3; ++k)
+                emitted[k] += density * (1 - medium.albedo[k]) * Le[k] / majorant;
+        } : null;
         if (medium instanceof GridMedium) {
             const speed = local.direction.norm();
             let result = null;
@@ -391,7 +482,10 @@ class Volume extends WorldObject {
                     t -= Math.log(1 - Math.random()) / (majorant * speed);
                     if (t >= tb)
                         return false;
-                    if (Math.random() * majorant < medium.densityAt(local.getPoint(t))) {
+                    const p = local.getPoint(t), density = medium.densityAt(p);
+                    if (glow)
+                        glow(p, density, majorant);
+                    if (Math.random() * majorant < density) {
                         result = t;
                         return true;
                     }
@@ -407,7 +501,10 @@ class Volume extends WorldObject {
             t -= Math.log(1 - Math.random()) / (majorant * speed);
             if (t >= t1)
                 return null;
-            if (medium.homogeneous || Math.random() * majorant < medium.densityAt(local.getPoint(t)))
+            const p = local.getPoint(t), density = medium.homogeneous ? majorant : medium.densityAt(p);
+            if (glow)
+                glow(p, density, majorant);
+            if (medium.homogeneous || Math.random() * majorant < density)
                 return t;
         }
     }

@@ -189,11 +189,12 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
         // and next a direction sampled from the phase function (below).
         bool mediumEvent = false;
         int mediumVolume = -1;
+        vec3 mediumEmitted = vec3(0);   // light glowing volumes emit along the ray, before it scatters or hits
         {
             float worldT = intersect_position.w == 0.0 ? 1e30
                 : dot(intersect_position.xyz - r.o.xyz, r.d.xyz) / dot(r.d.xyz, r.d.xyz);
             vec4 mediumPosition;
-            if (mediaScatter(r, EPSILON, worldT, random_seed, mediumPosition, mediumVolume)) {
+            if (mediaScatter(r, EPSILON, worldT, random_seed, mediumPosition, mediumVolume, mediumEmitted)) {
                 surfaceClear();
                 mediumEvent = true;
                 intersect_position = mediumPosition;
@@ -208,6 +209,11 @@ vec4 rendererRayColor(in Ray in_ray, inout vec2 random_seed, inout vec4 first_hi
         // too, so MIS splits the credit.
         if (prevBsdfPdf > 0.0 && surfaceEmitterPdf() > 0.0)
             surface_color *= powerHeuristic(prevBsdfPdf, surfaceEmitterPdf());
+#endif
+#if MEDIA_COUNT > 0 && defined(PATH_TRACING) && !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
+        // Glowing volumes: nothing samples them as lights, so their light always counts fully (and isn't scaled by
+        // the albedo of a scattering event that happens after it).
+        surface_color += mediumEmitted;
 #endif
 #if !DEBUG_TRAVERSAL_HEATMAP && !DEBUG_TRAVERSAL_ONLY
         if (surfaceWantsDirectLight())

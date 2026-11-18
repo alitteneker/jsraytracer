@@ -5,6 +5,8 @@
 //                  bounds are checked too)
 //   furnace        a medium that scatters all it absorbs (albedo 1), under a white sky, disappears: every pixel is 1
 //   mis            a lit medium rendered with light sampling, phase function sampling and MIS: all three agree
+//   emission       blackbody colors, and the light glowing media emit (delta tracking's collision estimator, and the
+//                  path integrator's use of it) against quadrature, for a homogeneous sphere and a temperature grid
 const fs = require("fs"), vm = require("vm"), path = require("path");
 const src = path.join(__dirname, "..", "..", "src");
 for (const f of ['math.js','world.js','geometry.js','bsdf.js','materials.js','cameras.js','renderers.js','integrators.js','lights.js','media.js','aggregates.js'])
@@ -145,6 +147,58 @@ for (const [name, medium] of [
     check("mis, lit medium", Math.abs(z("light", "mis")) < 4 && Math.abs(z("bsdf", "mis")) < 4,
         Object.entries(result).map(([k, v]) => `${k} ${v[0].toFixed(5)}+-${v[1].toFixed(5)}`).join("  ")
         + `  z(light-mis) ${z("light", "mis").toFixed(2)}  z(phase-mis) ${z("bsdf", "mis").toFixed(2)}`);
+}
+
+// Emission. Blackbody colors first: near white at 6500 K (close to sRGB's white point), red at low temperatures, and
+// brighter as it heats up to about 5000 K (past that the normalized spectrum's peak leaves the visible, so it levels off).
+{
+    const w = Blackbody.rgb(6504), r = Blackbody.rgb(1500), lum = k => { const c = Blackbody.rgb(k); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    const spread = Math.max(...w) / Math.min(...w);
+    check("emission, blackbody colors", spread < 1.1 && r[0] > 3 * r[1] && r[1] > r[2] && lum(1000) < lum(2000) && lum(2000) < lum(4000) && lum(8000) > 0.5,
+        `6504 K ${w.map(v => v.toFixed(3)).join(" ")}, 1500 K ${r.map(v => v.toExponential(2)).join(" ")}, luminance 1000/2000/4000/8000 K `
+        + [1000, 2000, 4000, 8000].map(k => lum(k).toExponential(2)).join(" "));
+}
+// The emitted light along a ray by quadrature: the integral of T * sigma_a * Le, per channel.
+const emittedQuadrature = (medium, local, t0, t1, steps = 20000) => {
+    const dt = (t1 - t0) / steps, speed = local.direction.norm(), E = [0, 0, 0];
+    let tau = 0;
+    for (let i = 0; i < steps; ++i) {
+        const p = local.getPoint(t0 + (i + 0.5) * dt), density = medium.densityAt(p), Le = medium.emissionAt(p);
+        const T = Math.exp(-(tau + 0.5 * density * speed * dt));
+        for (let k = 0; k < 3; ++k)
+            E[k] += T * density * (1 - medium.albedo[k]) * Le[k] * speed * dt;
+        tau += density * speed * dt;
+    }
+    return E;
+};
+for (const [name, medium] of [
+    ["homogeneous sphere", new HomogeneousMedium({ shape: "sphere", density: 1.2, albedo: Vec.of(0.3, 0.5, 0.7), emission: Vec.of(2, 1, 0.5) })],
+    ["temperature grid", new GridMedium(makeGrid(20, (x, y, z) => 1.4 * Math.exp(-3 * (x * x + y * y + z * z))),
+        { density: 2, albedo: 0.4, emission: { temperature: makeGrid(20, (x, y, z) => Math.max(0, 1 - 1.2 * Math.hypot(x, y - 0.2, z))), kelvin: 2500, scale: 3 } })]]) {
+    const local = new Ray(Vec.of(-3, 0.1, 0.05, 1), Vec.of(1.5, 0.02, -0.03, 0));
+    const [t0, t1] = Volume.interval(medium, local, 0, Infinity), exact = emittedQuadrature(medium, local, t0, t1);
+    const N = 200000, sum = [0, 0, 0], sq = [0, 0, 0];
+    for (let i = 0; i < N; ++i) {
+        const e = Vec.of(0, 0, 0);
+        Volume.sampleCollision(medium, local, t0, t1, e);
+        for (let k = 0; k < 3; ++k) { sum[k] += e[k]; sq[k] += e[k] * e[k]; }
+    }
+    const z = [0, 1, 2].map(k => { const m = sum[k] / N; return (m - exact[k]) / Math.sqrt((sq[k] / N - m * m) / N + 1e-30); });
+    check(`emission, ${name}`, z.every(v => Math.abs(v) < 4) && exact.some(v => v > 1e-3),
+        `quadrature ${exact.map(v => v.toFixed(4)).join(" ")}, estimate ${sum.map(v => (v / N).toFixed(4)).join(" ")}, z ${z.map(v => v.toFixed(2)).join(" ")}`);
+    if (name == "temperature grid") {
+        // Through the path integrator: an absorbing-only medium (nothing scatters) in a black world shows exactly its glow.
+        const absorber = new GridMedium(medium.grid, { density: 2, albedo: 0, emission: medium.emission });
+        const world = new World([new Volume(absorber)], [], Vec.of(0, 0, 0)), integrator = new PathIntegrator(world);
+        const want = emittedQuadrature(absorber, local, t0, t1);
+        let s = 0, s2 = 0;
+        for (let i = 0; i < 100000; ++i) {
+            const v = integrator.radiance(local, 8)[0];
+            s += v; s2 += v * v;
+        }
+        const m = s / 1e5, zz = (m - want[0]) / Math.sqrt((s2 / 1e5 - m * m) / 1e5);
+        check("emission, through the path integrator", Math.abs(zz) < 4, `quadrature ${want[0].toFixed(4)}, rendered ${m.toFixed(4)}, z ${zz.toFixed(2)}`);
+    }
 }
 
 process.exit(failures ? 1 : 0);

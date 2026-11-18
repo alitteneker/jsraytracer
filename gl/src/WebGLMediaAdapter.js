@@ -1,7 +1,8 @@
 // Uploads the world's volumes (participating media, src/media.js) for gl/shaders/media.glsl: a handful of uniforms
 // per volume, and each voxel grid as two 3D textures: its brick atlas (bytes, R8, filtered trilinearly by the GPU as
 // VoxelGrid.codeAt does on the CPU), and its index, one texel per cell (RGBA8UI: the brick's place in the atlas, and
-// the cell's majorant). Only path tracing uses them (see WebGLRendererAdapter.pathTracing).
+// the cell's majorant). A volume glowing from a temperature grid adds that grid, and its table of colors as a row of one
+// float texture. Only path tracing uses them (see WebGLRendererAdapter.pathTracing).
 class WebGLMediaAdapter {
     static MAX_VOLUMES = 8;
     static MAX_GRIDS = 4;     // each grid takes two texture units (its atlas and its index)
@@ -13,13 +14,19 @@ class WebGLMediaAdapter {
         this.worldadapter = worldadapter;
         this.grid_textures = new Map();   // VoxelGrid -> { texture, unit, index, indexUnit }, kept across visits
         this.free_units = [];
+        this.table_texture = null;
+        this.table_unit = null;
         this.reset();
     }
     reset() {
         this.volumes = [];
         this.grids = [];
+        this.tables = [];   // emission tables (Float32Array, RGB per byte), one per volume glowing from a grid
     }
     destroy(gl) {
+        if (this.table_texture)
+            gl.deleteTexture(this.table_texture);
+        this.table_texture = null;
         for (const g of this.grid_textures.values()) {
             gl.deleteTexture(g.texture);
             gl.deleteTexture(g.index);
@@ -31,19 +38,24 @@ class WebGLMediaAdapter {
         if (this.volumes.length >= WebGLMediaAdapter.MAX_VOLUMES)
             throw `Too many volumes: at most ${WebGLMediaAdapter.MAX_VOLUMES} are supported`;
         const medium = instance.object.medium;
-        let grid = -1;
-        if (medium instanceof GridMedium) {
-            grid = this.grids.indexOf(medium.grid);
-            if (grid < 0) {
+        const gridIndex = g => {
+            let i = this.grids.indexOf(g);
+            if (i < 0) {
                 if (this.grids.length >= WebGLMediaAdapter.MAX_GRIDS)
                     throw `Too many voxel grids: at most ${WebGLMediaAdapter.MAX_GRIDS} are supported`;
-                grid = this.grids.push(medium.grid) - 1;
+                i = this.grids.push(g) - 1;
             }
-        }
-        this.volumes.push({ instance: instance, medium: medium, grid: grid });
+            return i;
+        };
+        const grid = medium instanceof GridMedium ? gridIndex(medium.grid) : -1;
+        // Emission: 0 none, 1 a constant color, 2 from a temperature grid (its index and its table's row).
+        let emission = [0, 0, 0, 0];
+        if (medium.emissive)
+            emission = medium instanceof GridMedium ? [2, gridIndex(medium.temperature), this.tables.push(medium.emissionTable) - 1, 0] : [1, 0, 0, 0];
+        this.volumes.push({ instance: instance, medium: medium, grid: grid, emission: emission });
     }
     getShaderSourceDeclarations() {
-        return ShaderLibrary.render("media.glsl", "declarations", { count: this.volumes.length, gridCount: this.grids.length });
+        return ShaderLibrary.render("media.glsl", "declarations", { count: this.volumes.length, gridCount: this.grids.length, tableCount: this.tables.length });
     }
     getShaderSource() {
         return ShaderLibrary.render("media.glsl", "source", {
@@ -86,10 +98,29 @@ class WebGLMediaAdapter {
             const [index, indexUnit] = upload(grid.cellDims, WebGLMediaAdapter.indexTexels(grid), gl.NEAREST, gl.RGBA8UI, gl.RGBA_INTEGER);
             this.grid_textures.set(grid, { texture: texture, unit: unit, index: index, indexUnit: indexUnit });
         }
+        // The emission tables: rewritten every time (a few kilobytes), as a 256 x tables RGBA32F texture.
+        if (this.tables.length) {
+            if (!this.table_texture) {
+                this.table_texture = gl.createTexture();
+                this.table_unit = this.free_units.pop() || this.webgl_helper.allocateTextureUnit();
+            }
+            const n = GridMedium.EMISSION_TABLE, texels = new Float32Array(n * 4 * this.tables.length);
+            this.tables.forEach((table, row) => {
+                for (let k = 0; k < n; ++k)
+                    texels.set([table[k * 3], table[k * 3 + 1], table[k * 3 + 2], 1], (row * n + k) * 4);
+            });
+            gl.activeTexture(this.table_unit);
+            gl.bindTexture(gl.TEXTURE_2D, this.table_texture);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, n, this.tables.length, 0, gl.RGBA, gl.FLOAT, texels);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.uniform1i(gl.getUniformLocation(program, "uMediaEmissionTable"), WebGLHelper.textureUnitIndex(this.table_unit));
+        }
         if (!this.volumes.length)
             return;
 
         const inv = [], params = [], albedo = [], bmin = [], bmax = [], gridMax = [], gridOrigin = [], cellSize = [];
+        const emission = [], emissionColor = [];
         for (const v of this.volumes) {
             const m = v.medium, kind = v.grid >= 0 ? 2 : (m.shape == "sphere" ? 1 : 0);
             const M = v.instance.getInvTransform();
@@ -103,7 +134,11 @@ class WebGLMediaAdapter {
             gridMax.push(v.grid >= 0 ? m.grid.max : 0);
             gridOrigin.push(...(v.grid >= 0 ? m.grid.origin : [0, 0, 0]));
             cellSize.push(...(v.grid >= 0 ? m.grid.voxelSize.map(s => s * VoxelGrid.MAJORANT_CELL) : [1, 1, 1]));
+            emission.push(...v.emission);
+            emissionColor.push(...(v.emission[0] == 1 ? m.emission.slice(0, 3) : [0, 0, 0]));
         }
+        gl.uniform4fv(gl.getUniformLocation(program, "uMediaEmission"), emission);
+        gl.uniform3fv(gl.getUniformLocation(program, "uMediaEmissionColor"), emissionColor);
         gl.uniformMatrix4fv(gl.getUniformLocation(program, "uMediaInvTransforms"), true, inv);
         gl.uniform4fv(gl.getUniformLocation(program, "uMediaParams"), params);
         gl.uniform4fv(gl.getUniformLocation(program, "uMediaAlbedo"), albedo);

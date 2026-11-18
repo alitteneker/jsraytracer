@@ -30,7 +30,8 @@
         { "title": "Volumes", "scenes": [
             {"name": "media_fog", "description": "Fog and haze of constant density"},
             {"name": "bunny_cloud", "description": "A cloud from an OpenVDB grid, under sun and sky"},
-            {"name": "bunny_cloud_full", "description": "The same cloud at the VDB's full resolution, from a sparse grid"}
+            {"name": "bunny_cloud_full", "description": "The same cloud at the VDB's full resolution, from a sparse grid"},
+            {"name": "explosion", "description": "A glowing explosion from an OpenVDB density and temperature grid"}
         ] },
         { "title": "Meshes", "scenes": [
             {"name": "bunny"},

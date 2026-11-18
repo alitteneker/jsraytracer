@@ -62,9 +62,10 @@ class Integrator {
     // Where light traveling along ray first scatters in a volume before tMax: { position, medium }, or null if it
     // reaches tMax (where the surface is) without interacting. Each volume's chance of letting it through is its
     // transmittance, so a path that gets through carries no extra weight.
-    mediumScatter(ray, tMin, tMax) {
+    // Light emitted by glowing media along the way (up to the collision, if any) is added to `emitted`.
+    mediumScatter(ray, tMin, tMax, emitted = null) {
         for (const seg of this.volumeSegments(ray, tMin, tMax)) {
-            const t = Volume.sampleCollision(seg.medium, seg.local, seg.t0, seg.t1);
+            const t = Volume.sampleCollision(seg.medium, seg.local, seg.t0, seg.t1, emitted);
             if (t !== null)
                 return { position: ray.getPoint(t), medium: seg.medium };
         }
@@ -146,7 +147,10 @@ class PathIntegrator extends Integrator {
             // Light may scatter in a volume before reaching the surface (or escaping), and then the path continues
             // from there: next-event estimation with the phase function in place of the BSDF, then a direction
             // sampled from the phase function (whose weight is exactly 1, so only the albedo changes beta).
-            const scatter = this.world.volumes.length ? this.mediumScatter(ray, minDistance, hit ? hit.distance : Infinity) : null;
+            const emitted = Vec.of(0, 0, 0);
+            const scatter = this.world.volumes.length ? this.mediumScatter(ray, minDistance, hit ? hit.distance : Infinity, emitted) : null;
+            if (emitted[0] || emitted[1] || emitted[2])
+                add(emitted, 1);
             if (scatter) {
                 const medium = scatter.medium, P = scatter.position, d = ray.direction.normalized();
                 for (let i = 0; i < 3; ++i) beta[i] *= medium.albedo[i];

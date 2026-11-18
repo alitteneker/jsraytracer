@@ -1,6 +1,6 @@
 // A cloud from a voxel grid: the OpenVDB project's bunny_cloud.vdb (see tools/vdb_to_grid.py, which converted it at
-// half resolution; bunny_cloud_full is the same scene at full resolution), lit by a sun (a directional light, see src/lights.js) and a blue sky (the world's background, which
-// path tracing gathers as light). Its density is per unit of the VDB's own space, so scaling the volume keeps its look.
+// half resolution; bunny_cloud_full is the same scene at full resolution), lit by a sun (a directional light, see
+// src/lights.js) and a blue sky (the world's background, which path tracing gathers as light). Its density is per unit of the VDB's own space, so scaling the volume keeps its look.
 export function configureTest(callback) {
     const camera = new PerspectiveCamera(Math.PI / 4, 1.5,
         Mat4.translation([0, 2, 10]).times(Mat4.rotation(-0.05, Vec.of(1, 0, 0))));
