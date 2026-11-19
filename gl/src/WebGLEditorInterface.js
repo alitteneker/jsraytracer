@@ -33,6 +33,7 @@ class UIProperties {
         mat:          { e: 'spin spinstop input',            c: UIProperties.matPropertyChanged },
         color:        { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
         checkerboard: { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
+        texture:      { e: 'spin spinstop spinchange input', c: UIProperties.colorPropertyChanged },
     };
     static listenToControls(root, name, prop, callback) {
         if (prop.type in UIProperties.listeners) {
@@ -54,10 +55,16 @@ class UIProperties {
         if (!insertion_point || insertion_point.length == 0)
             throw "No valid insertion point found to fill property controls";
         insertion_point.empty();
+        // A property with no template is left out with a warning rather than thrown on: an exception here would
+        // stop whatever called this partway, such as selecting an object, and leave the editor half set up.
+        const shown = {};
         for (const [name, raw_prop] of Object.entries(props)) {
             const template = root.find(`.template-holder script[data-template-type="${raw_prop.type}"]`);
-            if (!template || template.length==0)
-                throw "Unable to find appropriate template for property type " + raw_prop.type;
+            if (!template || template.length==0) {
+                console.warn(`No editor control for ${name}, a property of type ${raw_prop.type}`);
+                continue;
+            }
+            shown[name] = raw_prop;
             
             const prop = Object.assign({}, raw_prop, {name: name});
             if (prop.type == "mat") {
@@ -69,7 +76,7 @@ class UIProperties {
 
         (insertion_point.hasClass("control-group") ? insertion_point : insertion_point.parents(".control-group")).controlgroup("refresh");
         
-        for (const [name, prop] of Object.entries(props))
+        for (const [name, prop] of Object.entries(shown))
             UIProperties.listenToControls(root, name, prop, callback);
     }
     

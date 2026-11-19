@@ -255,6 +255,14 @@
                            <input type="color"             data-mc-id="${color2._id}" data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(color2.color))}">
                        </td></tr>
                     </script>
+                    <!-- A texture can't be edited here, but the tint it is multiplied by can. -->
+                    <script type="text/x-template" data-template-type="texture">
+                        <tr><td><span>$name</span></td><td>
+                           <span class="material-texture-label">texture &times;</span>
+                           <input class="ui-spinner-input" data-mc-id="${scale._id}" data-mc-type="intensity" data-field-name="$name" value="${Math.max(1, ...Object.values(scale.color))}">
+                           <input type="color"             data-mc-id="${scale._id}" data-mc-type="color"     data-field-name="$name" value="${rgbToHex(Object.values(scale.color))}">
+                       </td></tr>
+                    </script>
                 </div>
             </div>
             <div id="object-properties">

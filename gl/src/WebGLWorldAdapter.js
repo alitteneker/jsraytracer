@@ -402,7 +402,10 @@ class WebGLWorldAdapter {
         }
     }
     
-    visitPrimitive(prim, webgl_helper) {
+    // A primitive at the top of the scene (own_transform) can be selected and moved on its own, so it gets a transform
+    // slot of its own (see registerObjectTransform); those inside aggregates and BVHs share slots with any equal
+    // transform, as there can be millions of them.
+    visitPrimitive(prim, webgl_helper, own_transform=false) {
         if (!(prim instanceof Primitive))
             throw "Cannot call visitPrimitive on non-Primitive";
         
@@ -412,7 +415,7 @@ class WebGLWorldAdapter {
         const index = this.primitive_id_index_map[prim.OBJECT_UID] = this.primitives.length;
         
         const wrapped = new WrappedPrimitive(index, prim,
-            this.registerTransform(prim.getInvTransform(), prim),
+            this.registerTransform(prim.getInvTransform(), prim, !own_transform),
             this.adapters.geometries.visit(prim.geometry, webgl_helper),
             this.adapters.materials.visit( prim.material, webgl_helper), this);
         this.primitives.push(wrapped);
@@ -421,7 +424,7 @@ class WebGLWorldAdapter {
     }
     visitDescendantObject(obj, webgl_helper, ancestors=[]) {
         if (obj instanceof Primitive) {
-            const prim = this.visitPrimitive(obj, webgl_helper, ancestors);
+            const prim = this.visitPrimitive(obj, webgl_helper, !ancestors || ancestors.length == 0);
             if (ancestors && ancestors.length) {
                 ancestors[ancestors.length-1].indicesList.push(prim.index);
                 ancestors[ancestors.length-1].immediatePrimitiveChildren.push(prim);
@@ -515,8 +518,11 @@ class WebGLWorldAdapter {
         this.transform_object_map[transformIndex].push(object);
         return transformIndex;
     }
+    // Aggregates' transforms are never shared: the editor can move any aggregate, and a shader built without editing
+    // can't split a shared slot afterwards (see updateTransformLocal). Sharing would otherwise be common, since an
+    // aggregate built without a transform has the same identity transform as all the primitives in it.
     registerObjectTransform(object, ancestors) {
-        return this.registerTransform(object.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), object);
+        return this.registerTransform(object.getInvTransform().times(WebGLWorldAdapter.collapseAncestorInvTransform(ancestors)), object, false);
     }
     updateTransformLocal(wrapped_obj, allow_reuse=true) {
         const set_transform = wrapped_obj.type == "primitive" ? wrapped_obj.getInvTransform() : wrapped_obj.getWorldInvTransform();
@@ -1156,7 +1162,7 @@ class WrappedBVHTree {
             node_data.hitIndex = (lesserIndex << 2) | node.sep_axis;
         }
         else {
-            const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper, true));
+            const primitives = node.objects.map(o => this.worldadapter.visitPrimitive(o, webgl_helper));
             node_data.isSingularLeaf = primitives.length == 1;
             // (push, not concat: concat copies the whole list at every leaf, which took ~25 s for the dragon.)
             for (const p of primitives)
