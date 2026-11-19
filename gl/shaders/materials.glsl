@@ -78,59 +78,63 @@ void getMaterialIndices(in int materialID, out ivec4 mat_ind_0, out ivec4 mat_in
 
 //#section colors.texture-case
 
-        case ${i}: {
-            vec2 size = vec2(textureSize(umTextures[${i}], 0).xy);
-            return textureLod(umTextures[${i}], vec3(textureUV(UV, size, clampU, clampV), float(layer)), 0.0).xyz;
-        }
+        case ${i}: return texelFetch(umTextures[${i}], texel, 0).xyz;
 //#section colors.textures
 
-// Images are grouped by size and color space: each group is one array texture (its own sampler and texture unit),
-// and each image in it a layer. A texture special color's second value packs (group << 18) | (layer << 2) | (clampV << 1)
-// | clampU (WebGLMaterialsAdapter.packTextureRef). The array textures repeat; a clamped axis clamps to the centers
-// of the edge texels instead, which is what CLAMP_TO_EDGE does. There are no mipmaps: rays don't come with screen-space
-// derivatives to pick a level with, and the jittered samples average the texture over each pixel anyway.
+// Images live in atlases, one per color space (WebGLMaterialsAdapter.textureRef): array textures whose pages hold many
+// images side by side. A texture special color says where its image is (WebGLMaterialsAdapter.specialColorData).
+// Filtering is done here from four texels, exactly as the CPU's TextureMaterialColor.color does it: the image's top
+// row is V = 1, texel centers sit at half-integers, a clamped axis repeats its edge texels and an unclamped one wraps
+// around, all within the image's own rectangle. There are no mipmaps: rays don't come with screen-space derivatives
+// to pick a level with, and the jittered samples average the texture over each pixel anyway.
 uniform highp sampler2DArray umTextures[${textureCount}];
 
-vec2 textureUV(in vec2 UV, in vec2 size, in bool clampU, in bool clampV) {
-    vec2 uv = vec2(UV.x, 1.0 - UV.y);
-    vec2 edge = 0.5 / size;
-    if (clampU) uv.x = clamp(uv.x, edge.x, 1.0 - edge.x);
-    if (clampV) uv.y = clamp(uv.y, edge.y, 1.0 - edge.y);
-    return uv;
-}
-vec3 sampleTexture(in int ref, in vec2 UV) {
-    int layer = (ref >> 2) & 0xffff;
-    bool clampU = (ref & 1) != 0, clampV = (ref & 2) != 0;
-    switch (ref >> 18) {
+vec3 atlasTexel(in int atlas, in ivec3 texel) {
+    switch (atlas) {
         ${textureCases}
         default: break;
     }
     return vec3(1.0, 0.5, 1.0);
 }
+int textureWrap(in int i, in int n, in bool clampAxis) {
+    return clampAxis ? clamp(i, 0, n - 1) : ((i % n) + n) % n;
+}
+vec3 sampleTexture(in ivec4 ref, in vec2 UV) {
+    int atlas = (ref.x >> 8) & 15, page = ref.x >> 15;
+    bool clampU = (ref.x & 0x1000) != 0, clampV = (ref.x & 0x2000) != 0, nearest = (ref.x & 0x4000) != 0;
+    ivec2 origin = ivec2(ref.z & 0xffff, ref.z >> 16), size = ivec2(ref.w & 0xffff, ref.w >> 16);
+    vec2 st = vec2(UV.x, 1.0 - UV.y) * vec2(size) - 0.5;
+    vec2 f = nearest ? vec2(0.0) : fract(st);
+    ivec2 i0 = nearest ? ivec2(round(st)) : ivec2(floor(st));
+    ivec2 a = ivec2(textureWrap(i0.x, size.x, clampU), textureWrap(i0.y, size.y, clampV)) + origin;
+    ivec2 b = ivec2(textureWrap(i0.x + 1, size.x, clampU), textureWrap(i0.y + 1, size.y, clampV)) + origin;
+    return mix(mix(atlasTexel(atlas, ivec3(a.x, a.y, page)), atlasTexel(atlas, ivec3(b.x, a.y, page)), f.x),
+               mix(atlasTexel(atlas, ivec3(a.x, b.y, page)), atlasTexel(atlas, ivec3(b.x, b.y, page)), f.x), f.y);
+}
 //#section colors.no-textures
 
-vec3 sampleTexture(in int ref, in vec2 UV) {
+vec3 sampleTexture(in ivec4 ref, in vec2 UV) {
     return vec3(1.0, 0.5, 1.0);
 }
 //#section colors
 
 ${textureSampling}
 
-uniform ivec3 umSpecialColors[${specialColorCount}];
+uniform ivec4 umSpecialColors[${specialColorCount}];
 
 vec3 getMaterialColor(in int color_index, in vec2 UV) {
 
     // Special colors
     if (color_index < 0) {
-        ivec3 special_color = umSpecialColors[-color_index - 1];
+        ivec4 special_color = umSpecialColors[-color_index - 1];
 
         // checkerboard color
         if (special_color.x == MATERIALCOLOR_SPECIAL_CHECKERBOARD)
             return getSolidColor((mod(floor(UV.x) + floor(UV.y), 2.0) < 1.0) ? special_color.y : special_color.z);
 
         // texture color
-        if (special_color.x == MATERIALCOLOR_SPECIAL_TEXTURE)
-            return sampleTexture(special_color.y, UV) * getSolidColor(special_color.z);
+        if ((special_color.x & 255) == MATERIALCOLOR_SPECIAL_TEXTURE)
+            return sampleTexture(special_color, UV) * getSolidColor(special_color.y);
 
         // something has gone wrong
         return vec3(1.0, 0.5, 1.0);

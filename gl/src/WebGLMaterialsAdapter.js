@@ -2,7 +2,7 @@ class WebGLMaterialsAdapter {
     static SPECIAL_COLOR_CHECKERBOARD = 1;
     static SPECIAL_COLOR_TEXTURE = 2;
     static USE_TEXTURES_FOR_MAT_PARAMS = false;
-    static MAX_TEXTURE_GROUPS = 8;    // different image sizes in one scene: each takes a texture unit
+    static MAX_ATLAS_PAGE = 4096;     // the largest atlas page tried (see packAtlas), if the GPU allows it
 
     // Each material is described to the shader by MATERIAL_SLOTS integers (three ivec4s): its type, then indices of
     // its parameters' colors (see getMaterialColor), in an order that depends on the type.
@@ -30,14 +30,14 @@ class WebGLMaterialsAdapter {
         [this.albedo_texture_unit, this.albedo_texture] = webgl_helper.createDataTextureAndUnit(1, "FLOAT");
         
         this.solid_colors = new WebGLVecStore(3, false);
-        this.texture_groups = [];   // see textureRef
-        this.free_texture_units = [];
+        this.atlases = {};          // color space -> its atlas (see textureRef), kept between visits
         this.reset();
     }
     reset() {
-        // Texture groups are rebuilt by each visit, from the previous visit's groups where they still fit (textureRef).
-        this.previous_texture_groups = (this.previous_texture_groups || []).concat(this.texture_groups);
-        this.texture_groups = [];
+        // Each visit lists the images it uses afresh (textureRef); uploadTextures only uploads an atlas whose list
+        // changed.
+        for (const atlas of Object.values(this.atlases))
+            atlas.images = [];
         this.solid_colors.clear();
         this.solid_mc_map = {};
         // Edits made in the editor are written back into the CPU scene (see bindToScene), so that rebuilding the
@@ -102,73 +102,104 @@ class WebGLMaterialsAdapter {
         this.material_colors_texture.destroy();
         this.material_indices_texture.destroy();
         this.albedo_texture.destroy();
-        for (const group of this.texture_groups.concat(this.previous_texture_groups))
-            if (group.texture)
-                this.webgl_helper.gl.deleteTexture(group.texture);
+        for (const atlas of Object.values(this.atlases))
+            if (atlas.texture)
+                this.webgl_helper.gl.deleteTexture(atlas.texture);
     }
-    // Images live in array textures, one per image size and color space (see materials.glsl:colors.textures). sRGB
-    // images are stored as SRGB8_ALPHA8, so the GPU decodes their texels to linear before filtering, as the CPU does.
-    // Each visit of the world builds its groups afresh from the images it still uses, reusing the previous visit's
-    // group of the same kind (its texture unit, and its texture if the images are the same), so an edit that keeps the
-    // textures uploads nothing, and images no longer used are dropped. uploadTextures does the uploading.
+    // Images live in atlases, one per color space: an array texture whose pages (layers) hold many images side by
+    // side (see packAtlas), so a scene takes at most two texture units however many image sizes it has. (WebGL
+    // guarantees only 16 units to a fragment shader, and the scene's data textures need most of them.) sRGB atlases
+    // are SRGB8_ALPHA8, so the GPU decodes texels to linear as they are read. Filtering is done in the shader from
+    // four texels (materials.glsl:sampleTexture), as the CPU does it, since the GPU's own filtering would blend in
+    // neighboring images and couldn't wrap around within one.
     textureRef(mc, webgl_helper) {
-        const key = mc.width + "x" + mc.height + " " + mc.colorSpace;
-        let group = this.texture_groups.find(g => g.key == key);
-        if (!group) {
-            if (this.texture_groups.length >= WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS)
-                throw `Too many kinds of texture: at most ${WebGLMaterialsAdapter.MAX_TEXTURE_GROUPS} different image sizes and color spaces are supported`;
-            const previous = this.previous_texture_groups.findIndex(g => g.key == key);
-            if (previous >= 0) {
-                group = this.previous_texture_groups.splice(previous, 1)[0];
-                group.layers = [];
-            }
-            else
-                group = { key: key, width: mc.width, height: mc.height, srgb: mc.colorSpace == "srgb", layers: [],
-                    unit: this.free_texture_units.pop() || webgl_helper.allocateTextureUnit(), texture: null,
-                    uploaded: [] };
-            this.texture_groups.push(group);
-        }
-        let layer = group.layers.indexOf(mc);
-        if (layer < 0) {
-            layer = group.layers.length;
-            group.layers.push(mc);
-        }
-        return WebGLMaterialsAdapter.packTextureRef(this.texture_groups.indexOf(group), layer, mc.clampU, mc.clampV);
+        const space = mc.colorSpace == "srgb" ? "srgb" : "linear";
+        const atlas = this.atlases[space] || (this.atlases[space] = {
+            srgb: space == "srgb", images: [], uploaded: [], texture: null, unit: webgl_helper.allocateTextureUnit()
+        });
+        if (!atlas.images.includes(mc))
+            atlas.images.push(mc);
     }
-    static packTextureRef(group, layer, clampU, clampV) {
-        return (group << 18) | (layer << 2) | (clampV ? 2 : 0) | (clampU ? 1 : 0);
+    // The atlases this visit uses, in the order the shader declares their samplers.
+    get usedAtlases() {
+        return ["srgb", "linear"].map(k => this.atlases[k]).filter(a => a && a.images.length);
+    }
+    // Where each image goes: shelves (rows) of images sorted tallest first, on square pages of the size that takes
+    // the least memory, from the smallest power of two that fits the largest image up to maxSize. Returns
+    // { size, pages, places: Map(image -> [x, y, page]) }.
+    static packAtlas(images, maxSize) {
+        const largest = Math.max(...images.map(m => Math.max(m.width, m.height)));
+        if (largest > maxSize)
+            throw `A ${largest}-texel image is larger than this GPU's largest texture (${maxSize})`;
+        const order = images.slice().sort((a, b) => b.height - a.height || b.width - a.width);
+        let best = null;
+        for (let size = 2 ** Math.ceil(Math.log2(largest)); size <= Math.max(maxSize, largest); size *= 2) {
+            const places = new Map();
+            let page = 0, x = 0, y = 0, rowHeight = 0;
+            for (const m of order) {
+                if (x + m.width > size) {
+                    x = 0; y += rowHeight; rowHeight = 0;
+                }
+                if (y + m.height > size) {
+                    x = 0; y = 0; rowHeight = 0; ++page;
+                }
+                places.set(m, [x, y, page]);
+                x += m.width;
+                rowHeight = Math.max(rowHeight, m.height);
+            }
+            const packed = { size, pages: page + 1, places };
+            if (!best || packed.pages * size * size < best.pages * best.size * best.size)
+                best = packed;
+            if (size >= maxSize)
+                break;
+        }
+        return best;
     }
     uploadTextures(gl) {
-        // Groups the last visit didn't need any more: free their textures, and keep their units for new groups.
-        for (const group of this.previous_texture_groups) {
-            if (group.texture)
-                gl.deleteTexture(group.texture);
-            this.free_texture_units.push(group.unit);
-        }
-        this.previous_texture_groups = [];
-
-        for (const group of this.texture_groups) {
-            if (group.uploaded.length == group.layers.length && group.layers.every((mc, i) => group.uploaded[i] === mc))
+        const maxSize = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), WebGLMaterialsAdapter.MAX_ATLAS_PAGE);
+        for (const atlas of Object.values(this.atlases)) {
+            if (!atlas.images.length) {
+                if (atlas.texture)
+                    gl.deleteTexture(atlas.texture);
+                atlas.texture = null;
+                atlas.uploaded = [];
                 continue;
-            if (!group.texture)
-                group.texture = gl.createTexture();
-            gl.activeTexture(group.unit);
-            gl.bindTexture(gl.TEXTURE_2D_ARRAY, group.texture);
+            }
+            if (atlas.texture && atlas.uploaded.length == atlas.images.length && atlas.images.every((m, i) => atlas.uploaded[i] === m))
+                continue;
+            atlas.layout = WebGLMaterialsAdapter.packAtlas(atlas.images, maxSize);
+            if (atlas.layout.pages > gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS))
+                throw `Too many textures: they need ${atlas.layout.pages} atlas pages`;
+            if (atlas.texture)
+                gl.deleteTexture(atlas.texture);
+            atlas.texture = gl.createTexture();
+            gl.activeTexture(atlas.unit);
+            gl.bindTexture(gl.TEXTURE_2D_ARRAY, atlas.texture);
             gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-            gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, group.srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, group.width, group.height,
-                group.layers.length, 0,
+            const { size, pages, places } = atlas.layout;
+            gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, atlas.srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, size, size, pages, 0,
                 gl.RGBA, gl.UNSIGNED_BYTE, null);
-            group.layers.forEach((mc, layer) => {
-                const data = mc._imgdata.data;
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, group.width, group.height, 1, gl.RGBA,
-                    gl.UNSIGNED_BYTE, new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-            });
-            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
-            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
-            group.uploaded = group.layers.slice();
+            for (const m of atlas.images) {
+                const [x, y, page] = places.get(m), data = m._imgdata.data;
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, x, y, page, m.width, m.height, 1, gl.RGBA, gl.UNSIGNED_BYTE,
+                    new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+            }
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            atlas.uploaded = atlas.images.slice();
         }
+    }
+    // A special color as the shader reads it (an ivec4, see materials.glsl:getMaterialColor). A texture's packs:
+    //   x: the type, | the atlas's sampler index << 8, | clampU << 12, | clampV << 13, | nearest << 14, | its page << 15
+    //   y: the solid color it's multiplied by;  z: its x | y << 16 in the atlas;  w: its width | height << 16
+    specialColorData(sc) {
+        if (sc[0] != WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE)
+            return [sc[0], sc[1], sc[2], 0];
+        const mc = sc[2], atlases = this.usedAtlases;
+        const atlas = atlases.find(a => a.images.includes(mc)), [x, y, page] = atlas.layout.places.get(mc);
+        return [sc[0] | (atlases.indexOf(atlas) << 8) | (mc.clampU ? 1 << 12 : 0) | (mc.clampV ? 1 << 13 : 0)
+                      | (mc.mode == "nearest" ? 1 << 14 : 0) | (page << 15),
+                sc[1], x | (y << 16), mc.width | (mc.height << 16)];
     }
     storeSolidColor(color) {
         const id = this.solid_colors.store(color);
@@ -198,9 +229,10 @@ class WebGLMaterialsAdapter {
             };
         }
         else if (mc instanceof TextureMaterialColor) {
-            const ref = this.textureRef(mc, webgl_helper);
+            this.textureRef(mc, webgl_helper);
             const scaleColorData = this.storeSolidColor(scale);
-            this.special_colors.push([WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE, ref, scaleColorData._id]);
+            // Resolved to the image's place in its atlas when written (specialColorData).
+            this.special_colors.push([WebGLMaterialsAdapter.SPECIAL_COLOR_TEXTURE, scaleColorData._id, mc]);
             return {
                 _id: -this.special_colors.length,
                 scale: scaleColorData,
@@ -362,10 +394,10 @@ class WebGLMaterialsAdapter {
             specialColorCount: sceneEditable
                 ? WebGLWorldAdapter.editableCapacity(this.special_colors.length, 16)
                 : Math.max(4, this.special_colors.length),
-            textureSampling: this.texture_groups.length
+            textureSampling: this.usedAtlases.length
                 ? ShaderLibrary.render("materials.glsl", "colors.textures", {
-                    textureCount: this.texture_groups.length,
-                    textureCases: this.texture_groups.map((_, i) =>
+                    textureCount: this.usedAtlases.length,
+                    textureCases: this.usedAtlases.map((_, i) =>
                         ShaderLibrary.render("materials.glsl", "colors.texture-case", { i: i })).join("")
                 })
                 : ShaderLibrary.render("materials.glsl", "colors.no-textures")
@@ -402,12 +434,12 @@ class WebGLMaterialsAdapter {
         if (this.ShaderUsesBSDFs)
             this.albedo_texture.setDataPixelsUnit(this.albedoTableData(), this.albedo_texture_unit, "uAlbedoTables", program);
         
-        if (this.special_colors.length)
-            gl.uniform3iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.flat());
         this.uploadTextures(gl);
-        if (this.texture_groups.length) {
+        if (this.special_colors.length)
+            gl.uniform4iv(gl.getUniformLocation(program, "umSpecialColors"), this.special_colors.map(sc => this.specialColorData(sc)).flat());
+        if (this.usedAtlases.length) {
             gl.uniform1iv(gl.getUniformLocation(program, "umTextures"),
-                this.texture_groups.map(g => WebGLHelper.textureUnitIndex(g.unit)));
+                this.usedAtlases.map(a => WebGLHelper.textureUnitIndex(a.unit)));
         }
     }
 }
